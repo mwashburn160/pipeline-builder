@@ -6,7 +6,7 @@ keywords:
   - license
   - cve
 category: security
-version: 1.0.1
+version: 1.0.2
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 30
@@ -60,6 +60,10 @@ env:
   MEND_PROJECT_NAME: ""
   MEND_SCAN_TYPE: sca
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts every tool the commands invoke is on PATH and runs.
+smokeTest: "mend version"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://docs.mend.io
@@ -70,5 +74,6 @@ network:
     - "saas.mend.io"
     - "*.mend.io"
 changelog: |
+  1.0.2: Pin refresh 2026-11-25 — Mend CLI 26.10.2.6. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.1: Pin refresh 2026-11-18 — Mend CLI 26.10.2.4.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

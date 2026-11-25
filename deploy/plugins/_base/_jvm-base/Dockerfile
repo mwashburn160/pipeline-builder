@@ -33,13 +33,14 @@ ENV JAVA_VERSION=${JAVA_VERSION}
 # archives, each verified against the digest the project publishes next to it
 # (Maven .sha512, Gradle .sha256, Kotlin .sha256). No SDKMAN: its installer is
 # an unpinned `curl | bash`. All three are JVM jars, so one download serves
-# every architecture. Maven 3.10.0 -> 3.10.1 (2026-11-18): 3.10.1 is now on
-# archive.apache.org (it was tag-only at the 2026-11-13 pass); the SHA-512 is
-# the .sha512 published beside it, re-checked against a download.
-ARG MAVEN_VERSION=3.10.1
-ARG MAVEN_SHA512=8af2fcc48ee6b8f8fc0b21054226e14404b88500df6483cdeb3ae603408f6de27b1397ac591a9fb0d98fee64f4f624fee1383efd25b8998786cda1598fb9ea39
-ARG GRADLE_VERSION=9.9.1
-ARG GRADLE_SHA256=d8a18a7a841dd5df825d35a685fad6f2d7f12ac0c280e57b67c27b4a520ba228
+# every architecture. Maven 3.10.1 -> 3.10.2, Gradle 9.9.1 -> 9.9.2
+# (2026-11-25): each digest is the one published beside the archive, re-checked
+# against a download. Maven 4.0.0 is still release-candidate only (rc-7), so 3.x
+# stays.
+ARG MAVEN_VERSION=3.10.2
+ARG MAVEN_SHA512=57d2db6b37e7582119137ade544557bba741b29e62109ef81539a2bdfd6d0e641fdd5d8edb014af1816d0510deac6fac8f347433b3a1aa36316ba85aa77b8119
+ARG GRADLE_VERSION=9.9.2
+ARG GRADLE_SHA256=971fcd7150ca4ba04852c0b2ca0d2d0ab9468e14b03473eab19528809914c76b
 ARG KOTLIN_VERSION=2.4.21
 ARG KOTLIN_SHA256=7cc140e76daf416a0424a5557f99afd7ca89ebd463ea1101261e3e01c33e75cd
 RUN set -eux; \
@@ -49,6 +50,11 @@ RUN set -eux; \
     unzip -q /tmp/gradle.zip -d /opt && mv "/opt/gradle-${GRADLE_VERSION}" /opt/gradle; \
     fetch-verified "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip" "${KOTLIN_SHA256}" /tmp/kotlin.zip; \
     unzip -q /tmp/kotlin.zip -d /opt && mv /opt/kotlinc /opt/kotlin; \
+    # kotlin-main-kts.jar is only the runtime for `*.main.kts` scripts, which no
+    # plugin runs (builds go through Gradle/Maven, which fetch their own Kotlin).
+    # It shades guava 33.6.0 (GHSA-xxph-c9ww-hj94, High; fixed in 33.7.2) and
+    # Kotlin 2.4.21, the newest release, still ships it, so it is removed.
+    rm -f /opt/kotlin/lib/kotlin-main-kts.jar; \
     rm -f /tmp/maven.tar.gz /tmp/gradle.zip /tmp/kotlin.zip
 ENV MAVEN_HOME=/opt/maven
 ENV GRADLE_HOME=/opt/gradle

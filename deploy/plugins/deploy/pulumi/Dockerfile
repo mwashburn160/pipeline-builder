@@ -37,11 +37,11 @@ RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin"
 # VULN FIX (2026-10-02): 3.264.0 vendored github.com/go-git/go-git@v6.0.0-alpha.4,
 # vulnerable to a worktree symlink-traversal issue (CVE-2026-71556, fixed
 # upstream in go-git v6.0.0-alpha.5). Pulumi picked up the fixed go-git in
-# 3.266.0; now pinned to the current latest stable, 3.277.0 (digests from
-# pulumi-3.277.0-checksums.txt, identical on get.pulumi.com and the GitHub release).
-ARG PULUMI_VERSION=3.277.0
-ARG PULUMI_SHA256_AMD64=1e38f0fb69a14a326cf3acfaf975770e8de5d0771042f26292f0013d237b8393
-ARG PULUMI_SHA256_ARM64=b9c2708bd13ffdcba79f555a0532893a9b5a44efca8e225d171b8f7b605b16ce
+# 3.266.0; now pinned to the current latest stable, 3.278.0 (digests from
+# pulumi-3.278.0-checksums.txt, identical on get.pulumi.com and the GitHub release).
+ARG PULUMI_VERSION=3.278.0
+ARG PULUMI_SHA256_AMD64=bc1b25c6ae82793ba1f0b890b2a6c0d380652694e42e8a2556736071eda9f583
+ARG PULUMI_SHA256_ARM64=35de8596e629caf1556ac7560cdbd5b09a07a096dda0e0dd035d09bb5a3287cb
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=x64;   sum="${PULUMI_SHA256_AMD64}" ;; \

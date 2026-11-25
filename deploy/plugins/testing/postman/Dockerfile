@@ -11,7 +11,15 @@ FROM plugin-node-base:1.0
 # ─── Newman (Postman CLI runner) + reporters — pinned + baked ───
 # newman 6.2.3 IS the current release, so the Criticals the gate reports —
 # handlebars, lodash, underscore, flatted — cannot be cleared by bumping it.
-# They are pinned by newman's own dependency tree, so they are overridden.#
+# They are pinned by newman's own dependency tree, so they are overridden.
+# node-forge too: postman-runtime 7.39.1 (newman's pin) pulls node-forge 1.3.1,
+# with 14 fixable Highs (fixed by 1.4.1); 1.4.4 is the latest 1.x and the line
+# current postman-runtime itself depends on.
+# NOT overridden: @faker-js/faker 5.5.3 (GHSA-qxc2-j82w-r537, High, fixed only
+# in 10.x). Even the latest postman-collection (5.3.1) pins faker 5.5.3, and
+# faker 10 is ESM-only with a renamed API (name.* -> person.*), so an override
+# would break every Postman dynamic variable ({{$randomName}} and friends).
+#
 # A LOCAL install under /opt, because `npm install -g` ignores `overrides`
 # outright. The bin symlinks are made as root up front and dangle until the
 # install lands. The build FAILS if an override did not take: npm applies one
@@ -22,6 +30,7 @@ ARG NEWMAN_HANDLEBARS_VERSION=4.7.10
 ARG NEWMAN_LODASH_VERSION=4.18.1
 ARG NEWMAN_UNDERSCORE_VERSION=1.13.8
 ARG NEWMAN_FLATTED_VERSION=3.4.4
+ARG NEWMAN_NODE_FORGE_VERSION=1.4.4
 # root for the dir + the /usr/local/bin symlinks; the install itself is uid 1000.
 USER root
 RUN install -d -o 1000 -g 1000 /opt/newman \
@@ -34,10 +43,11 @@ RUN set -eux; \
     npm pkg set overrides.lodash="${NEWMAN_LODASH_VERSION}"; \
     npm pkg set overrides.underscore="${NEWMAN_UNDERSCORE_VERSION}"; \
     npm pkg set overrides.flatted="${NEWMAN_FLATTED_VERSION}"; \
+    npm pkg set overrides.node-forge="${NEWMAN_NODE_FORGE_VERSION}"; \
     npm install --omit=dev "newman@${NEWMAN_VERSION}" \
       newman-reporter-htmlextra@1.23.1 \
       newman-reporter-junitfull@1.1.1; \
-    node -e "for (const [p, want] of [['handlebars','${NEWMAN_HANDLEBARS_VERSION}'],['lodash','${NEWMAN_LODASH_VERSION}'],['underscore','${NEWMAN_UNDERSCORE_VERSION}'],['flatted','${NEWMAN_FLATTED_VERSION}']]) { const v = require('/opt/newman/node_modules/' + p + '/package.json').version; if (v !== want) { console.error(p + ' resolved to ' + v + ', wanted ' + want); process.exit(1); } console.log(p + ' ok: ' + v); }"; \
+    node -e "for (const [p, want] of [['handlebars','${NEWMAN_HANDLEBARS_VERSION}'],['lodash','${NEWMAN_LODASH_VERSION}'],['underscore','${NEWMAN_UNDERSCORE_VERSION}'],['flatted','${NEWMAN_FLATTED_VERSION}'],['node-forge','${NEWMAN_NODE_FORGE_VERSION}']]) { const v = require('/opt/newman/node_modules/' + p + '/package.json').version; if (v !== want) { console.error(p + ' resolved to ' + v + ', wanted ' + want); process.exit(1); } console.log(p + ' ok: ' + v); }"; \
     newman --version
 USER root
 

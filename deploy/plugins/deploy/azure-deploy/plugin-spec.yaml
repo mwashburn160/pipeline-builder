@@ -6,7 +6,7 @@ keywords:
   - aks
   - deploy
 category: deploy
-version: 1.0.1
+version: 1.0.2
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 45
@@ -151,6 +151,10 @@ env:
   AZURE_SRC_PATH: ""
   AZURE_IMAGE: ""
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Proves every tool the commands invoke is installed and runs.
+smokeTest: "az version && kubectl version --client"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://learn.microsoft.com/cli/azure/
@@ -163,5 +167,6 @@ network:
     - "*.azurewebsites.net"
     - "*.azurecr.io"
 changelog: |
+  1.0.2: Pin refresh 2026-11-25 — kubectl 1.37.3, built from source with golang.org/x/net 0.63.0 (clears GO-2026-6612 Critical and four x/net Highs); azure-cli repo moved to resolute; bundled-Python overrides cryptography 50.0.2, pyopenssl 26.4.0, urllib3 2.8.0, oauthlib 4.0.1 (clears the /opt/az Highs); smokeTest now covers az and kubectl. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.1: Pin refresh 2026-11-18 — Dropped the pyjwt 2.15.1 override; azure-cli 2.93.0 bundles the patched PyJWT 2.15.0.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

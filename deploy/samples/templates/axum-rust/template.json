@@ -58,7 +58,7 @@
               "name": "rust",
               "filter": {
                 "name": "rust",
-                "version": "1.0.2",
+                "version": "1.0.3",
                 "visibility": "public",
                 "isActive": true,
                 "isDefault": true
@@ -81,7 +81,7 @@
               "name": "cargo-audit",
               "filter": {
                 "name": "cargo-audit",
-                "version": "1.0.2",
+                "version": "1.0.3",
                 "visibility": "public",
                 "isActive": true,
                 "isDefault": true
@@ -95,7 +95,7 @@
               "name": "git-secrets",
               "filter": {
                 "name": "git-secrets",
-                "version": "1.0.3",
+                "version": "1.0.4",
                 "visibility": "public",
                 "isActive": true,
                 "isDefault": true

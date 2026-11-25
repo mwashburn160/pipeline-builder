@@ -34,6 +34,10 @@ RUN apt-retry-install openjdk-17-jre-headless python3 python3-pip libicu-dev lib
 ARG NODE_VERSION=26.13.1
 # Node 25+ no longer bundles corepack, so it is installed from npm (pinned).
 ARG COREPACK_VERSION=0.36.0
+# The npm Node 26.13.1 bundles (11.20.0) vendors undici 6.28.0 and
+# brace-expansion 5.0.9, six High advisories between them; npm 12.2.3 ships
+# undici 6.29.1 and brace-expansion 5.0.12.
+ARG NPM_VERSION=12.2.3
 ARG NODE_SHA256_AMD64=518674de2b621728a5e4486f5fb3b7d2900bb3cc4aa97969edaa463db99f9778
 ARG NODE_SHA256_ARM64=80a330b35415382878df18d41afbd106ea89bfb3be0087d6608e289a14c5cc7d
 RUN set -eux; \
@@ -45,6 +49,8 @@ RUN set -eux; \
     fetch-verified "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" "$sum" /tmp/node.tar.gz; \
     tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1; \
     rm /tmp/node.tar.gz; \
+    npm install -g "npm@${NPM_VERSION}"; \
+    test "$(npm --version)" = "${NPM_VERSION}"; \
     npm install -g "corepack@${COREPACK_VERSION}"; \
     corepack enable
 
@@ -92,6 +98,40 @@ ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 # ─── OWASP Dependency-Check CLI (copied from official images) ───
 RUN mkdir -p /opt/dependency-check/versions
 COPY --from=dc-src /usr/share/dependency-check /opt/dependency-check/versions/dc-${DC_VERSION}
+
+# ─── Patched jars ───
+# dependency-check 13.0.0 (upstream's latest) bundles jackson-core/databind
+# 2.22.1, jsoup 1.23.1, guava 33.6.0-jre and the postgresql 42.7.11 driver,
+# each with a fixable High advisory. Each is replaced with the fixed release
+# from Maven Central (digest = sha256 of the jar, cross-checked against
+# Central's .sha1). The CLI jar's manifest Class-Path names its lib/ jars
+# EXPLICITLY, so a lib/ replacement keeps the ORIGINAL file name (the jar's own
+# pom.properties carries the new version); plugins/ is loaded as a directory,
+# so the driver is swapped by name. The jackson modules move together, on the
+# 2.22 line the CLI was built against (2.23 would need every module at 2.23);
+# jsoup stays on 1.23.x for the same reason.
+ARG JACKSON_VERSION=2.22.4
+ARG JSOUP_VERSION=1.23.2
+ARG GUAVA_VERSION=33.8.0-jre
+ARG PGJDBC_VERSION=42.7.15
+RUN set -eux; \
+    lib="/opt/dependency-check/versions/dc-${DC_VERSION}/lib"; \
+    plugins="/opt/dependency-check/versions/dc-${DC_VERSION}/plugins"; \
+    m=https://repo1.maven.org/maven2; \
+    swap() { \
+      test -f "$lib/$4"; \
+      fetch-verified "$m/$1/$2/$3/$2-$3.jar" "$5" "$lib/$4"; \
+    }; \
+    swap com/fasterxml/jackson/core jackson-core "${JACKSON_VERSION}" jackson-core-2.22.1.jar 2d30c375cddea9657a1e1ef97547a2694b663b355facb4de53a097782b312d1a; \
+    swap com/fasterxml/jackson/core jackson-databind "${JACKSON_VERSION}" jackson-databind-2.22.1.jar d4cbf8947087f305869826801913abdc50735a1fab2074a1993e7bc67ca974a3; \
+    swap com/fasterxml/jackson/dataformat jackson-dataformat-yaml "${JACKSON_VERSION}" jackson-dataformat-yaml-2.22.1.jar 2f55e2b864f6354b24d4bcccd488f7c4a3fce4977f8c8dbad07242a68e11dde9; \
+    swap com/fasterxml/jackson/datatype jackson-datatype-jsr310 "${JACKSON_VERSION}" jackson-datatype-jsr310-2.22.1.jar ec961697cbd631935b6fb6f673406861c75243521fb67fec10b59f1412ac50f7; \
+    swap com/fasterxml/jackson/module jackson-module-blackbird "${JACKSON_VERSION}" jackson-module-blackbird-2.22.1.jar 38fba776ff2d5a626c77c9a64a752bd5b4c390a780a7be3c5533111e13d66f29; \
+    swap org/jsoup jsoup "${JSOUP_VERSION}" jsoup-1.23.1.jar e9d8c856856680427f096d156f02a414289985c930998fcb519ce5be39b42003; \
+    swap com/google/guava guava "${GUAVA_VERSION}" guava-33.6.0-jre.jar 97b79ec3f2c0a6313a0c2df51ce1abdf8907e6531803467b81efcaaf99b35161; \
+    rm "$plugins/postgresql-42.7.11.jar"; \
+    fetch-verified "$m/org/postgresql/postgresql/${PGJDBC_VERSION}/postgresql-${PGJDBC_VERSION}.jar" \
+      9776fca62dfc84f312d5c1aff9791f6f3cf56d518a8eca4a3a8dca7a95ef8881 "$plugins/postgresql-${PGJDBC_VERSION}.jar"
 
 # Default to latest installed version. /opt/dependency-check is owned by uid
 # 1000: the NVD database is cached inside each install's data/ dir, and the

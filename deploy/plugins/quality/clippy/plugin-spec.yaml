@@ -6,7 +6,7 @@ keywords:
   - static-analysis
   - idioms
 category: quality
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
@@ -28,6 +28,10 @@ commands:
 env:
   CLIPPY_FLAGS: "-D warnings"
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts every tool the commands invoke is installed and runs.
+smokeTest: "cargo --version && cargo clippy --version && command -v run-logged"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://doc.rust-lang.org/clippy/
@@ -38,6 +42,7 @@ network:
     - "index.crates.io"
     - "static.crates.io"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Rust 1.100.0).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

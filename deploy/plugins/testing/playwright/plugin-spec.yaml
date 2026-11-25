@@ -6,7 +6,7 @@ keywords:
   - ui-test
   - chromium
 category: testing
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: LARGE
 timeout: 30
@@ -62,6 +62,10 @@ env:
   PLAYWRIGHT_WORKERS: "auto"
   PLAYWRIGHT_REPORTER: "html"
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts every tool the commands invoke is on PATH and runs.
+smokeTest: 'node --version && npm --version && npx playwright --version && ls -d "$PLAYWRIGHT_BROWSERS_PATH"/chromium-* "$PLAYWRIGHT_BROWSERS_PATH"/firefox-* "$PLAYWRIGHT_BROWSERS_PATH"/webkit-*'
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://playwright.dev
@@ -72,6 +76,7 @@ network:
     - "registry.npmjs.org"
     - "registry.yarnpkg.com"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, npm 12.2.3 (clears 6 undici/brace-expansion Highs)).
   1.0.2: Pin refresh 2026-11-18 — Playwright 1.65.1.
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Node.js 26.13.1).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7aa84c9633ecf91c274b5613cf98b14e6b8409a4df38d88feebb93ebc6afd4d9
+// SOURCE-SHA256: 57d49f181b194883b8bb7304380f5054b20f2b57f399793ddd7b33ac81f4c181
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -421,7 +421,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "npm install -g aws-cdk@2.1148.1",
+          "content": "npm install -g aws-cdk@2.1149.0",
           "language": "bash"
         },
         {

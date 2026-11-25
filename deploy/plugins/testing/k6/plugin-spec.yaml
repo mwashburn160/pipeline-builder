@@ -6,7 +6,7 @@ keywords:
   - virtual-users
   - threshold
 category: testing
-version: 1.0.3
+version: 1.0.4
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 60
@@ -70,6 +70,7 @@ sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plu
 icon: k6
 # network.egress: none declared — the step contacts no fixed external host
 changelog: |
+  1.0.4: Pin refresh 2026-11-25 — Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.3: Pin refresh 2026-11-18 — golang.org/x/net v0.63.0 in the k6 2.4.0 source build; dropped the leftover /opt/k6/versions switch from installCommands (the image bakes one k6 at /usr/local/bin/k6, so the switch always exited 1); Go builder image digest refresh.
   1.0.2: Pin refresh 2026-11-13 — k6 2.4.0, built from source with Go 1.27.4 and brotli v1.3.0.
   1.0.1: k6 is built from its v2.3.0 source with go1.27.3, github.com/andybalholm/brotli v1.2.8 and golang.org/x/net v0.62.0 (the release carried brotli v1.2.3, a CISA KEV Critical, and x/net v0.58.0); the tag is pinned to its commit.

@@ -346,11 +346,10 @@ needs a focused session to do safely.
   that still happens at deploy time via `build-plugin-images.sh`.
 - **`test-plugins.sh` smoke-tests but doesn't assert outputs** — with `--build`
   it builds each image and smoke-runs it (launches `bash`, checks the runtime uid
-  is not 0, plus any `smokeTest:` command declared in the spec — 28 specs
-  declare one). It still doesn't run the plugin's
-  real `commands:` or assert that an output artifact appears, so a tool that
-  builds and launches but produces nothing still passes. Adding a default
-  `smokeTest:` to more specs would close most of the gap.
+  is not 0, plus the spec's `smokeTest:` command — every image plugin declares
+  one, running each tool its `commands:` invoke). It still doesn't run the
+  plugin's real `commands:` or assert that an output artifact appears, so a tool
+  that launches but produces nothing still passes.
 - **Parameterize the snyk/sonarcloud clones — smaller win than it looks.**
   14 plugins (7 each × 2 tool families). The "~80% duplicated" figure previously
   quoted here was wrong: measured against `snyk-nodejs`, the siblings differ on
@@ -508,7 +507,7 @@ Runtime bases that crossed a major line in that pass:
 Holds that have since been LIFTED — the tree is on the newer line in every case,
 so do not re-apply them from this list:
 - **Serverless Framework** — held at 3.x over v4's account/licence requirement;
-  now on 4.46.0.
+  now on 4.47.0.
 - **TypeScript** — `TYPESCRIPT_VERSION` (quality/typescript-check) pins 7.0.2.
   This is the PLUGIN pin and is independent of the repo's own TypeScript, which
   still uses the dual-package alias (see `.projenrc.ts`). The ts-node plugins
@@ -516,11 +515,15 @@ so do not re-apply them from this list:
 - **KICS** — held at 2.1.x while 2.2.0 had a GitHub release but no Docker image;
   the image exists and the pin is 2.2.1.
 
-Current holds (re-checked 2026-11-13) — a newer major exists upstream and was
+Current holds (bases re-checked 2026-11-25) — a newer major exists upstream and was
 deliberately NOT taken. Re-decide each one at the next pass rather than bumping
 on sight:
 - **.NET 10 (`_dotnet-base`)** — 11.0 is out, but 10 is the LTS line and 11 is
   STS. The patch on the 10.0 line is taken (10.0.404).
+- **PHP 8.5 (`_php-base`)** — 8.6.0 is out, but Ubuntu 26.10's archive carries
+  only php8.5, and neither sury nor the ondrej PPA publishes `stonking`. Taking
+  8.6 means compiling PHP from source in the base.
+- **Maven 3.x (`_jvm-base`)** — 4.0.0 is still release-candidate only (rc-7).
 - **Java 25 (`_jvm-base`, `language/java`, `language/java-oracle`)** — 27 is
   out, but 25 is the LTS line and 27 is not.
 - **TypeScript 6.0.3 in `cdk-synth`, `cdk-deploy`, `cdk-deploy-multi-region`** —

@@ -25,9 +25,61 @@ ARG TFLINT_VERSION=0.66.0
 # same Terraform/HCL misconfiguration rules. Output format and check IDs differ,
 # so anything parsing tfsec-results.json must be re-pointed.
 ARG TRIVY_VERSION=0.76.2
+#
+# trivy is built from source (stage below), the same way _trivy-base builds it,
+# not copied from aquasec/trivy: the published v0.76.2 binary (the newest
+# release) links github.com/klauspost/compress v1.20.1 — GO-2026-6865, High,
+# fixed in 1.20.2 — which no image tag can clear. The tagged source is built on
+# the shared Go builder image with compress raised through a side modfile, and
+# the build fails unless the raise took. Source integrity: the tag must resolve
+# to TRIVY_COMMIT. Flags follow upstream's goreleaser.yml (CGO off, -s -w,
+# app.ver stamped).
+ARG TRIVY_COMMIT=3f6334d223b52188324af3b9923b4249cd206652
+ARG TRIVY_COMPRESS_VERSION=1.20.5
+# Same pinned toolchain as api/plugin's tools stage (toolchain-drift-contract).
+ARG GO_IMAGE=golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280
 
 FROM ghcr.io/terraform-linters/tflint:v${TFLINT_VERSION} AS tflint-src
-FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-src
+
+FROM ${GO_IMAGE} AS trivy-build
+ARG TRIVY_VERSION
+ARG TRIVY_COMMIT
+ARG TRIVY_COMPRESS_VERSION
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+RUN apk add --no-cache git
+# Clone retried (github.com flaps); the commit check is outside the retry — a
+# tag that resolves to the wrong commit is not transient.
+RUN set -eux; \
+    for attempt in 1 2 3 4 5; do \
+      rm -rf /src/trivy; \
+      if git clone --depth 1 --branch "v${TRIVY_VERSION}" https://github.com/aquasecurity/trivy.git /src/trivy; then break; fi; \
+      echo "trivy clone failed (attempt $attempt/5); retrying" >&2; \
+      sleep $((attempt * 5)); \
+    done; \
+    test -d /src/trivy/.git; \
+    got="$(git -C /src/trivy rev-parse HEAD)"; \
+    [ "$got" = "${TRIVY_COMMIT}" ] || { echo "trivy v${TRIVY_VERSION} resolved to $got, expected ${TRIVY_COMMIT}" >&2; exit 1; }
+WORKDIR /src/trivy
+RUN set -eux; \
+    cp go.mod /tmp/trivy.mod; cp go.sum /tmp/trivy.sum; \
+    for attempt in 1 2 3 4 5; do \
+      go get -modfile=/tmp/trivy.mod "github.com/klauspost/compress@v${TRIVY_COMPRESS_VERSION}" \
+        && go mod download -modfile=/tmp/trivy.mod all && break; \
+      echo "go get/mod download failed (attempt $attempt/5)" >&2; sleep $((attempt * 5)); \
+    done; \
+    go build -mod=readonly -modfile=/tmp/trivy.mod -trimpath \
+      -ldflags "-s -w -X github.com/aquasecurity/trivy/pkg/version/app.ver=${TRIVY_VERSION}" \
+      -o /out/trivy ./cmd/trivy; \
+    /out/trivy --version
+# Fail the BUILD if the raise did not take (asserted as >= the pin: MVS may
+# resolve higher than asked).
+RUN set -eux; \
+    _want="v${TRIVY_COMPRESS_VERSION}"; \
+    _got="$(go version -m /out/trivy | awk '$1 == "dep" && $2 == "github.com/klauspost/compress" { print $3 }')"; \
+    [ -n "$_got" ] || { echo "klauspost/compress is not linked into trivy" >&2; exit 1; }; \
+    [ "$(printf '%s\n%s\n' "$_want" "$_got" | sort -V | head -1)" = "$_want" ] \
+      || { echo "klauspost/compress is $_got, expected >= $_want" >&2; exit 1; }; \
+    echo "ok: klauspost/compress $_got"
 
 FROM plugin-aws-cli-base:1.0
 
@@ -77,8 +129,8 @@ RUN set -eux; \
 # ─── TFLint for Terraform linting (copied from official image) ───
 COPY --from=tflint-src /usr/local/bin/tflint /usr/local/bin/tflint
 
-# ─── trivy for Terraform misconfiguration scanning (copied from official image) ───
-COPY --from=trivy-src /usr/local/bin/trivy /usr/local/bin/trivy
+# ─── trivy for Terraform misconfiguration scanning (built from source in the trivy-build stage above) ───
+COPY --from=trivy-build /out/trivy /usr/local/bin/trivy
 
 # ─── Runtime configuration defaults ───
 ENV TF_VERSION=${TF_VERSION}

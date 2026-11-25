@@ -34,7 +34,7 @@
 #     that the pinned digest no longer drifts forward with Ubuntu's rebuilds by
 #     itself — security fixes land via Renovate's bump, the apt upgrade below,
 #     and the weekly plugin-base-freshness rescan that fails when they don't.
-FROM public.ecr.aws/docker/library/ubuntu:26.10@sha256:c4ca31b6e93261c5dd773826f789738a49e414ca04fc094b1ccd0f91e07329a2
+FROM public.ecr.aws/docker/library/ubuntu:26.10@sha256:29ac5e68db830ab61b7d77c1ffdb78c73f0631de88a5d77bf4399868f64f38dd
 
 # Avoid interactive prompts during apt-get install in any consumer.
 ENV DEBIAN_FRONTEND=noninteractive
@@ -92,7 +92,15 @@ RUN if [ -n "$APT_MIRROR" ]; then \
 # intermittently drops mid-fetch under load. The retry loop + `--fix-missing`
 # re-attempts only the debs that didn't land, giving us self-healing build
 # behavior without blowing up the whole pipeline on a single mirror flap.
+#
+# APT_UPGRADE_EPOCH is a cache key, not a pin (same idea as _ruby-base): the
+# FROM is digest-pinned and this instruction's text is otherwise identical build
+# to build, so a warm builder cache would replay the OLD upgrade layer and ship
+# last week's packages. Set it to the date of the security refresh you want;
+# changing it re-runs the upgrade for this base and every family base on it.
+ARG APT_UPGRADE_EPOCH=2026-11-25
 RUN set -eux; \
+    echo "apt upgrade epoch ${APT_UPGRADE_EPOCH}"; \
     PKGS="git curl jq ca-certificates gnupg wget unzip zip xz-utils"; \
     for i in 1 2 3 4 5; do \
       apt-get update && break || { echo "apt-get update attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \

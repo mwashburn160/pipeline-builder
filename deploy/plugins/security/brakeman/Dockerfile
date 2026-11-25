@@ -7,7 +7,7 @@
 
 FROM plugin-ruby-base:1.0
 
-ARG BRAKEMAN_VERSION=8.1.0
+ARG BRAKEMAN_VERSION=8.1.1
 RUN gem install brakeman -v "${BRAKEMAN_VERSION}" --no-document
 
 WORKDIR /app

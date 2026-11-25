@@ -1,12 +1,12 @@
 name: java-oracle
-description: Java and Kotlin plugin using Oracle GraalVM JDK for building and testing JVM applications with optional native-image compilation using AWS CDK CodeBuildStep
+description: Java and Kotlin plugin using the GraalVM Community Edition JDK for building and testing JVM applications with optional native-image compilation using AWS CDK CodeBuildStep
 keywords:
   - java
   - kotlin
   - graalvm
   - native-image
 category: language
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: LARGE
 timeout: 15
@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Single pinned GraalVM JDK + Kotlin are baked into the image (SDKMAN `current`
+  # Single pinned GraalVM CE JDK + Kotlin are baked into the image (SDKMAN `current`
   # symlinks on PATH); nothing to switch at runtime.
   - java -version; kotlin -version
   - |
@@ -74,6 +74,10 @@ env:
   MAVEN_GOAL: "clean verify"
   GRADLE_TASK: "clean build"
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts every tool the commands above invoke is on PATH and runs.
+smokeTest: "java -version && mvn --version && gradle --version && kotlin -version && native-image --version && command -v run-logged"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://www.graalvm.org
@@ -85,6 +89,7 @@ network:
     - "plugins.gradle.org"
     - "services.gradle.org"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — JDK moved from Oracle GraalVM 25.0.4 to GraalVM Community Edition 25.6.5.1 (JDK 25.0.5.1): Oracle has published no Oracle GraalVM for JDK 25 past 25.0.4, which carries six High JDK CVEs (CVE-2026-114938..114942, CVE-2026-91415) fixed in 25.0.5.1. native-image is unchanged in use. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Gradle 9.9.1).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

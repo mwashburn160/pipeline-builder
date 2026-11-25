@@ -17,18 +17,20 @@ RUN apt-retry-install openjdk-17-jre-headless
 # unpacks veracode-cli_<version>_linux_x86.tar.gz — we fetch that versioned
 # tarball directly and install its single `veracode` binary. Veracode
 # publishes no checksum for it; the digest was computed from two independent
-# downloads of the ${VERACODE_CLI_VERSION} tarball (identical; 2026-11-18). Linux builds are x86_64 only.
-ARG VERACODE_CLI_VERSION=2.56.0
-ARG VERACODE_CLI_SHA256_AMD64=e09a1958733cd0e59748d85b05924a1e0e1ce667d8c9e03707166b9e5d7113c9
+# downloads of the ${VERACODE_CLI_VERSION} tarball (identical; 2026-11-25). Linux builds are x86_64 only.
+ARG VERACODE_CLI_VERSION=2.57.0
+ARG VERACODE_CLI_SHA256_AMD64=02815edc16e240d1c3a3b36810f693c23795c5554cbf0f1f0575c0e1884565ba
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) sum="${VERACODE_CLI_SHA256_AMD64}" ;; \
       *) echo "veracode-cli: no linux build for $(dpkg --print-architecture)" >&2; exit 1 ;; \
     esac; \
     fetch-verified "https://tools.veracode.com/veracode-cli/veracode-cli_${VERACODE_CLI_VERSION}_linux_x86.tar.gz" "$sum" /tmp/veracode-cli.tar.gz; \
-    tar -xzf /tmp/veracode-cli.tar.gz -C /tmp; \
-    install -m 0755 "/tmp/veracode-cli_${VERACODE_CLI_VERSION}_linux_x86/veracode" /usr/local/bin/veracode; \
-    rm -rf /tmp/veracode-cli.tar.gz "/tmp/veracode-cli_${VERACODE_CLI_VERSION}_linux_x86"
+    mkdir /tmp/veracode-cli; \
+    tar -xzf /tmp/veracode-cli.tar.gz -C /tmp/veracode-cli --strip-components=1; \
+    install -m 0755 /tmp/veracode-cli/veracode /usr/local/bin/veracode; \
+    rm -rf /tmp/veracode-cli.tar.gz /tmp/veracode-cli; \
+    veracode --version
 
 # ─── Veracode Pipeline Scanner (lightweight static analysis) ───
 # Pinned to a versioned zip (was the rolling pipeline-scan-LATEST.zip); digest

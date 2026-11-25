@@ -6,17 +6,7 @@
 # the same expiry. test/deploy-contracts/test/grype-ignore-contract.test.ts
 # enforces the scoping and fails the build once a rule's `expires` date passes,
 # so nothing here outlives the reason it was added.
-ignore:
-  # CVE-2026-115557 — the CPython that AWS CLI v2 BUNDLES (not the distro's).
-  # Every AWS CLI release up to 2.41.1 (the newest, checked 2026-11-18) still
-  # ships Python 3.14.8; the fix is 3.14.10. Nothing in this repo can bump it,
-  # and the CodeBuild bootstrap must carry the AWS CLI (asset publishing,
-  # deploys). Same advisory, same expiry as the platform's fleet-wide waiver
-  # (`*:2026-12-31:...CVE-2026-115557` in PLUGIN_VULN_WAIVERS).
-  # REMOVE when an AWS CLI release bundles Python >= 3.14.10.
-  # expires: 2026-12-31
-  - vulnerability: CVE-2026-115557
-    package:
-      name: python
-      version: 3.14.8
-      type: binary
+#
+# No rules at present. CVE-2026-115557 (AWS CLI's bundled Python 3.14.8) was
+# dropped 2026-11-25: AWS CLI 2.42.3 bundles Python 3.14.10, the fix.
+ignore: []

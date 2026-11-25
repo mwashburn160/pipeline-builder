@@ -6,7 +6,7 @@ keywords:
   - chart
   - deploy
 category: deploy
-version: 1.1.2
+version: 1.1.3
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
@@ -142,7 +142,7 @@ env:
 
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
 # Asserts the tool is on PATH and produces a deterministic version output.
-smokeTest: "helm version --short && kubectl version --client"
+smokeTest: "helm version --short && kubectl version --client && aws --version"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
@@ -153,6 +153,7 @@ network:
   egress:
     - "*.amazonaws.com"
 changelog: |
+  1.1.3: Pin refresh 2026-11-25 — kubectl 1.37.3, built from source with golang.org/x/net 0.63.0 (clears GO-2026-6612 Critical and four x/net Highs); smokeTest now also checks the AWS CLI. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, AWS CLI 2.42.3).
   1.1.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh; AWS CLI 2.41.1).
   1.1.1: Pin refresh 2026-11-13 — Helm 4.3.2; rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.1.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

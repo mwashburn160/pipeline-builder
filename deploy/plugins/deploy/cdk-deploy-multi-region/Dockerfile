@@ -23,7 +23,13 @@ RUN apt-retry-install python3 python3-pip parallel libatomic1
 # Node.js — official tarball, pinned version + pinned digest (nodejs.org
 # SHASUMS256.txt for this release), installed under /usr/local.
 # Node 25+ no longer bundles corepack, so it is installed from npm (pinned).
+# npm itself is upgraded past the one Node bundles: Node 26.13.1 ships npm
+# 11.20.0, whose own node_modules carry undici 6.28.0 (GHSA-2m5v-pch6-74hx,
+# GHSA-qrxm-fqhp-jwvm, GHSA-xjj6-f33q-929c, GHSA-rfgv-xxqx-mfg5) and
+# brace-expansion 5.0.9 (GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7), all High.
+# npm 12.2.3 bundles undici 6.29.1 and brace-expansion 5.0.12.
 ARG COREPACK_VERSION=0.36.0
+ARG NPM_VERSION=12.2.3
 ARG NODE_SHA256_AMD64=518674de2b621728a5e4486f5fb3b7d2900bb3cc4aa97969edaa463db99f9778
 ARG NODE_SHA256_ARM64=80a330b35415382878df18d41afbd106ea89bfb3be0087d6608e289a14c5cc7d
 RUN set -eux; \
@@ -36,6 +42,7 @@ RUN set -eux; \
     tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1; \
     rm /tmp/node.tar.gz; \
     node --version; \
+    npm install -g "npm@${NPM_VERSION}"; \
     npm --version; \
     npm install -g "corepack@${COREPACK_VERSION}"; \
     corepack enable
@@ -57,7 +64,7 @@ RUN fetch-apt-key https://download.docker.com/linux/ubuntu/gpg /etc/apt/keyrings
 # only lib/version.cjs, with no JS compiler API, and ts-node 10.9.2 (still the
 # newest) drives that API — so CDK apps run via `ts-node` would break. Revisit
 # when ts-node (or a replacement such as tsx) supports TypeScript 7.
-RUN npm install -g aws-cdk@2.1148.1 typescript@6.0.3 ts-node@10.9.2
+RUN npm install -g aws-cdk@2.1149.0 typescript@6.0.3 ts-node@10.9.2
 
 # Runtime `npm install -g` (the spec installs yarn/pnpm for projects that use
 # them) goes to a prefix the plugin user owns: the Node install under

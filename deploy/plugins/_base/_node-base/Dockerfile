@@ -53,4 +53,13 @@ USER 1000:1000
 # a plugin's later `corepack enable` can still write its shims there non-root.
 ARG COREPACK_VERSION=0.36.0
 RUN npm install -g "corepack@${COREPACK_VERSION}" && corepack --version
+
+# npm itself, pinned and upgraded past the copy the Node tarball bundles. Node
+# 26.13.1 ships npm 11.20.0, whose own node_modules carry undici 6.28.0 (four
+# Highs, fixed in 6.29.1) and brace-expansion 5.0.9 (two Highs, fixed in 5.0.11)
+# — inherited by every Node plugin, and fixable only by replacing npm.
+# 11.20.0 -> 12.2.3 (2026-11-25): the newest release; its engines accept
+# Node >=26.0.0. Same uid-1000-owned NODE_HOME as corepack above.
+ARG NPM_VERSION=12.2.3
+RUN npm install -g "npm@${NPM_VERSION}" && npm --version | grep -qx "${NPM_VERSION}"
 CMD ["bash"]

@@ -42,7 +42,7 @@ USER root
 RUN apt-retry-install python3 python3-pip
 
 # ─── cfn-lint for CloudFormation template validation ───
-RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.60.1
+RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.61.0
 
 # ─── rain for CloudFormation deployment (modern CLI, built from source above) ───
 COPY --from=rain-build /out/rain /usr/local/bin/rain

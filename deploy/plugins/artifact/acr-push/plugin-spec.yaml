@@ -6,7 +6,7 @@ keywords:
   - azure
   - registry
 category: artifact
-version: 1.0.1
+version: 1.0.2
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 15
@@ -81,6 +81,10 @@ env:
   DOCKERFILE_PATH: Dockerfile
   DOCKER_CONTEXT: "."
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts every tool the commands invoke is on PATH and runs.
+smokeTest: "docker --version && docker buildx version && az --version && jq --version"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://learn.microsoft.com/azure/container-registry/
@@ -92,5 +96,6 @@ network:
     - "login.microsoftonline.com"
     - "management.azure.com"
 changelog: |
+  1.0.2: Pin refresh 2026-11-25 — azure-cli now installed from Microsoft's resolute (Ubuntu 26.04 LTS) repo instead of noble, the newest release it serves and the closest to the 26.10 base. Overrides azure-cli's bundled urllib3 2.8.0, oauthlib 4.0.1, cryptography 50.0.2 and pyopenssl 26.4.0, clearing 7 fixable High findings. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.1: Pin refresh 2026-11-18 — Dropped the pyjwt 2.15.1 override; azure-cli 2.93.0 bundles the patched PyJWT 2.15.0.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

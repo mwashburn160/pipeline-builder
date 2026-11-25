@@ -6,7 +6,7 @@ keywords:
   - vulnerability
   - cve
 category: security
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
@@ -27,6 +27,10 @@ commands:
       security-scan . --excl-proj=*test*
   - "echo \"Security scan complete. Reports available in security-reports/\""
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts every tool the commands invoke is on PATH and runs.
+smokeTest: "dotnet --version && security-scan --help | grep -q 'NET tool by'"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://security-code-scan.github.io
@@ -36,6 +40,7 @@ network:
   egress:
     - "api.nuget.org"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — security-scan 5.6.7 now rolls forward onto the .NET 10 runtime (it targets net6.0 and aborted on every run with "You must install or update .NET"). Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (.NET SDK 10.0.404, a 2026-11-10 security release).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

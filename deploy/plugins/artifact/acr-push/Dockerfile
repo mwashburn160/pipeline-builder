@@ -24,24 +24,30 @@ RUN fetch-apt-key https://download.docker.com/linux/ubuntu/gpg /usr/share/keyrin
 # Microsoft release-signing key pinned by fingerprint.
 # Microsoft publishes the azure-cli apt repo per Ubuntu release and has none
 # for 26.10 ("stonking": no Release file), so `lsb_release -cs` broke the
-# build. Pinned to the newest one it serves; azure-cli bundles its own Python
-# under /opt/az, so the noble package does not depend on the OS Python.
-ARG AZURE_CLI_DIST=noble
+# build. Pinned to the newest one it serves, resolute (26.04 LTS, the closest
+# to the 26.10 base: its libc6 >= 2.42 / libssl3t64 >= 3.4 floors match this
+# OS); azure-cli bundles its own Python under /opt/az, so it does not depend
+# on the OS Python.
+ARG AZURE_CLI_DIST=resolute
 RUN fetch-apt-key https://packages.microsoft.com/keys/microsoft.asc /usr/share/keyrings/microsoft-archive-keyring.gpg \
        BC528686B50D79E339D3721CEB3E94ADBE1229CF \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-archive-keyring.gpg] https://packages.microsoft.com/repos/azure-cli/ ${AZURE_CLI_DIST} main" \
     > /etc/apt/sources.list.d/azure-cli.list \
     && apt-retry-install azure-cli
 
-# ─── No pyjwt override ───
-# This image used to `pip install --upgrade pyjwt==2.15.1` into azure-cli's
-# bundled Python (/opt/az): azure-cli 2.90.0 shipped pyjwt 2.13.0, carrying
-# GHSA-ffc3-869f-jxw9 (Critical, fixed in 2.14.0). Removed 2026-11-18, as the
-# block itself instructed, because azure-cli now ships the fix: 2.92.0 and the
-# current 2.93.0 bundle PyJWT 2.15.0 (src/azure-cli/requirements.py3.Linux.txt;
-# no OSV advisory). If the gate ever flags /opt/az's pyjwt again, re-add an
-# exact-pinned override. Check with:
-#   docker run --rm <image> /opt/az/bin/python3 -c 'import jwt; print(jwt.__version__)'
+# ─── Patched deps in azure-cli's bundled Python (/opt/az) ───
+# azure-cli 2.93.0 (the newest) bundles urllib3 2.7.0 (GHSA-vxq7-64xx-v4gw,
+# GHSA-8988-9cw3-xx77; High, fixed 2.8.0), oauthlib 3.2.2 (GHSA-7984-qgvg-3j9c;
+# High, fixed 4.0.0) and cryptography 48.0.1 (CVE-2026-69247/-69249; High,
+# fixed 50.0.0). Exact-pinned overrides of each; pyopenssl moves with
+# cryptography because pyopenssl 26.2.0 caps it at <49 (26.4.0 allows <51).
+# `pip check` fails the build on any conflict this introduces. DELETE a pin
+# once azure-cli bundles that version or newer. Check with:
+#   docker run --rm <image> /opt/az/bin/python3 -m pip show urllib3 oauthlib cryptography pyopenssl
+RUN /opt/az/bin/python3 -m pip install --no-cache-dir --disable-pip-version-check --root-user-action=ignore \
+       urllib3==2.8.0 oauthlib==4.0.1 cryptography==50.0.2 pyopenssl==26.4.0 \
+    && /opt/az/bin/python3 -m pip check \
+    && az --version > /dev/null
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — AZURE_CLIENT_ID/SECRET/TENANT_ID injected at runtime

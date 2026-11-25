@@ -19,14 +19,17 @@
 # image keeps ruby/gem/bundle/openssl working exactly as built; we pull only the
 # shared plugin helpers (run-logged, apt-retry-install) over from the plugin base.
 
+# Pinned by DIGEST as well as tag (like the ubuntu FROM in _plugin-base): a
+# re-pushed `ruby:4.0.10` cannot change every Ruby plugin underneath us. The
+# digest is the multi-arch index, from `docker buildx imagetools inspect`
+# (2026-11-25). Bump the two together.
 ARG RUBY_VERSION=4.0.10
-FROM ruby:${RUBY_VERSION}
+ARG RUBY_IMAGE_DIGEST=sha256:810d9fa40a86d5673ca5850f071805b4ca1c2a9838a603cbe07f43bc288c0f53
+FROM ruby:${RUBY_VERSION}@${RUBY_IMAGE_DIGEST}
 
 # ── Debian security updates ──
-# Ubuntu-based plugin images don't need this: upstream rebuilds ubuntu:26.10
-# continuously, so `FROM ...ubuntu:26.10` picks up Debian/Canonical security
-# fixes on every build. The `ruby:X.Y.Z` tags are NOT rebuilt that way — a tag
-# is cut when Ruby moves and then sits still, so a pinned Ruby drifts further
+# The Ubuntu-based bases get the same treatment in _plugin-base. A digest-pinned
+# `ruby:X.Y.Z` image sits still, so without this a pinned Ruby drifts further
 # behind Debian's security archive the longer it stays pinned. That is what
 # PLUGIN_VULN_GATE fails the Ruby plugins on — when 4.0.7 was pinned it was
 # libunbound8 and libheif-plugin-dav1d, already patched in Debian. The specific
@@ -44,9 +47,9 @@ FROM ruby:${RUBY_VERSION}
 # APT_UPGRADE_EPOCH is a cache key, not a pin: the instruction text below is
 # otherwise identical build to build, so a warm builder cache replays the OLD
 # upgrade layer and ships yesterday's packages. Set it to the date of the
-# security refresh you want; changing it re-runs the upgrade. 2026-11-13 takes
-# trixie-security's OpenEXR 3.2.12 (two Criticals in every Ruby plugin).
-ARG APT_UPGRADE_EPOCH=2026-11-13
+# security refresh you want; changing it re-runs the upgrade. 2026-11-25 is the
+# pin refresh of that date.
+ARG APT_UPGRADE_EPOCH=2026-11-25
 RUN set -eux; \
     echo "apt upgrade epoch ${APT_UPGRADE_EPOCH}"; \
     apt-get update; \
@@ -61,12 +64,13 @@ RUN set -eux; \
 # version is a decision in this file rather than a side effect of the Ruby pin.
 # 4.0.24 -> 4.1.0 (2026-11-18): the first stable 4.1 (after three betas); it
 # also moves Bundler to 4.1.0, which the bundle-exec check at the end exercises.
+# 4.1.0 -> 4.1.1 (2026-11-25): routine patch; Bundler moves to 4.1.1 with it.
 #
 # Ordered BEFORE the json block below, not after: `gem update --system`
 # reinstalls RubyGems' own default gems, so running it afterwards could put a
 # default gemspec back on top of the replacement. The verification at the end of
 # this file proves the final state either way.
-ARG RUBYGEMS_VERSION=4.1.0
+ARG RUBYGEMS_VERSION=4.1.1
 RUN set -eux; \
     gem update --system "$RUBYGEMS_VERSION" --no-document; \
     gem --version | grep -qx "$RUBYGEMS_VERSION"; \
@@ -75,7 +79,7 @@ RUN set -eux; \
 # ── Patched `json` default gem ──
 # json is a DEFAULT gem: its code lives in the stdlib (rubylibdir + archdir),
 # not in a gem directory, and 4.0.9 bundled 2.18.0 — CVE-2026-33210, fixed in
-# 2.19.2. 4.0.10 bundles 2.18.3 (checked in the image), still on the 2.18 line. The pin below is 3.1.0, the current release, not the minimum that
+# 2.19.2. 4.0.10 bundles 2.18.3 (checked in the image), still on the 2.18 line. The pin below is 3.2.0, the current release, not the minimum that
 # clears the CVE: plugin pins track latest. That is a MAJOR bump of a gem every
 # other gem in the image loads, so the verification at the end of this file
 # round-trips parse/generate under both plain ruby and `bundle exec` — a json
@@ -97,7 +101,7 @@ RUN set -eux; \
 # DELETE this block once the pinned ruby image ships this json — the
 # `raise` below fires if the default gem is already at this version, so a stale
 # block fails the build loudly instead of silently reinstalling what is there.
-ARG JSON_GEM_VERSION=3.1.0
+ARG JSON_GEM_VERSION=3.2.0
 ENV JSON_GEM_VERSION=${JSON_GEM_VERSION}
 RUN set -eux; \
     gem install json -v "$JSON_GEM_VERSION" --no-document; \

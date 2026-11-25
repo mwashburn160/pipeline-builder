@@ -6,7 +6,7 @@ keywords:
   - vulnerability
   - dependency-scan
 category: security
-version: 1.0.3
+version: 1.0.4
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
@@ -35,7 +35,7 @@ env:
 
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
 # Asserts the tool is on PATH and reports a version. Exit non-zero = test fail.
-smokeTest: "which snyk && ruby --version"
+smokeTest: "snyk --version && ruby --version && gem --version && bundle --version"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
@@ -48,6 +48,7 @@ network:
     - "rubygems.org"
     - "index.rubygems.org"
 changelog: |
+  1.0.4: Pin refresh 2026-11-25 — Snyk CLI 1.1309.0. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, RubyGems/Bundler 4.1.1, json 3.2.0).
   1.0.3: Security fix 2026-11-25 — Rebuilt on a refreshed plugin-ruby-base (Debian security updates: mariadb client 1:11.8.9+ds-0+deb13u1, glibc 2.41-12+deb13u5, krb5 1.21.3-5+deb13u2), clearing the 3 Critical MariaDB CVEs (CVE-2026-49261, CVE-2026-92262, CVE-2026-44172) the nightly rescan reported in 1.0.2.
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh; Ruby 4.0.10, RubyGems 4.1.0).
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on plugin-ruby-base with Debian's 2026-11 security updates (OpenEXR 3.2.12 clears two Criticals).

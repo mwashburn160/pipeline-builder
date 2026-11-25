@@ -35,7 +35,7 @@ flowchart TB
 |--------|-------------|---------|---------|--------------|
 | java | Java/Kotlin (Temurin JDK) with Maven/Gradle auto-detect | MEDIUM | None | `BUILD_TOOL`, `MAVEN_GOAL`, `GRADLE_TASK` |
 | java-corretto | Java/Kotlin (Amazon Corretto) for AWS workloads | MEDIUM | None | `BUILD_TOOL`, `MAVEN_GOAL`, `GRADLE_TASK` |
-| java-oracle | Java/Kotlin (Oracle GraalVM) with native-image support | LARGE | None | `BUILD_TOOL`, `NATIVE_BUILD`, `MAVEN_GOAL`, `GRADLE_TASK` |
+| java-oracle | Java/Kotlin (GraalVM Community Edition) with native-image support | LARGE | None | `BUILD_TOOL`, `NATIVE_BUILD`, `MAVEN_GOAL`, `GRADLE_TASK` |
 | python | Python with pip/poetry/pipenv auto-detect | MEDIUM | None | `PACKAGE_MANAGER` |
 | nodejs | Node.js with npm/yarn/pnpm auto-detect | MEDIUM | None | `PACKAGE_MANAGER` |
 | go | Go with module support | MEDIUM | None | None (auto-detects `go.mod`) |

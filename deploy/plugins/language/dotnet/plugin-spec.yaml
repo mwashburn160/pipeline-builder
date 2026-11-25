@@ -6,7 +6,7 @@ keywords:
   - fsharp
   - build
 category: language
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 15
@@ -23,6 +23,10 @@ commands:
   - run-logged dotnet-build.log -- dotnet build --no-restore --configuration Release
   - run-logged dotnet-test.log -- dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage"
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts every tool the commands above invoke is on PATH and runs.
+smokeTest: "dotnet --version && command -v run-logged"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://dotnet.microsoft.com
@@ -32,6 +36,7 @@ network:
   egress:
     - "api.nuget.org"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (.NET SDK 10.0.404, a 2026-11-10 security release).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

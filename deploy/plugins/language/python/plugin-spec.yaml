@@ -6,7 +6,7 @@ keywords:
   - poetry
   - pipenv
 category: language
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 15
@@ -75,6 +75,10 @@ env:
   # PYTHON_VERSION is baked into plugin-python-base (single-version model).
   PACKAGE_MANAGER: auto
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts every tool the commands above invoke is on PATH and runs.
+smokeTest: "python3 --version && python --version && pip --version && poetry --version && pipenv --version && pytest --version && python -c 'import pytest_cov' && command -v run-logged"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://www.python.org
@@ -85,6 +89,7 @@ network:
     - "pypi.org"
     - "files.pythonhosted.org"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — Poetry 2.5.2, pipenv 2026.12.1. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, python-build-standalone 20261124).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh; python-build-standalone 20261110, CPython 3.15.2).
   1.0.1: Pin refresh 2026-11-13 — pipenv 2026.11.0.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

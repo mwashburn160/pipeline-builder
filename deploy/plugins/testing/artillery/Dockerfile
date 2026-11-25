@@ -7,11 +7,10 @@
 
 FROM plugin-node-base:1.0
 
-# VULN SCAN (2026-10-02): 2.0.34 (already the latest release) pulls in
-# vulnerable transitive deps — csv-parse 4.16.3 (prototype-replacement via
-# columns path, fixed upstream at 7.0.2) and brace-expansion <1.1.16 (ReDoS).
-# No newer Artillery release exists yet that bumps either; re-check on the
-# next scan whether a fix has shipped before assuming this is still open.
+# VULN SCAN (2026-11-25): 2.0.34 (still the latest release) pulls in
+# csv-parse 4.16.3 (GHSA-8cw4-87c7-c6xx, Medium; fixed only in 7.0.2, a major
+# with a different API, so no override). Its transitive brace-expansion is now
+# 1.1.22 / 5.1.0, past every fix. No High or Critical comes from Artillery's tree.
 ARG ARTILLERY_VERSION=2.0.34
 # NO BROWSER. Artillery's Playwright engine dependency (@playwright/browser-chromium)
 # downloads Chromium during `npm install`, which added 281 fixable Criticals and

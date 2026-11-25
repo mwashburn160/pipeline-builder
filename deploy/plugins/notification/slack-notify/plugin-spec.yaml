@@ -6,7 +6,7 @@ keywords:
   - notification
   - alert
 category: notification
-version: 1.1.1
+version: 1.1.2
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 5
@@ -120,6 +120,10 @@ env:
   CUSTOM_MESSAGE: ""
   MENTION_ON_FAILURE: ""
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Proves every tool the commands invoke is installed and runs.
+smokeTest: "curl --version && jq --version"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://api.slack.com/messaging/webhooks
@@ -129,5 +133,6 @@ network:
   egress:
     - "hooks.slack.com"
 changelog: |
+  1.1.2: Pin refresh 2026-11-25 — Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.1.1: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.1.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

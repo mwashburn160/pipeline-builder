@@ -8,6 +8,12 @@ ARG HADOLINT_VERSION=2.15.1
 ARG DOCKLE_VERSION=0.4.15
 # The commit the v${DOCKLE_VERSION} tag must resolve to (checked after clone).
 ARG DOCKLE_COMMIT=54368575d2a0c34a82fb05c904b8207284a64891
+# dockle's go.mod pins github.com/klauspost/compress v1.17.11 (GO-2026-6865,
+# High) and github.com/opencontainers/selinux v1.11.1 (GHSA-cgrx-mc8f-2prm,
+# High). v0.4.15 is still upstream's latest, so both are raised here (pinned,
+# and checked in the built binary).
+ARG COMPRESS_VERSION=1.20.5
+ARG SELINUX_VERSION=1.15.1
 # Same pinned toolchain as api/plugin's tools stage.
 # Digest moved in lockstep with api/plugin + api/image-registry (2026-11-18:
 # upstream re-pushed golang:1.27.4-alpine onto alpine 3.24). Builder stage only; dockle is a static CGO_ENABLED=0 binary.
@@ -24,6 +30,8 @@ FROM hadolint/hadolint:v${HADOLINT_VERSION} AS hadolint-src
 FROM ${GO_IMAGE} AS dockle-build
 ARG DOCKLE_VERSION
 ARG DOCKLE_COMMIT
+ARG COMPRESS_VERSION
+ARG SELINUX_VERSION
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local
 RUN apk add --no-cache git
 RUN set -eux; \
@@ -32,10 +40,22 @@ RUN set -eux; \
     [ "$got" = "${DOCKLE_COMMIT}" ] || { echo "dockle v${DOCKLE_VERSION} resolved to $got, expected ${DOCKLE_COMMIT}" >&2; exit 1; }
 WORKDIR /src/dockle
 RUN set -eux; \
-    for attempt in 1 2 3 4 5; do go mod download && break; echo "go mod download failed (attempt $attempt/5)" >&2; sleep $((attempt * 5)); done; \
+    for attempt in 1 2 3 4 5; do \
+      go get "github.com/klauspost/compress@v${COMPRESS_VERSION}" "github.com/opencontainers/selinux@v${SELINUX_VERSION}" \
+        && go mod download && break; \
+      echo "go get/mod download failed (attempt $attempt/5)" >&2; sleep $((attempt * 5)); \
+    done; \
     go build -mod=readonly -trimpath \
       -ldflags "-s -w -X github.com/goodwithtech/dockle/pkg.version=${DOCKLE_VERSION}" \
       -o /out/dockle ./cmd/dockle; \
+    atleast() { \
+      _got="$(go version -m /out/dockle | awk -v m="$1" '$1 == "dep" && $2 == m { print $3 }')"; \
+      [ -n "$_got" ] || { echo "$1 is not linked into dockle" >&2; exit 1; }; \
+      [ "$(printf '%s\n%s\n' "v$2" "$_got" | sort -V | head -1)" = "v$2" ] \
+        || { echo "$1 is $_got in dockle, expected >= v$2" >&2; exit 1; }; \
+    }; \
+    atleast github.com/klauspost/compress "${COMPRESS_VERSION}"; \
+    atleast github.com/opencontainers/selinux "${SELINUX_VERSION}"; \
     /out/dockle --version
 
 FROM plugin-base:26.10

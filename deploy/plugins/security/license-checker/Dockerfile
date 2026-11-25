@@ -22,7 +22,13 @@ RUN pip3 install --no-cache-dir --break-system-packages pip-licenses==5.5.5
 # Go: go-licenses (installed at runtime if needed)
 # Ruby: license_finder (pinned — was unpinned)
 ARG LICENSE_FINDER_VERSION=7.2.1
-RUN gem install license_finder -v "${LICENSE_FINDER_VERSION}" --no-document
+# Bundler: the spec runs `bundle install` for a Gemfile.lock, but Ubuntu's ruby
+# ships the executable only as `bundle3.3`, so a plain `bundle` was not found.
+# Pinned gem install puts `bundle` on PATH.
+ARG BUNDLER_VERSION=4.1.1
+RUN gem install license_finder -v "${LICENSE_FINDER_VERSION}" --no-document \
+    && gem install bundler -v "${BUNDLER_VERSION}" --no-document \
+    && bundle --version
 
 # Node.js: license-checker — installed as uid 1000 into the base's
 # uid-1000-owned Node prefix. corepack comes from plugin-node-base (Node 26 no longer bundles it).

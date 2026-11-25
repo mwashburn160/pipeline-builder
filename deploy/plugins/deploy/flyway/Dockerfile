@@ -17,11 +17,11 @@ FROM plugin-base:26.10 AS builder
 # Builder stage extracts under /opt — needs root (the base ends as uid 1000).
 USER root
 
-ARG FLYWAY_VERSION=13.12.2
+ARG FLYWAY_VERSION=13.13.0
 # Pinned digest — SHA-256 of the Redgate Maven artifact (Flyway CLI tarballs
 # moved off Maven Central; Redgate publishes only SHA-1/MD5 for them, and the
 # SHA-1 was cross-checked against the published .sha1).
-ARG FLYWAY_SHA256_AMD64=1affe2b2fb60d45b16fbf572d5c0e02ed9a04fb7527bf3c92781f2df73403517
+ARG FLYWAY_SHA256_AMD64=0695a34868114c25e44bc4159d461c2173f8bfe383ce987bb9301a8562f7c056
 
 # Flyway ${FLYWAY_VERSION} publishes a linux-x64 tarball only (no linux-arm64 on
 # Redgate's Maven host for this release) — fail loudly on any other architecture
@@ -50,7 +50,7 @@ FROM plugin-base:26.10
 # Root for the /usr/local/bin symlink; dropped to uid 1000 at the end.
 USER root
 
-ARG FLYWAY_VERSION=13.12.2
+ARG FLYWAY_VERSION=13.13.0
 COPY --from=builder /opt/flyway-${FLYWAY_VERSION} /opt/flyway-${FLYWAY_VERSION}
 RUN ln -s /opt/flyway-${FLYWAY_VERSION}/flyway /usr/local/bin/flyway
 

@@ -95,7 +95,7 @@ ARG PIPELINE_MANAGER_VERSION="6.4.1"
 # The CLI BUNDLES its dependencies (the published package declares none), so a
 # finding inside it — `tar` in this case — cannot be overridden with another
 # `npm install`. Bumping this pin is the only lever.
-ARG AWS_CDK_VERSION="2.1148.1"
+ARG AWS_CDK_VERSION="2.1149.0"
 # cdk-assets — publishes a synthesized assembly's file and container assets
 # (what `cdk-assets publish` does in a pipeline's Assets stage). Installed the
 # same way as the CDK CLI and pinned the same way; a bump is a new release.
@@ -107,9 +107,9 @@ ARG CDK_ASSETS_VERSION="4.8.0"
 # image every cold-start CodeBuild action runs. AWS publishes no checksum file;
 # these are the same two-download digests _aws-cli-base carries. Bump all three
 # together, in both files.
-ARG AWS_CLI_VERSION="2.41.1"
-ARG AWS_CLI_SHA256_AMD64="f1b67518c009e9deb94152aaba5cc015e80af6b0630a7931d3662df42b5f568e"
-ARG AWS_CLI_SHA256_ARM64="83f3bb8440cf6a05e6289f8024126b8c8e15e9513adfe0d6c059747350cdb1e2"
+ARG AWS_CLI_VERSION="2.42.3"
+ARG AWS_CLI_SHA256_AMD64="09a4a71458061ce4e6e8c1ddbeb5d128c219ef7c9906b7b92c3b542944c025c8"
+ARG AWS_CLI_SHA256_ARM64="7c512283f5293c6fb0832ad648198993185889b22ea8b19bcd04c153dabc8643"
 
 # What this image carries, readable from the image itself. Each value is the ARG
 # it is installed from, so a label cannot disagree with the binary; plugin

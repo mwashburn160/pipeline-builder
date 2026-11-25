@@ -6,7 +6,7 @@ keywords:
   - gke
   - deploy
 category: deploy
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 45
@@ -117,6 +117,10 @@ env:
   GCP_REGION: us-central1
   DEPLOY_TYPE: app-engine
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Proves every tool the commands invoke is installed and runs.
+smokeTest: "gcloud version && kubectl version --client && terraform version"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://cloud.google.com/sdk
@@ -127,6 +131,7 @@ network:
     - "*.googleapis.com"
     - "oauth2.googleapis.com"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — kubectl 1.37.3, built from source with golang.org/x/net 0.63.0 (clears GO-2026-6612 Critical and four x/net Highs); smokeTest now covers gcloud, kubectl and Terraform. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.0.1: Pin refresh 2026-11-13 — Terraform 1.17.2.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

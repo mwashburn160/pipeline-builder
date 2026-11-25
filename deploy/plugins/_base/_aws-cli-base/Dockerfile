@@ -18,14 +18,14 @@
 # Pinned: AWS CLI v2 version + per-arch SHA-256 (AWS publishes a PGP .sig
 # per zip but no checksum file; the digests below were computed from the
 # official awscli.amazonaws.com versioned zips). Bump all three together.
-# 2.41.1 (2026-11-18): both digests computed from two independent downloads
+# 2.42.3 (2026-11-25): both digests computed from two independent downloads
 # of each zip, which agreed.
 
 FROM plugin-base:26.10
 
-ARG AWS_CLI_VERSION=2.41.1
-ARG AWS_CLI_SHA256_AMD64=f1b67518c009e9deb94152aaba5cc015e80af6b0630a7931d3662df42b5f568e
-ARG AWS_CLI_SHA256_ARM64=83f3bb8440cf6a05e6289f8024126b8c8e15e9513adfe0d6c059747350cdb1e2
+ARG AWS_CLI_VERSION=2.42.3
+ARG AWS_CLI_SHA256_AMD64=09a4a71458061ce4e6e8c1ddbeb5d128c219ef7c9906b7b92c3b542944c025c8
+ARG AWS_CLI_SHA256_ARM64=7c512283f5293c6fb0832ad648198993185889b22ea8b19bcd04c153dabc8643
 
 USER root
 RUN set -eux; \

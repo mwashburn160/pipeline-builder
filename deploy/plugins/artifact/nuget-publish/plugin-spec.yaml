@@ -6,7 +6,7 @@ keywords:
   - package
   - publish
 category: artifact
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
@@ -62,6 +62,10 @@ commands:
 env:
   NUGET_SOURCE: https://api.nuget.org/v3/index.json
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts every tool the commands invoke is on PATH and runs.
+smokeTest: "dotnet --version && jq --version"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://www.nuget.org
@@ -72,6 +76,7 @@ network:
     - "api.nuget.org"
     - "www.nuget.org"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (.NET SDK 10.0.404, a 2026-11-10 security release).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

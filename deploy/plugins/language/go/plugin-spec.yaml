@@ -6,7 +6,7 @@ keywords:
   - build
   - test
 category: language
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 15
@@ -26,6 +26,11 @@ commands:
 # env: GO_VERSION is baked into plugin-go-base (single-version model); nothing
 # reads it at runtime, so it is intentionally omitted.
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts every tool the commands above invoke is on PATH and runs.
+# gcc is checked because `go test -race` needs cgo.
+smokeTest: "go version && gcc --version && command -v run-logged"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://go.dev
@@ -36,6 +41,7 @@ network:
     - "proxy.golang.org"
     - "sum.golang.org"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Go 1.27.4).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

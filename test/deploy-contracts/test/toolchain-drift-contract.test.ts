@@ -393,15 +393,22 @@ describe('AWS CLI', () => {
 
 describe('Go builder image digest', () => {
   // golang:<ver>-alpine is re-pushed upstream (it moved alpine 3.23 → 3.24 on
-  // 2026-11-18). Five Dockerfiles say they share "the same pinned toolchain";
+  // 2026-11-18). These Dockerfiles say they share "the same pinned toolchain";
   // nothing held their DIGESTS together, so a refresh that moved one would
   // silently fork them.
   const FILES = [
     'api/plugin/Dockerfile',
     'api/image-registry/Dockerfile',
+    'deploy/plugins/deploy/azure-deploy/Dockerfile',
     'deploy/plugins/deploy/cloudformation/Dockerfile',
+    'deploy/plugins/deploy/gcloud-deploy/Dockerfile',
+    'deploy/plugins/deploy/helm-deploy/Dockerfile',
+    'deploy/plugins/deploy/kubectl-deploy/Dockerfile',
+    'deploy/plugins/deploy/terraform/Dockerfile',
     'deploy/plugins/security/docker-lint/Dockerfile',
     'deploy/plugins/testing/k6/Dockerfile',
+    // trivy is compiled from source in its family base (klauspost/compress raise).
+    'deploy/plugins/_base/_trivy-base/Dockerfile',
   ];
   it('every GO_IMAGE pins the same golang tag AND digest', () => {
     expectAllEqual(FILES.map((f) => [f, grab(f, /^ARG GO_IMAGE=(golang:[^\s]+@sha256:[0-9a-f]{64})\s*$/m)] as [string, string | undefined]));

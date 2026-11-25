@@ -6,7 +6,7 @@ keywords:
   - enterprise
   - vulnerability
 category: security
-version: 1.1.2
+version: 1.1.3
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 30
@@ -109,6 +109,7 @@ network:
     - "iam.checkmarx.net"
     - "*.iam.checkmarx.net"
 changelog: |
+  1.1.3: Pin refresh 2026-11-25 — Checkmarx AST CLI 2.3.72, now compiled from its tagged source with github.com/klauspost/compress raised to v1.20.5 (clears GO-2026-6865, High). Rebuilt on the refreshed base images (Ubuntu 26.10 security updates).
   1.1.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.1.1: Pin refresh 2026-11-13 — Checkmarx AST CLI 2.3.71, KICS 2.2.1.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

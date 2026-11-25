@@ -6,7 +6,7 @@ keywords:
   - security-analysis
   - coverage
 category: security
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
@@ -43,7 +43,7 @@ env:
 
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
 # Asserts the tool is on PATH and reports a version. Exit non-zero = test fail.
-smokeTest: 'which sonar-scanner && "${JAVA_HOME}/bin/java" -version'
+smokeTest: "sonar-scanner --version && java -version && mvn --version && gradle --version"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
@@ -59,6 +59,7 @@ network:
     - "plugins.gradle.org"
     - "services.gradle.org"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — sonar-scanner-cli 12.5. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, Maven 3.10.2, Gradle 9.9.2 with guava 33.7.2, Kotlin main-kts jar removed (clears the guava High)).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh; Maven 3.10.1).
   1.0.1: Pin refresh 2026-11-13 — sonar-scanner-cli 12.4; rebuilt on the refreshed base images (Gradle 9.9.1).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -9,6 +9,12 @@
 
 FROM plugin-ruby-base:1.0
 
+# ─── jq ───
+# The spec's publish-metadata step pipes through jq. plugin-ruby-base is the
+# Debian ruby image, not plugin-base, so it does not carry jq.
+USER root
+RUN apt-retry-install jq
+
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — GEM_HOST_API_KEY injected at runtime via CodeBuild secrets
 ENV GEM_DRY_RUN=false

@@ -260,7 +260,7 @@ Install the CDK CLI version the
 `deploy/toolchain/pipeline-bootstrap/plugin-spec.yaml`):
 
 ```bash
-npm install -g aws-cdk@2.1148.1
+npm install -g aws-cdk@2.1149.0
 ```
 
 In CodeBuild this is handled for you — the bootstrap image ships the CDK CLI (see

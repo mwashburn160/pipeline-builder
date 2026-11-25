@@ -7,7 +7,7 @@ keywords:
   - openai
   - code-generation
 category: ai
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 15
@@ -362,7 +362,7 @@ env:
   AI_MAX_CONTEXT_BYTES: "131072"
 
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
-smokeTest: "hadolint --version && aws --version && jq --version"
+smokeTest: "hadolint --version && aws --version && jq --version && curl --version"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
@@ -376,6 +376,7 @@ network:
     - "api.x.ai"
     - "generativelanguage.googleapis.com"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, AWS CLI 2.42.3).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh; AWS CLI 2.41.1).
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified. Generates the Dockerfile under app-image rules (official base pinned to a version tag, multi-stage, numeric non-root USER, no pipe-to-shell or ADD <url>, no secrets in ENV/ARG) instead of "slim/alpine". The result is linted with hadolint (now in the image, pinned and digest-verified) plus a policy check, and regenerated once on failure (DOCKERFILE_LINT_MODE=report keeps it anyway); findings go to generated/dockerfile-lint.txt. Project context is redacted before it leaves the build: compose environment/env_file/args values dropped, .env*/key/certificate/credential files skipped, files capped, secret-shaped values and AWS account ids masked. The Gemini key moved from the URL to the x-goog-api-key header; 429/529/5xx are retried with backoff. AI_MODEL now defaults per provider (claude-sonnet-5-5 for anthropic). The bedrock provider works: the image carries the AWS CLI and the request body is sent raw.

@@ -6,7 +6,7 @@ keywords:
   - build-cache
   - performance
 category: infrastructure
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 10
@@ -128,6 +128,10 @@ env:
   CACHE_ACTION: auto
   CACHE_COMPRESSION: zstd
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Proves every tool the commands invoke is installed and runs.
+smokeTest: "aws --version && tar --version && zstd --version && gzip --version"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://docs.aws.amazon.com/s3/
@@ -137,6 +141,7 @@ network:
   egress:
     - "*.amazonaws.com"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, AWS CLI 2.42.3).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh; AWS CLI 2.41.1).
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

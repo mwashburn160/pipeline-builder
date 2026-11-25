@@ -1,6 +1,6 @@
 # java-oracle
 
-Java and Kotlin plugin using Oracle GraalVM JDK for building and testing JVM applications with optional native-image compilation using AWS CDK CodeBuildStep
+Java and Kotlin plugin using the GraalVM Community Edition JDK for building and testing JVM applications with optional native-image compilation using AWS CDK CodeBuildStep
 
 **Version:** 1.0.0  
 **Category:** language  
@@ -15,7 +15,7 @@ Java and Kotlin plugin using Oracle GraalVM JDK for building and testing JVM app
 
 ## Requirements
 
-- Oracle GraalVM JDK 25.0.4
+- GraalVM Community Edition 25.6.5.1 (JDK 25.0.5.1)
 
 ## Configuration
 

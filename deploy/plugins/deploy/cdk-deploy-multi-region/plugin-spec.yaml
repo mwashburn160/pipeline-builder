@@ -6,7 +6,7 @@ keywords:
   - multi-region
   - deploy
 category: deploy
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: LARGE
 timeout: 60
@@ -276,6 +276,10 @@ env:
   CDK_ROLLBACK_ON_FAILURE: "true"
   CDK_OUTPUTS_FILE: cdk-outputs.json
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Proves every tool the commands invoke is installed and runs.
+smokeTest: "node --version && npm --version && cdk --version && tsc --version && ts-node --version && aws --version && python3 --version && pip3 --version && docker --version && jq --version && parallel --version"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://docs.aws.amazon.com/cdk/
@@ -287,6 +291,7 @@ network:
     - "registry.npmjs.org"
     - "registry.yarnpkg.com"
 changelog: |
+  1.0.3: Pin refresh 2026-11-25 — aws-cdk 2.1149.0; npm 12.2.3 (clears the undici and brace-expansion Highs in Node's bundled npm); smokeTest now covers every tool the commands call. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, AWS CLI 2.42.3).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh; AWS CLI 2.41.1).
   1.0.1: Pin refresh 2026-11-13 — Node.js 26.13.1, aws-cdk 2.1148.1; rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -16,9 +16,9 @@ FROM plugin-jvm-base:1.0
 USER root
 
 # Digests are Snyk's published <binary>.sha256 files for this version.
-ARG SNYK_VERSION=1.1308.4
-ARG SNYK_SHA256_AMD64=979172ee128903f50e43fff221f22a0689579f22c086dabaa0d1a5416485b9ba
-ARG SNYK_SHA256_ARM64=9cf3e55e4bd216138a86a08f6d4235d5a014459cf0df7150818421fd8e044d48
+ARG SNYK_VERSION=1.1309.0
+ARG SNYK_SHA256_AMD64=4802579c2818938a2f4849d270df1139f310104286a8a5c6305328a3c2eb9e1c
+ARG SNYK_SHA256_ARM64=97d6c5d0aed21d0f8ae0b0b7764acab3c67f5ccd211b1069a6a74fd953e5c600
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) snyk_bin=snyk-linux;       sum="${SNYK_SHA256_AMD64}" ;; \

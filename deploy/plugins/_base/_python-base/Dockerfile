@@ -50,15 +50,15 @@ ARG PYTHON_VERSION=3.15
 # PBS_RELEASE moves with it: 3.15.2 was published 2026-10-09, AFTER the 20261001
 # release, so the old pin cannot carry it.
 #
-# 20261026 -> 20261110 (2026-11-18): routine, newest PBS build of the same
+# 20261110 -> 20261124 (2026-11-25): routine, newest PBS build of the same
 # CPython 3.15.2. Both digests below are from that release's SHA256SUMS asset
 # (PBS publishes no per-file .sha256, but the release-wide SHA256SUMS lists
 # every artifact) and were re-checked against a real download of each. 3.16 is
 # alpha-only (3.16.0a2) and is not a candidate.
 ARG PYTHON_BUILD=3.15.2
-ARG PBS_RELEASE=20261110
-ARG PBS_SHA256_AMD64=182e7adf7e4f0e32dafac5143f00d466afd20eef45918ea170f78884e503ac18
-ARG PBS_SHA256_ARM64=362378c07e01f1d7b18406760ace75e794c21dfff3693535b1bbffe88eec2e52
+ARG PBS_RELEASE=20261124
+ARG PBS_SHA256_AMD64=9fbcb18c390909c3f30542d097a14443bee7a5c678d4b06b5b63cc7a9af624d3
+ARG PBS_SHA256_ARM64=f0d81c7a7490c51676e44462c9630ceb9bed6298af6cfcdb0c05c1c798c971e6
 ARG PBS_BASE=https://github.com/astral-sh/python-build-standalone/releases/download
 ENV PYTHON_HOME=/opt/python
 RUN set -eux; \
