@@ -4,18 +4,21 @@
 import { isSystemOrgId, DEFAULT_TIER, PLAN_TIERS, SYSTEM_ORG_SLUG, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { ClientSession, Types } from 'mongoose';
 import { RESERVED_ORG_NAME } from './auth-errors.js';
-import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './org-errors.js';
+import { ORG_NOT_FOUND, ORG_RESTORE_PLATFORM_DELETED, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './org-errors.js';
 import { orgHierarchyService } from './org-hierarchy-service.js';
 import { applyAIProviderKeyUpdates, buildProvidersMap } from './organization-ai-secrets.js';
 import {
   checkTierOvercap,
   setSeatLimit,
+  setAccountSeats,
   setTier,
   type SeatLimitResult,
+  type AccountSeatsResult,
 } from './organization-quota.js';
 import { seedDefaultRoles } from './roles-service.js';
 import { getOrgName } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { activeKmsConfig } from '../helpers/org-kms-config.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import { orgFeatureOverridesPath } from '../helpers/user-response.js';
 import { Role, RoleAssignment, Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
@@ -40,7 +43,7 @@ interface OrgSummary {
   updatedAt: Date;
   /** Pricing tier — exposed so the orgs facet UI can filter by it. */
   tier?: PlanTier;
-  /** True iff `kmsConfig.keyId` is present on the org doc. Lets the UI
+  /** True iff the org has an active per-org KMS config (`activeKmsConfig`). Lets the UI
    *  badge KMS-configured orgs and filter for "no per-org CMK yet". */
   kmsConfigured: boolean;
   /** True iff an OrgIdpConfig document exists for this org. */
@@ -214,7 +217,7 @@ class OrganizationService {
           createdAt: org.createdAt,
           updatedAt: org.updatedAt,
           tier: org.tier,
-          kmsConfigured: Boolean(org.kmsConfig?.keyId),
+          kmsConfigured: activeKmsConfig(org.kmsConfig) !== null,
           idpConfigured: idpSet.has(org._id.toString()),
           parentOrgId,
           ...(parentOrgName && { parentOrgName }),
@@ -339,6 +342,11 @@ class OrganizationService {
     return setSeatLimit(orgId, seats, features, tier, supportContacts, supportPremiumContacts);
   }
 
+  /** A platform operator's seats-only override on the account root (see `setAccountSeats`). */
+  async setAccountSeats(orgId: string, seats: number): Promise<AccountSeatsResult | null> {
+    return setAccountSeats(orgId, seats);
+  }
+
   /**
    * Get a single org with a (bounded) page of its member list. Returns null if
    * not found. The roster is capped/paginated (`membersLimit`/`membersOffset`,
@@ -393,7 +401,7 @@ class OrganizationService {
       createdAt: org.createdAt,
       updatedAt: org.updatedAt,
       tier: org.tier,
-      kmsConfigured: Boolean(org.kmsConfig?.keyId),
+      kmsConfigured: activeKmsConfig(org.kmsConfig) !== null,
       idpConfigured: Boolean(idpDoc),
       // Org → team hierarchy. One-level nesting means a team's parent IS the
       // root, so rootOrgId needs no extra query.
@@ -541,11 +549,17 @@ class OrganizationService {
    * org with this id (already purged, never deleted, or unknown) so the
    * controller can 404 — a purged org is gone and cannot be restored.
    */
-  async restore(id: string, excludeUserId?: string): Promise<{ id: string; name: string; membersInvalidated: number } | null> {
+  /**
+   * `byPlatform`: the caller is a platform operator. A platform delete (a
+   * takedown, `deletedByPlatform`) refuses anyone else with
+   * ORG_RESTORE_PLATFORM_DELETED.
+   */
+  async restore(id: string, excludeUserId: string | undefined, byPlatform: boolean): Promise<{ id: string; name: string; membersInvalidated: number } | null> {
     let bumpedMemberIds: Types.ObjectId[] = [];
     const result = await withMongoTransaction(async (session) => {
       const org = await Organization.findOne({ _id: toOrgId(id), deletedAt: { $ne: null } }).session(session);
       if (!org) return null;
+      if (org.deletedByPlatform && !byPlatform) throw new Error(ORG_RESTORE_PLATFORM_DELETED);
 
       // A TEAM comes back into its parent's account: the parent must still be
       // able to hold it, its members re-enter the pooled seat count, and the
@@ -557,6 +571,7 @@ class OrganizationService {
 
       org.deletedAt = null;
       org.purgeAfter = null;
+      org.deletedByPlatform = undefined;
       await org.save({ session });
 
       const memberships = await UserOrganization.find({ organizationId: toOrgId(id), isActive: true })

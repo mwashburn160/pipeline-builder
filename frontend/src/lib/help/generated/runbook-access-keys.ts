@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/access-key-cutover.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7a6815ad363d067549debd5fc91ee7ed9311680d731abb9242629c7bbc68b43e
+// SOURCE-SHA256: 61671f1eaa8dc8022fd86667f1e75cf38f8f049ff3a5633e5d3852f8283ab385
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,7 +17,7 @@ export const runbookAccessKeysTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Issuing the personal keys people need, and provisioning the three machine credentials an AWS deployment cannot run without."
+          "content": "Issuing the personal keys people need, and provisioning the four machine credentials an AWS deployment runs on."
         }
       ]
     },
@@ -32,7 +32,7 @@ export const runbookAccessKeysTopic: HelpTopic = {
             "A key is shown once. Only its SHA-256 is stored, so a lost key is reissued, never recovered.",
             "Every step is repeatable. Re-running it rotates rather than duplicates.",
             "registry-push is not optional on AWS — synth wires it into every build image unconditionally.",
-            "Redeploy the ingestion Lambda after storing its key, or it keeps running the old handler.",
+            "Run infra setup-events --scoped-ingest after storing the ingest key, or the Lambda reads the platform secret and every ingest is refused 403 (no reporting:ingest scope).",
             "Keys are per organization. The stored secrets live at pipeline-builder/{orgId}/…, so each org you onboard needs its own.",
             "audit tokens is the check that matters — it lists every stored credential, its expiry, and whether it is a key at all."
           ]
@@ -78,11 +78,12 @@ export const runbookAccessKeysTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Issue the personal keys people need — see Issuing personal keys. Issuing is step-up gated, so it asks for your password.",
-            "Provision the three machine credentials on an AWS target, in this order — see Machine credentials:",
-            "the org's full-privilege automation credential, for synth, deploy and plugin lookup;",
+            "Provision the four machine credentials on an AWS target, in this order — see Machine credentials:",
+            "the org's automation credential, for synth, deploy, plugin lookup and the run-time vulnerability check;",
             "the registry-push credential CodeBuild presents as Basic auth — required, because synth wires it into every build image unconditionally;",
+            "the pipeline_registry:write credential pipeline deploy --store-tokens registers the pipeline with — event ingestion attributes events through that registry;",
             "the reporting:ingest credential the events Lambda reads.",
-            "Redeploy the ingestion Lambda so it runs the key-exchanging handler.",
+            "Redeploy the ingestion Lambda with --scoped-ingest so it reads the reporting-ingest secret.",
             "Verify with pipeline-manager audit tokens — every stored credential, its expiry, and whether it is a key at all.",
             "Repeat per organization. These secrets are org-scoped; onboarding another org means provisioning its keys too."
           ]
@@ -104,7 +105,7 @@ export const runbookAccessKeysTopic: HelpTopic = {
             [
               "Personal access key",
               "POST /user/keys, pipeline-manager auth pat",
-              "A person's own; step-up gated, listed at Dashboard → API Tokens"
+              "A person's own; step-up gated, listed at Dashboard → Security → Access keys"
             ],
             [
               "The reporting:ingest webhook token on the Incident Reporting page",
@@ -151,7 +152,7 @@ export const runbookAccessKeysTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Each holder creates their own, either in the UI (**Dashboard → API Tokens"
+            "Each holder creates their own, either in the UI (**Dashboard → Security"
           ]
         },
         {
@@ -164,7 +165,7 @@ export const runbookAccessKeysTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Both open a browser to approve the sign-in and the step-up — there is no password flag on the CLI any more. That is not a convenience: the step-up is satisfied by the account's real factors (passkey, authenticator code), which live in the browser and not in a flag. --no-browser prints the verification URL instead, for a headless box."
+          "content": "Both open a browser to approve the sign-in and the step-up — auth pat has no password flag. That is not a convenience: the step-up is satisfied by the account's real factors (passkey, authenticator code), which live in the browser and not in a flag. --no-browser prints the verification URL instead, for a headless box."
         },
         {
           "type": "text",
@@ -172,7 +173,7 @@ export const runbookAccessKeysTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The printed pb_pat_… value is what PLATFORM_TOKEN and Authorization: Bearer … now expect. Copy it immediately — only its hash is stored, so it is never shown again."
+          "content": "The printed pb_pat_… value is what PLATFORM_TOKEN and Authorization: Bearer … expect. Copy it immediately — only its hash is stored, so it is never shown again."
         },
         {
           "type": "text",
@@ -221,9 +222,9 @@ export const runbookAccessKeysTopic: HelpTopic = {
             [
               "pipeline-builder/{orgId}/platform",
               "platform-automation",
-              "org admin",
+              "Pipeline Automation (pipeline and plugin reads)",
               "none",
-              "CDK synth/deploy (--store-tokens)"
+              "CDK synth/deploy (--store-tokens), the run-time vulnerability check"
             ],
             [
               "pipeline-builder/{orgId}/registry-push",
@@ -231,6 +232,13 @@ export const runbookAccessKeysTopic: HelpTopic = {
               "none",
               "registry:push",
               "CodeBuild's secretsManagerCredentials"
+            ],
+            [
+              "pipeline-builder/{orgId}/pipeline-registry-write",
+              "pipeline-register",
+              "Pipeline Registration (pipeline_registry:write)",
+              "none",
+              "the self-mutating synth registering its step manifest (POST /api/pipelines/registry)"
             ],
             [
               "pipeline-builder/{orgId}/reporting-ingest",
@@ -247,7 +255,7 @@ export const runbookAccessKeysTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "--scope takes exactly the two catalogued values above (registry:push, reporting:ingest); each selects its own service account. With no --scope the key is issued on the org's single full-privilege platform-automation account. --account <name> overrides the account a key lands on, and --dry-run shows what would be provisioned without calling platform or writing to Secrets Manager — worth doing once per AWS account before the real run."
+          "content": "--scope takes exactly the three catalogued values above (registry:push, pipeline_registry:write, reporting:ingest); each selects its own service account and secret leaf. registry:push and reporting:ingest are key scopes (a key with no Roles); pipeline_registry:write is an ordinary permission, so that key is unscoped and its account holds the one built-in Role carrying it. With no --scope the key is issued on the org's platform-automation account. --account <name> overrides the account a key lands on, and --dry-run shows what would be provisioned without calling platform or writing to Secrets Manager — worth doing once per AWS account before the real run."
         },
         {
           "type": "text",
@@ -255,24 +263,24 @@ export const runbookAccessKeysTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Both writes are step-up gated, so store-token needs the operator's password. Put it in the environment rather than on the command line (it shows in shell history and in provision plan output):"
+          "content": "Both writes are step-up gated. store-token --step-up auto (the default) re-verifies with the operator's password when one is given, and otherwise opens a browser approval (--step-up totp|browser|password forces one; --from-key stores a key issued in the web UI and needs no password). When you use the password, put it in the environment rather than on the command line (it shows in shell history and in provision plan output):"
         },
         {
           "type": "code",
-          "content": "export PLATFORM_BASE_URL=https://<your-platform>\nexport PLATFORM_PASSWORD='…'          # the operator's own password\nexport AWS_REGION=<region>\n\npipeline-manager infra store-token --schedule\n\npipeline-manager infra store-token --scope registry:push --schedule\n\npipeline-manager infra store-token --scope reporting:ingest --schedule\n\npipeline-manager infra setup-events --scoped-ingest",
+          "content": "export PLATFORM_BASE_URL=https://<your-platform>\nexport PLATFORM_PASSWORD='…'          # the operator's own password\nexport AWS_REGION=<region>\n\npipeline-manager infra store-token --schedule\n\npipeline-manager infra store-token --scope registry:push --schedule\n\npipeline-manager infra store-token --scope pipeline_registry:write --schedule\n\npipeline-manager infra store-token --scope reporting:ingest --schedule\n\npipeline-manager infra setup-events --scoped-ingest",
           "language": "bash"
         },
         {
           "type": "text",
-          "content": "Then synth and deploy every pipeline (pipeline-manager pipeline synth --id <id> --store-tokens, then deploy) so each build wires …/registry-push into its build image. A pipeline synthesised before the registry-push secret existed falls back to …/platform, which works but hands CodeBuild a full-privilege credential — the whole point of the scoped account is unmet."
+          "content": "Then synth and deploy every pipeline (pipeline-manager pipeline synth --id <id> --store-tokens, then deploy) so each build wires …/registry-push into its build image. There is no fallback to …/platform: with no …/registry-push secret, CodeBuild cannot pull its build images. A missing …/pipeline-registry-write secret does not break the build — the synth skips registration and says so — but that pipeline's events then cannot be attributed to its org."
         },
         {
           "type": "text",
-          "content": "What --schedule now installs"
+          "content": "What --schedule installs"
         },
         {
           "type": "text",
-          "content": "The daily Lambda is a key rotator, not a token re-minter. It no longer npm-installs the CLI at runtime; it calls two pre-auth platform endpoints where the key itself is the authorization, in this order:"
+          "content": "The daily Lambda is a key rotator, not a token re-minter. It calls two pre-auth platform endpoints where the key itself is the authorization, in this order:"
         },
         {
           "type": "list",
@@ -292,7 +300,7 @@ export const runbookAccessKeysTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "pipeline-manager infra audit-tokens --region <region>",
+          "content": "pipeline-manager audit tokens --region <region>",
           "language": "bash"
         },
         {
@@ -301,7 +309,7 @@ export const runbookAccessKeysTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "In the UI, Settings → Service Accounts lists the three accounts, their Roles (two of them hold none) and their keys. Dashboard → API Tokens shows the same keys labelled with the owning account."
+          "content": "In the UI, Dashboard → Security → Service accounts lists the four accounts, their Roles (two of them hold none) and their keys. Dashboard → Security → Access keys shows the same keys labelled with the owning account."
         },
         {
           "type": "text",

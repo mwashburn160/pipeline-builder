@@ -289,7 +289,7 @@ export async function queuePassRemediations(candidates: readonly RemediationCand
 
       if (c.kind === 'listing_version') {
         if (remediationOwnership({ kind: 'listing_version', publisherHandle: c.publisherHandle }) !== 'publisher_fix_request') continue;
-        await sendPublisherFixRequest({ listingId: c.listingId, version: c.version, remaining: targeted.map((f) => toRemaining(f, 'third_party_listing')), suggestedPatchKey: null });
+        await sendPublisherFixRequest({ listingId: c.listingId, version: c.version, remaining: targeted.map((f) => toRemaining(f, 'third_party_listing')) });
         result.publisherRequests++;
         continue;
       }

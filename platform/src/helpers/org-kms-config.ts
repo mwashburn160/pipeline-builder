@@ -13,6 +13,13 @@ export function activeKmsConfig(cfg: { keyId?: string | null; ciphertextBase64?:
   return cfg?.keyId && cfg?.ciphertextBase64 ? { keyId: cfg.keyId, ciphertextBase64: cfg.ciphertextBase64 } : null;
 }
 
+/** Mongo filter for orgs with an ACTIVE per-org config — the {@link activeKmsConfig}
+ *  reading as a query (both fields set and non-empty), for counts and gauges. */
+export const ACTIVE_KMS_CONFIG_FILTER = {
+  'kmsConfig.keyId': { $nin: [null, ''] },
+  'kmsConfig.ciphertextBase64': { $nin: [null, ''] },
+} as const;
+
 /** Past the per-org cache TTL by this much, so a replica whose cache entry was
  *  refreshed just before the change has certainly dropped it. */
 const KMS_VERIFY_MARGIN_MS = 60_000;

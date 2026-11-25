@@ -16,15 +16,15 @@
 # an OFF-HOST bucket. `deploy/bin/{backup,restore}.sh` take an endpoint, so
 # nothing else in this file has to change.
 #
-# Kept OUT of k8s/kustomization.yaml for the same reason as the eks copy: the
-# deploy applies `kubectl kustomize k8s/`, which only includes what `resources:`
-# lists, so an incomplete template cannot break a deploy.
+# Listed in k8s/kustomization.yaml, so the deploy applies it with everything else
+# (`BACKUP_ENABLED=true` by default). Don't `kubectl apply -f` it by hand: the
+# rendered manifest carries deploy tokens — re-run startup.sh to change it.
 #
 # ONE STEP LEFT — build the image:
 #   `image:` needs `pg_dump` (postgres client), `mongodump` (mongo database
 #   tools), the `aws` CLI, `rclone`, `openssl` and `curl`, running as a NON-ROOT uid (the pod
-#   rejects root; see securityContext). Then apply:
-#     kubectl apply -f backup-cronjob.yaml
+#   rejects root; see securityContext). Until it exists each run hits its
+#   activeDeadlineSeconds and CronJobRunFailed fires.
 #
 # THEN TEST A RESTORE — an untested backup is not a backup:
 #     deploy/aws/ec2/bin/restore.sh --confirm-destructive

@@ -116,6 +116,7 @@ export function register(program: Command): void {
               pipelineName: pipeline.pipelineName,
               project: pipeline.project,
               organization: pipeline.organization,
+              props: pipeline.props,
             },
             options.region,
           );

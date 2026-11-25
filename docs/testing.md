@@ -46,8 +46,8 @@ The through-line is that a test which *looks* like it covers something must actu
 
 ## How it works
 
-1. **18 jest projects**, configured through `.projenrc.ts` rather than per-project hand-editing, so hygiene settings and thresholds are set repo-wide.
-2. **Module mocks start from the real module.** Shared factories in `packages/api-core/src/testing/` are imported through a deep built path that a suite's own `api-core` mock does not intercept, so a factory can read the real module without recursing into its own mock.
+1. **One jest project per package and service**, configured through `.projenrc.ts` rather than per-project hand-editing, so hygiene settings and thresholds are set repo-wide.
+2. **Module mocks start from the real module.** Shared factories in `packages/api-core/src/testing/` are imported through their own package entry, `@pipeline-builder/api-core/testing`, which a suite's own `api-core` mock does not intercept, so a factory can read the real module without recursing into its own mock.
 3. **Workspace packages are replaced wholesale via a generated manifest.** Every package's `post-compile` emits `lib/testing/exports.json`; `stubModule` returns every export in it — your overrides as given, everything else a *loud* stub that names itself when touched.
 4. **Gates are exercised, not stubbed.** Suites express authority in the request fixture. `withController`, `handleControllerError` and each route's `errorMap` are production logic that ~15 suites assert on directly.
 5. **Parity checks close the gap between a tag and a behaviour.** Four suites prove gates refuse unqualified callers, that the hand-written permission contract matches the generated route tables, that audited actions are referenced, and that every mapped UI control really disappears without its permission.
@@ -55,7 +55,7 @@ The through-line is that a test which *looks* like it covers something must actu
 
 ## Running the tests
 
-1. **Run the real gate.** `nx run-many -t build --all` is what CI runs. `-t test` alone skips both typecheck and eslint, so a green `test` can hide a broken build.
+1. **Run the real gate.** `nx run-many -t build --all` is what CI runs (on a pull request or push, `nx affected -t build` against the diff base; the full run when there is none). `-t test` alone skips both typecheck and eslint, so a green `test` can hide a broken build.
 2. **Run one project's tests:** `pnpm --filter <project> test`. This spawns `typecheck:tests` first.
 3. **Enable the MongoDB integration suites** when you need them:
 
@@ -63,8 +63,8 @@ The through-line is that a test which *looks* like it covers something must actu
    RUN_MONGO_INTEGRATION=1 pnpm --filter <project> test
    ```
 
-   Locally they skip without it. In CI they **fail** rather than skip if `CI` is set without it.
-4. **Lint by hand** with the flat-config escape hatch, because ESLint 9 defaults to flat config while this repo uses `.eslintrc.json`:
+   Locally they skip without it. On the GitHub Actions runner they **fail** rather than skip if it is missing.
+4. **Lint by hand** with the flat-config escape hatch, because ESLint 9 defaults to flat config while each project uses its own `.eslintrc.json`:
 
    ```bash
    ESLINT_USE_FLAT_CONFIG=false npx eslint --ext .ts,.tsx src test
@@ -122,7 +122,7 @@ The manifest is regenerated on every compile, so it cannot drift from `lib/`. A 
 
 ## The shared mock factories
 
-They live in `packages/api-core/src/testing/` and are imported through the **deep built path**, which a suite's `@pipeline-builder/api-core` module mock does *not* intercept — so a factory can read the real module without recursing into its own mock:
+They live in `packages/api-core/src/testing/` and are imported through their **own package entry** (`@pipeline-builder/api-core/testing`, never re-exported from the production barrel and excluded from the packed package), which a suite's `@pipeline-builder/api-core` module mock does *not* intercept — so a factory can read the real module without recursing into its own mock:
 
 ```ts
 import { drizzleMock } from '@pipeline-builder/api-core/testing';
@@ -136,6 +136,10 @@ import { drizzleMock } from '@pipeline-builder/api-core/testing';
 | `stub-module.ts` → `stubModule(specifier, overrides)` | Every other `@pipeline-builder/*` mock (see above). |
 | `any-fn.ts` → `type AnyFn` | `jest.fn<AnyFn>()` for a collaborator stub whose signature the suite does not care about. |
 | `audit-binding.ts` → `bindTestAuditService(serviceName?, spy?)` / `unbindTestAuditService()` | Bind a service identity for api-core's `recordAudit` in a suite that runs the REAL api-core (the real `recordAudit` throws "audit not initialised" until `wireServiceSecurity` binds a service at boot). Returns a spy called with each recorded event. A suite that mocks api-core instead passes `apiCoreMock({ recordAudit: spy })` — the shared default is an inert `jest.fn()`. |
+| `route-handler.ts` → `handlerGetter(router)` / `routeHandler(router, method, path)` | Pull one route's terminal handler out of a mocked Express router, to call it with your own `req`/`res`. |
+| `route-coverage.ts` → `findRouteCoverageViolations` / `findQuotaCoverageViolations` | Each service's route-coverage test: every write route carries a permission gate and an `audited()` action. |
+| `internal-contracts.ts` → `findContractMountViolations` / `roundTripContractSample` | Contract tests for internal endpoint contracts: mounted at the contract's method + path with exactly its callers. |
+| `user-tokens.ts` / `service-tokens.ts` → `installTestJwks`, `signTestUserToken`, `installTestServiceKeys` | The real ES256 user-token chain (keypair, `kid`, JWKS) and the per-service internal-token chain in its deployed shape. |
 
 A project's `test/helpers/mock-api-core.ts` is a thin wrapper holding only its own defaults:
 
@@ -149,7 +153,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}) {
 
 **`requireActual` is resolved in the project helper, not inside the factory, and that placement is load-bearing.** `requireActual` on an ESM barrel only succeeds when nothing else is mid-`import()` of it. The project helper is a static import of the test file, evaluated before any `await import(SUT)` — the one point where that reliably holds. Resolving it inside the shared factory races the loader in some suites (`Cannot require() ES Module … currently being loaded by a concurrent import()`); resolving it lazily breaks suites that mock a node builtin such as `https`, because the real barrel then links against the suite's partial stub.
 
-> jest 30.4.x has **no `jest.importActual`** — only `requireActual`.
+> jest 30 has **no `jest.importActual`** — only `requireActual`.
 
 ## Authorization gates run for real
 
@@ -183,22 +187,22 @@ controllerHelperMock({ withController: rawThrowController })
 
 `coverageThreshold` is set per project in `.projenrc.ts` and pinned at the **current measured value rounded down to a whole percent**. It is a **ratchet**: it exists to stop coverage sliding, not to hit a number. Raise it when you raise coverage; never lower it to make a red build green — find what stopped being covered.
 
-Security-critical files carry per-path thresholds around 90%:
+Security-critical and money-path files carry per-path thresholds, mostly 95% (a few branch floors sit at 90–94%):
 
 - `packages/api-core/src/utils/audit.ts`
-- `platform/src/services/scim-service.ts`
-- `platform/src/services/mfa-recovery.ts`
+- `platform/src/services/scim-*.ts` (each file on its own), `mfa-recovery.ts`, `api-key-service.ts`
 - `platform/src/controllers/token-exchange.ts`
-- `api/billing/src/helpers/{stripe-invoice-handlers,billing-ledger}.ts`
-- `api/billing/src/routes/stripe-webhook.ts`
+- `api/billing/src/helpers/{stripe-invoice-handlers,billing-ledger,stripe-reversals,promotion-engine,signup-promotions}.ts`
+- `api/billing/src/routes/{stripe-webhook,discounts,billing-summary}.ts`
 - `api/image-registry/src/routes/token.ts`
+- `api/plugin/src/services/ecosystem/{submission-moderation,platform-reads}.ts`, `api/plugin/src/queue/submission-build-queue.ts`
 
 ## When integration tests run
 
 Suites named `*.integration.test.ts` need a real MongoDB (`mongodb-memory-server`) and are gated on `RUN_MONGO_INTEGRATION`.
 
 - **Locally:** skipped unless you set `RUN_MONGO_INTEGRATION=1`.
-- **In CI:** `.github/workflows/test.yml` sets it, and the suites **fail** rather than skip if `CI` is set without it. A gated suite that quietly degrades to "green and empty" is worse than no suite at all — that is the failure mode this guard exists to prevent.
+- **In CI:** `.github/workflows/test.yml` (and `release.yml`) set it, and the suites **fail** rather than skip if it is missing on the GitHub Actions runner. The gate (`test/helpers/integration-gate.ts`) keys on `GITHUB_ACTIONS`, which the runner sets itself, not on the generic `CI` that local tooling often exports. A gated suite that quietly degrades to "green and empty" is worse than no suite at all — that is the failure mode this guard exists to prevent.
 
 ## Deploy contracts
 
@@ -216,7 +220,7 @@ Its Nx inputs include `deploy/**`, so a manifest-only change runs them; the `dep
 
 ## Parity mechanisms
 
-Three checks exist because a *tag* is not a *behaviour*. Each states plainly what it proves — so a green run buys you exactly the confidence it claims, and you know where to look for the rest.
+Four checks exist because a *tag* is not a *behaviour*. Each states plainly what it proves — so a green run buys you exactly the confidence it claims, and you know where to look for the rest.
 
 | Check | Proves | Does **not** prove |
 |---|---|---|
@@ -225,7 +229,7 @@ Three checks exist because a *tag* is not a *behaviour*. Each states plainly wha
 | `frontend/test/audit-action-parity.test.ts` | Every `audited('x')` action is referenced by its service somewhere other than the declaration — catching typos and orphaned declarations | That the emitting path is *reachable from that route*, or runs |
 | `frontend/test/route-permissions.test.tsx` | Every mapped UI control really disappears for a viewer without its permission (it is **rendered twice**), and every write route in every service is either mapped to such a control or categorized | That a control's click reaches the route it is mapped to — the mapping is hand-written |
 
-The audit check is deliberately a cheap ratchet. Proving actual emission means driving all 207 audited routes with authorized fixtures and asserting on the audit sink; that is a much larger piece of work and is **not** done. Do not read a green run as audit-emission coverage.
+The audit check is deliberately a cheap ratchet. Proving actual emission means driving every audited route (several hundred) with authorized fixtures and asserting on the audit sink; that is a much larger piece of work and is **not** done. Do not read a green run as audit-emission coverage.
 
 ### UI gate ↔ API gate parity
 
@@ -235,7 +239,7 @@ The audit check is deliberately a cheap ratchet. Proving actual emission means d
 
 Every row in `CONTROLS` carries a `behaviour` block, and the suite renders the owning page twice — once for a viewer holding the permission, once without — asserting the control is there and then gone. The check used to be `expect(source).toContain("can('x')")`, which is text in a file: it passed on a `can('x')` left in a comment or a tooltip after the JSX around it had been deleted.
 
-**All 55 mapped controls are covered this way** — 22 distinct pages plus five components that own a control no page can reach (the sidebar, the team settings drawer, the plugin create modal, the per-pipeline scorecard card and the team usage card). The two renders are the point: a row that cannot show the control disappearing is a row that proves nothing.
+**Every mapped control is covered this way** (the suite asserts `CONTROLS` holds more than 50 rows) — pages, plus the components that own a control no page can reach (such as the sidebar, the team settings drawer, the plugin create modal, the per-pipeline scorecard card and the team usage card). The two renders are the point: a row that cannot show the control disappearing is a row that proves nothing.
 
 The harness is uniform so a row stays a few lines of data. One set of module mocks supplies the page shell (`useAuthGuard`, `useAuth`, `useFeatures`, `useOrgHierarchy`, `next/router`, `next/dynamic`, `framer-motion`) plus a permissive `@/lib/api` proxy whose answers come from `API_DEFAULTS` overlaid with the row's own `api` payloads. A row adds only what its surface needs:
 
@@ -251,7 +255,7 @@ One more thing the file does deliberately: a block of `jest.mock` stubs for leaf
 
 #### 2. Every write route is accounted for
 
-The rule is no longer limited to routes carrying a feature / step-up / scope / assurance gate: all 293 write routes across the ten services must be either mapped to a control or given a `ROUTE_DISPOSITIONS` entry — a named category plus the caller that was actually looked up. The categories are `machine-only`, `machine-credential`, `external-callback`, `pre-session`, `session-plumbing`, `own-account`, `step-up-resume`, `sysadmin-console`, `same-control` and `no-ui`.
+The rule covers every write route, not only those carrying a feature / step-up / scope / assurance gate: every write route in every service's generated route table (the suite asserts there are more than 250) must be either mapped to a control or given a `ROUTE_DISPOSITIONS` entry — a named category plus the caller that was actually looked up. The categories are `machine-only`, `machine-credential`, `external-callback`, `pre-session`, `session-plumbing`, `own-account`, `step-up-resume`, `sysadmin-console`, `same-control` and `no-ui`.
 
 Four rules keep the registry from becoming a rubber stamp:
 
@@ -262,11 +266,9 @@ Four rules keep the registry from becoming a rubber stamp:
 
 Reasons are required to be long enough to name a file or a caller, so "N/A" cannot pass.
 
-The `no-ui` half used to be unreachable: its assertion opened with `if (d.category !== 'machine-only') continue;`, so only the machine-only check ever ran. Two untrue rows sat under it — `platform POST /user/generate-token` (the machine-token panel on Settings → Security drives it; now `own-account`) and `quota DELETE /quotas/:orgId` (filed `sysadmin-console` beside the usage reset, with no such control; now `no-ui`).
-
 #### 3. Every authenticated read is reachable
 
-The two rules above cover writes and the reads that carry a feature / step-up / scope / assurance gate, which left 156 authenticated GETs unchecked — the half the surveys kept finding holes in. Mapping each to a control is not honest work (a read is not a button, it is whatever a page fetches on mount), so the rule is mechanical instead: every authenticated read must have an api-client method, or a disposition naming the machine surface that drives it.
+The two rules above cover writes and the reads that carry a feature / step-up / scope / assurance gate, which left the plain authenticated GETs (more than 150, asserted) unchecked — the half the surveys kept finding holes in. Mapping each to a control is not honest work (a read is not a button, it is whatever a page fetches on mount), so the rule is mechanical instead: every authenticated read must have an api-client method, or a disposition naming the machine surface that drives it.
 
 What that deliberately does NOT cover is gate parity on reads — a read is gated by the PAGE (`src/lib/page-access.ts`) and a page pulls from many services, so there is no single control to compare against — and which page issues a given read. Unauthenticated reads (`/health`, `/metrics`, `/ready`, `/warmup`, `/config`, JWKS, the registry `/token`) are excluded: they carry nothing to be in parity with.
 
@@ -280,8 +282,12 @@ Found by looking, and recorded as `no-ui` dispositions. None is reachable from t
 | `platform POST /auth/token/exchange` | Service-account token exchange. |
 | `platform POST /auth/key/rotate`, `POST /auth/key/revoke` | Unattended service-account key self-rotation/revocation — the audit-event text says explicitly that no person is present. |
 | `compliance POST /compliance/validate/pipeline`, `POST /compliance/validate/plugin` | The enforcing (non dry-run) validation, called by the CDK at deploy time. The client layer only has the `/dry-run` variants. |
-| `plugin POST /plugins/lookup` | `pipeline-manager`'s plugin pre-resolution before synth. |
+| `plugin POST /plugins/runtime-check` | `pipeline-manager plugin verify`, the report-only run-time grade of a pipeline's plugin images. |
+| `pipeline POST /pipelines/:id/security-reports` | A pipeline run uploading its scanner report (`pipeline-manager security-report upload`, or a plugin step). |
+| `pipeline POST /pipelines/runners` | `pipeline-manager infra setup-runner`, registering a pending runner before it deploys the runner stack. |
 | `ask-agent POST /ask-agent`, `POST /ask-agent/stream` | API / CLI answer endpoints; the dashboard's Ask panel drives only `/ask-agent/agent/stream`. |
+
+The table is not exhaustive; `ROUTE_DISPOSITIONS` is the full list. `plugin POST /plugins/lookup` is `same-control` — the pipeline editor previews a step's plugin resolution through it (`PluginResolutionWarnings.tsx`), behind the plugin list's `plugins:read` gate.
 
 `quota DELETE /quotas/:orgId` was on this list; it is gone — the org-purge cascade drops the quota document through the platform-only internal contract `POST /quotas/internal/orgs/:orgId/purge`, and no user route can.
 

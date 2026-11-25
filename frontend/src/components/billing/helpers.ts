@@ -7,10 +7,11 @@ import { formatCents } from '@/lib/format';
 export const DEFAULT_PLAN_ID = 'developer';
 
 /**
- * Formats a plan price in cents as a display string. `0` renders as "Free";
- * pass `{ suffix: '/mo' }` for the per-month form used on the pickers.
+ * Formats a price in cents of `currency` (the lower-case ISO code the billing
+ * response names) as a display string. `0` renders as "Free"; pass
+ * `{ suffix: '/mo' }` for the per-month form used on the pickers.
  */
-export function formatPrice(cents: number, opts?: { suffix?: string }): string {
+export function formatPrice(cents: number, currency: string, opts?: { suffix?: string }): string {
   if (cents === 0) return 'Free';
-  return `${formatCents(cents)}${opts?.suffix ?? ''}`;
+  return `${formatCents(cents, currency)}${opts?.suffix ?? ''}`;
 }

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/incidents-webhook.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e8ea6ba21fd20693190832a452e129286cd402a7e314c169e4a0837462b5b349
+// SOURCE-SHA256: 41c3d7830123fb0f04f8d5a4e9b3854108399b08cb1a3e2b144f59014c470f94
 // SPDX-License-Identifier: Apache-2.0
 import { Siren } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -259,14 +259,18 @@ export const incidentsWebhookTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "Validation failure",
+              "Validation failure, or a token with no org",
               "400 VALIDATION_ERROR"
             ],
             [
               "Token without the reporting:ingest scope",
-              "403"
+              "403 INSUFFICIENT_PERMISSIONS"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "The two ingest routes are metered against the org's apiCalls quota but never refused for it: a dropped incident cannot be re-sent, so the DORA history would be wrong for good."
         }
       ]
     },
@@ -287,7 +291,7 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The resolve POST updates resolvedAt, and any other changed fields, in place. Retries and at-least-once webhook deliveries are therefore safe."
+          "content": "The resolve POST updates resolvedAt, and any other changed fields, in place. Retries and at-least-once webhook deliveries are therefore safe. A write that changes something (new, resolved, re-opened, re-ranked) is audited as reporting.incident.record with before/after; an unchanged re-post is not."
         }
       ]
     },
@@ -317,7 +321,7 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "GET  /api/reports/settings/incidents      # read { incidentWindowHours, defaultWindowHours,\n                                          #        eventRetentionDays, doraRetentionDays,\n                                          #        defaultEventRetentionDays, defaultDoraRetentionDays }\nPUT  /api/reports/settings/incidents      # any subset of { \"incidentWindowHours\": 12,\n                                          #   \"eventRetentionDays\": 45, \"doraRetentionDays\": 200 }"
+          "content": "GET  /api/reports/settings/incidents      # { settings: { incidentWindowHours, defaultWindowHours,\n                                          #   eventRetentionDays, doraRetentionDays,\n                                          #   defaultEventRetentionDays, defaultDoraRetentionDays } }\nPUT  /api/reports/settings/incidents      # { \"incidentWindowHours\": 12 }"
         },
         {
           "type": "text",
@@ -325,11 +329,11 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The PUT is a partial upsert — send any subset, and omitted fields are left unchanged. When set, the correlation-window override is used everywhere the correlation runs: DORA CFR/MTTR, the incidents list, and the test dry-run. When unset, the env default applies."
+          "content": "The PUT is an idempotent upsert of incidentWindowHours (audited as reporting.settings.update; changing it drops the org's cached DORA reports). When set, the override is used everywhere the correlation runs: DORA CFR/MTTR, the incidents list, and the test dry-run. When unset, the env default applies."
         },
         {
           "type": "text",
-          "content": "The same endpoint carries the two retention overrides (eventRetentionDays / doraRetentionDays, 1–730 days) — see DORA Metrics → Retention."
+          "content": "The GET also returns the two retention values (eventRetentionDays / doraRetentionDays), but they are read-only here: retention is billing-owned, written only by the billing → reporting retention sync from the plan and any purchased Retention / DORA History packs. The PUT body is strict, so sending either field is a 400 — see DORA Metrics → Retention."
         }
       ]
     },
@@ -358,7 +362,7 @@ export const incidentsWebhookTopic: HelpTopic = {
           "rows": [
             [
               "incidentId",
-              "alert fingerprint (falls back to the payload groupKey)"
+              "<fingerprint>@<startsAt as ISO> (fingerprint falls back to the payload groupKey; truncated to 255). The startsAt suffix makes each firing episode of the same alert its own incident."
             ],
             [
               "environment",
@@ -374,7 +378,7 @@ export const incidentsWebhookTopic: HelpTopic = {
             ],
             [
               "resolvedAt",
-              "endsAt, only when the alert status is resolved (Alertmanager's \"no end\" zero value is ignored)"
+              "endsAt, only when the alert's status (or, if absent, the batch status) is resolved (Alertmanager's \"no end\" zero value is ignored)"
             ]
           ]
         },
@@ -384,7 +388,7 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Alerts missing an environment label, a stable fingerprint, or a valid startsAt are skipped, and the response reports { received, ingested, skipped }. Set an environment label on your alerting rules that matches the environment you declared on the deploy stage."
+          "content": "Alerts missing an environment label, a fingerprint (and no groupKey), or a valid startsAt are skipped, and the response reports { received, ingested, skipped, ok }. A batch of more than 1000 alerts is rejected with 400 VALIDATION_ERROR so the sender re-batches; it is never silently truncated. Set an environment label on your alerting rules that matches the environment you declared on the deploy stage."
         }
       ]
     },
@@ -466,7 +470,7 @@ export const incidentsWebhookTopic: HelpTopic = {
             "the generate/rotate flow for the per-org reporting:ingest token, shown once;",
             "provider presets (Alertmanager / PagerDuty / Datadog / generic) with copy-paste setup steps and the required environment mapping;",
             "the per-org correlation window input;",
-            "the Retention inputs — standard-event and DORA-source windows; see DORA Metrics → Retention;",
+            "the Retention windows (standard events and DORA source), read-only, with a link to the retention packs in billing; see DORA Metrics → Retention;",
             "a Send test incident button;",
             "the recent incidents list."
           ]
@@ -481,13 +485,13 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Both require reports:read + advanced_reporting, and are org-admin surfaces."
+          "content": "Both are user-session routes requiring reports:read + advanced_reporting (and an apiCalls quota check); the machine token cannot call them."
         },
         {
           "type": "list",
           "items": [
-            "Test is a non-persisting dry-run: it reports whether a synthetic incident opening now for environment would correlate to a recent successful deploy under the org's window. A wiring and config check that does not write an incident or affect metrics. Returns { environment, openedAt, windowHours, correlated, executionId, deployCompletedAt }.",
-            "List returns recent incidents newest-first, each with its resolved state and its correlated deploy (correlatedExecutionId / deployCompletedAt, or null)."
+            "Test is a non-persisting dry-run: it reports whether a synthetic incident opening now for environment would correlate to a recent successful deploy under the org's window. A wiring and config check that does not write an incident or affect metrics. environment defaults to production. Returns { test: { environment, openedAt, windowHours, correlated, executionId, deployCompletedAt } }.",
+            "List returns incidents newest-first with pagination (hasMore), each with incidentId, environment, severity, openedAt, resolvedAt, createdAt, its resolved state and its correlated deploy (correlatedExecutionId / deployCompletedAt, or null)."
           ]
         }
       ]

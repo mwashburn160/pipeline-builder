@@ -154,7 +154,7 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
             onChange={(e) => { setText(e.target.value); setError(null); }}
             rows={12}
             className="font-mono text-xs"
-            placeholder={'{\n  "name": "node-service",\n  "category": "backend",\n  "inputs": [{ "name": "repoUrl", "label": "Repository URL", "type": "string", "required": true }],\n  "props": { "synth": { "source": { "repositoryUrl": "{{ vars.repoUrl }}" } }, "stages": [] }\n}'}
+            placeholder={'{\n  "name": "node-service",\n  "category": "backend",\n  "inputs": [{ "name": "repo", "label": "Repository", "type": "string", "required": true }],\n  "props": { "synth": { "source": { "type": "github", "options": { "repo": "{{ vars.repo }}" } } }, "stages": [] }\n}'}
             disabled={saving}
           />
         </FormField>

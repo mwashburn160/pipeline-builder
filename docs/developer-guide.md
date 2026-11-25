@@ -33,7 +33,7 @@ For the rationale rather than the mechanics, see [Organization Benefits](organiz
 1. **Choose a creation method** — [dashboard](#1-dashboard-visual-builder), [AI prompt](#2-ai-prompt), [CLI](#3-cli), [REST API](#4-rest-api), or the [CDK construct](#5-cdk-construct-infrastructure-as-code).
 2. **Select plugins** for each stage from the catalog — language, test, lint, security, deploy, and so on.
 3. **Assemble stages** — copy a language or [common pattern](#common-patterns) block and add steps such as Docker build, Terraform, manual approval or notifications.
-4. **Tune step behaviour** — `commands`, `failureBehavior`, timeouts, compute size and metadata.
+4. **Tune step behaviour** — plugin env knobs in `metadata`, `preCommands` / `postCommands`, `failureBehavior`, `timeout` (minutes), and compute size.
 5. **Deploy** — `pipeline-manager pipeline create` then `pipeline deploy`. Each plugin runs as an isolated container in AWS CodePipeline.
 
 ## Configuration
@@ -131,6 +131,8 @@ new PipelineBuilder(stack, 'MyPipeline', {
 
 Every plugin is a reusable, containerized build step. Copy the `plugin` block into your pipeline definition.
 
+A step runs the **plugin's own commands**. There is no step-level `commands` field — the API refuses one with a 400. To change what a step does, set one of the plugin's env knobs in the step's `metadata` (non-namespaced metadata keys become environment variables, e.g. `GRADLE_TASK` below), add `preCommands` / `postCommands` around the plugin's commands, or replace them outright with the `aws:cdk:pipelines:codebuildstep:commands` metadata key. Each plugin's knobs are listed in its [catalog page](plugins/README.md).
+
 ### Java (Spring Boot)
 
 ```json
@@ -140,21 +142,21 @@ Every plugin is a reusable, containerized build step. Copy the `plugin` block in
       "stageName": "Build",
       "steps": [{
         "plugin": { "name": "java-corretto" },
-        "commands": ["./gradlew assemble --no-daemon"]
+        "metadata": { "GRADLE_TASK": "assemble" }
       }]
     },
     {
       "stageName": "Test",
       "steps": [{
         "plugin": { "name": "java-corretto" },
-        "commands": ["./gradlew test --no-daemon"]
+        "metadata": { "GRADLE_TASK": "test" }
       }]
     },
     {
       "stageName": "Lint",
       "steps": [
-        { "plugin": { "name": "checkstyle" }, "commands": ["./gradlew checkstyleMain"] },
-        { "plugin": { "name": "spotbugs" }, "failureBehavior": "warn", "commands": ["./gradlew spotbugsMain"] }
+        { "plugin": { "name": "checkstyle" } },
+        { "plugin": { "name": "spotbugs" }, "failureBehavior": "warn" }
       ]
     },
     {
@@ -176,22 +178,21 @@ Every plugin is a reusable, containerized build step. Copy the `plugin` block in
     {
       "stageName": "Build",
       "steps": [{
-        "plugin": { "name": "nodejs" },
-        "commands": ["npm ci", "npm run build"]
+        "plugin": { "name": "nodejs" }
       }]
     },
     {
       "stageName": "Test",
       "steps": [
-        { "plugin": { "name": "jest" }, "commands": ["npm test -- --coverage"] },
-        { "plugin": { "name": "cypress" }, "commands": ["npx cypress run"] }
+        { "plugin": { "name": "jest" } },
+        { "plugin": { "name": "cypress" } }
       ]
     },
     {
       "stageName": "Lint",
       "steps": [
-        { "plugin": { "name": "eslint" }, "commands": ["npx eslint ."] },
-        { "plugin": { "name": "prettier" }, "commands": ["npx prettier --check ."] }
+        { "plugin": { "name": "eslint" } },
+        { "plugin": { "name": "prettier" } }
       ]
     },
     {
@@ -213,28 +214,27 @@ Every plugin is a reusable, containerized build step. Copy the `plugin` block in
     {
       "stageName": "Build",
       "steps": [{
-        "plugin": { "name": "python" },
-        "commands": ["pip install -r requirements.txt"]
+        "plugin": { "name": "python" }
       }]
     },
     {
       "stageName": "Test",
       "steps": [
-        { "plugin": { "name": "python-pytest" }, "commands": ["pytest --cov=src tests/"] },
-        { "plugin": { "name": "coverage-py" }, "commands": ["coverage report --fail-under=80"] }
+        { "plugin": { "name": "python-pytest" } },
+        { "plugin": { "name": "coverage-py" } }
       ]
     },
     {
       "stageName": "Lint",
       "steps": [
-        { "plugin": { "name": "ruff" }, "commands": ["ruff check ."] },
-        { "plugin": { "name": "mypy" }, "commands": ["mypy src/"] }
+        { "plugin": { "name": "ruff" } },
+        { "plugin": { "name": "mypy" } }
       ]
     },
     {
       "stageName": "Security",
       "steps": [
-        { "plugin": { "name": "bandit" }, "commands": ["bandit -r src/"] },
+        { "plugin": { "name": "bandit" } },
         { "plugin": { "name": "snyk-python" } }
       ]
     }
@@ -250,29 +250,26 @@ Every plugin is a reusable, containerized build step. Copy the `plugin` block in
     {
       "stageName": "Build",
       "steps": [{
-        "plugin": { "name": "go" },
-        "commands": ["go build ./..."]
+        "plugin": { "name": "go" }
       }]
     },
     {
       "stageName": "Test",
       "steps": [{
-        "plugin": { "name": "go-test" },
-        "commands": ["go test -v -race -coverprofile=coverage.out ./..."]
+        "plugin": { "name": "go-test" }
       }]
     },
     {
       "stageName": "Lint",
       "steps": [{
-        "plugin": { "name": "golangci-lint" },
-        "commands": ["golangci-lint run ./..."]
+        "plugin": { "name": "golangci-lint" }
       }]
     },
     {
       "stageName": "Security",
       "steps": [
         { "plugin": { "name": "gosec" } },
-        { "plugin": { "name": "govulncheck" }, "commands": ["govulncheck ./..."] }
+        { "plugin": { "name": "govulncheck" } }
       ]
     }
   ]
@@ -287,28 +284,26 @@ Every plugin is a reusable, containerized build step. Copy the `plugin` block in
     {
       "stageName": "Build",
       "steps": [{
-        "plugin": { "name": "rust" },
-        "commands": ["cargo build --release"]
+        "plugin": { "name": "rust" }
       }]
     },
     {
       "stageName": "Test",
       "steps": [{
-        "plugin": { "name": "cargo-test" },
-        "commands": ["cargo test --all"]
+        "plugin": { "name": "cargo-test" }
       }]
     },
     {
       "stageName": "Lint",
       "steps": [
-        { "plugin": { "name": "clippy" }, "commands": ["cargo clippy -- -D warnings"] },
-        { "plugin": { "name": "rustfmt" }, "commands": ["cargo fmt --check"] }
+        { "plugin": { "name": "clippy" } },
+        { "plugin": { "name": "rustfmt" } }
       ]
     },
     {
       "stageName": "Security",
       "steps": [
-        { "plugin": { "name": "cargo-audit" }, "commands": ["cargo audit"] },
+        { "plugin": { "name": "cargo-audit" } },
         { "plugin": { "name": "snyk-rust" } }
       ]
     }
@@ -324,21 +319,19 @@ Every plugin is a reusable, containerized build step. Copy the `plugin` block in
     {
       "stageName": "Build",
       "steps": [{
-        "plugin": { "name": "dotnet" },
-        "commands": ["dotnet build --configuration Release"]
+        "plugin": { "name": "dotnet" }
       }]
     },
     {
       "stageName": "Test",
       "steps": [{
-        "plugin": { "name": "dotnet-test" },
-        "commands": ["dotnet test --configuration Release --collect:\"XPlat Code Coverage\""]
+        "plugin": { "name": "dotnet-test" }
       }]
     },
     {
       "stageName": "Lint",
       "steps": [
-        { "plugin": { "name": "dotnet-format" }, "commands": ["dotnet format --verify-no-changes"] },
+        { "plugin": { "name": "dotnet-format" } },
         { "plugin": { "name": "roslyn-analyzers" } }
       ]
     },
@@ -361,29 +354,27 @@ Every plugin is a reusable, containerized build step. Copy the `plugin` block in
     {
       "stageName": "Build",
       "steps": [{
-        "plugin": { "name": "ruby" },
-        "commands": ["bundle install"]
+        "plugin": { "name": "ruby" }
       }]
     },
     {
       "stageName": "Test",
       "steps": [
-        { "plugin": { "name": "rails-test" }, "commands": ["bundle exec rails test"] },
+        { "plugin": { "name": "rails-test" } },
         { "plugin": { "name": "minitest-coverage" } }
       ]
     },
     {
       "stageName": "Lint",
       "steps": [{
-        "plugin": { "name": "rubocop" },
-        "commands": ["bundle exec rubocop"]
+        "plugin": { "name": "rubocop" }
       }]
     },
     {
       "stageName": "Security",
       "steps": [
-        { "plugin": { "name": "brakeman" }, "commands": ["brakeman --no-pager"] },
-        { "plugin": { "name": "bundler-audit" }, "commands": ["bundle audit check --update"] }
+        { "plugin": { "name": "brakeman" } },
+        { "plugin": { "name": "bundler-audit" } }
       ]
     }
   ]
@@ -404,8 +395,9 @@ Append to any pipeline's stages:
   "steps": [{
     "plugin": { "name": "docker-build" },
     "metadata": {
-      "DOCKER_REPO": "your-account.dkr.ecr.us-east-1.amazonaws.com/your-app",
-      "DOCKER_TAG": "latest"
+      "ECR_REGISTRY": "123456789012.dkr.ecr.us-east-1.amazonaws.com",
+      "IMAGE_NAME": "123456789012.dkr.ecr.us-east-1.amazonaws.com/your-app",
+      "IMAGE_TAG": "latest"
     }
   }]
 }
@@ -418,11 +410,7 @@ Append to any pipeline's stages:
   "stageName": "Deploy",
   "steps": [{
     "plugin": { "name": "terraform" },
-    "commands": [
-      "terraform init",
-      "terraform plan -out=tfplan",
-      "terraform apply -auto-approve tfplan"
-    ]
+    "metadata": { "TF_ACTION": "apply", "TF_AUTO_APPROVE": "true" }
   }]
 }
 ```
@@ -446,13 +434,12 @@ Append to any pipeline's stages:
   "stageName": "Notify",
   "steps": [{
     "plugin": { "name": "slack-notify" },
-    "metadata": {
-      "SLACK_WEBHOOK_URL": "${SLACK_WEBHOOK}",
-      "SLACK_CHANNEL": "#deployments"
-    }
+    "metadata": { "SLACK_CHANNEL": "#deployments" }
   }]
 }
 ```
+
+The webhook URL is the plugin's required `SLACK_WEBHOOK_URL` secret — create it at `pipeline-builder/{orgId}/SLACK_WEBHOOK_URL` rather than putting it in the definition.
 
 ### Failure Behavior Options
 
@@ -506,7 +493,7 @@ A full pipeline definition for a Spring Boot application:
         "stageName": "Build",
         "steps": [{
           "plugin": { "name": "java-corretto" },
-          "commands": ["./gradlew assemble --no-daemon --parallel"],
+          "metadata": { "GRADLE_TASK": "assemble" },
           "timeout": 30
         }]
       },
@@ -514,7 +501,7 @@ A full pipeline definition for a Spring Boot application:
         "stageName": "Test",
         "steps": [{
           "plugin": { "name": "java-corretto" },
-          "commands": ["./gradlew test --no-daemon"],
+          "metadata": { "GRADLE_TASK": "test" },
           "timeout": 45
         }]
       },
@@ -535,8 +522,7 @@ A full pipeline definition for a Spring Boot application:
       {
         "stageName": "Deploy",
         "steps": [{
-          "plugin": { "name": "cdk-deploy" },
-          "commands": ["cdk deploy --all --require-approval never"]
+          "plugin": { "name": "cdk-deploy" }
         }]
       }
     ]

@@ -165,6 +165,13 @@ describe('Verified eligibility at decision time', () => {
     expect(e.checks[0]).toMatchObject({ id: 'plan', ok: false });
     expect(() => eligibility.assertVerifiedEligible(e, 'decision')).toThrow(expect.objectContaining({ code: 'VERIFIED_PLAN_REQUIRED' }) as any);
   });
+
+  it('the plan refusal names every purchasable tier whose features include verified_publisher', async () => {
+    h.quota.getTierStrict.mockResolvedValue('developer' as never);
+    const e = await eligibility.checkVerifiedEligibility('org-acme');
+    // Derived from TIER_FEATURES — Business qualifies too, not only Team/Enterprise.
+    expect(e.checks[0]!.detail).toBe('Verified publishing needs the Team, Business or Enterprise plan.');
+  });
 });
 
 // -----------------------------------------------------------------------------

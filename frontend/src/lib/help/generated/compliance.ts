@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 711ddec81a777326b76e2935e88fa64f8166e70f6acc022eb6c3b2edffcb277d
+// SOURCE-SHA256: fe684a345ecaa4dfe49359e0b5cae6350aa967b85c3f415e07a3968d64ba8de4
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -28,10 +28,10 @@ export const complianceTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Fail-closed. If the compliance service is unreachable, plugin uploads and pipeline creates are rejected (HTTP 503) rather than waved through.",
+            "Fail-closed. If the compliance service is unreachable, plugin and pipeline writes are rejected (HTTP 503 COMPLIANCE_SERVICE_UNAVAILABLE) rather than waved through, unless the calling service sets COMPLIANCE_BYPASS=true.",
             "Each organization owns its compliance. The system org does not enforce rules on other orgs — it publishes recommendations any org can browse, subscribe to and customize. The one exception is the org → team hierarchy.",
             "The system org is itself exempt, and scheduled scans always skip it.",
-            "Blocking is by severity. error and critical block creation with a 403; warning logs and allows.",
+            "Blocking is by severity. error and critical block the write with a 403; warning logs and allows.",
             "Curated libraries are a shared reference, not a copy. Buying an add-on grants access — one library of 30 rules serves 10,000 orgs as 30 rules plus pointer rows.",
             "Enforcement is entitlement-unaware by design: it reads the org's active subscriptions, and a separate sync leg keeps that active set in step with billing.",
             "Authoring your own rules is free and ungated on every tier. The add-ons sell maintained curation, not the ability to write rules.",
@@ -61,7 +61,7 @@ export const complianceTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Inline check — a plugin upload or pipeline create calls /compliance/validate/... synchronously. error and critical violations block the operation with a 403.",
+            "Inline check — a plugin upload, update or deploy, or a pipeline create or update (single and bulk), calls /compliance/validate/... synchronously. error and critical violations block the operation with a 403.",
             "Rule merge — the engine evaluates the org's own rules plus its active subscribed published rules. A parent rule marked propagateToChildren also applies to nested teams.",
             "Async re-check — plugin and pipeline mutations enqueue a BullMQ event; a background worker re-evaluates the changed entity under its own tenant scope.",
             "Bulk / scheduled scans — POST /compliance/scans, or a cron scan-schedule, sweeps the org's full inventory through the same engine on demand or on a recurring basis.",
@@ -186,6 +186,21 @@ export const complianceTopic: HelpTopic = {
               "DELETE",
               "/compliance/rules/:id",
               "Soft-delete rule"
+            ],
+            [
+              "GET",
+              "/compliance/rules/deleted",
+              "The org's soft-deleted rules, most recent first"
+            ],
+            [
+              "POST",
+              "/compliance/rules/:id/restore",
+              "Restore a soft-deleted rule (compliance:write + step-up)"
+            ],
+            [
+              "POST",
+              "/compliance/rules/:id/purge",
+              "Permanently delete a soft-deleted rule (compliance:write + step-up)"
             ]
           ]
         },
@@ -420,7 +435,22 @@ export const complianceTopic: HelpTopic = {
             [
               "DELETE",
               "/compliance/policies/:id",
-              "Delete policy"
+              "Soft-delete policy"
+            ],
+            [
+              "GET",
+              "/compliance/policies/deleted",
+              "The org's soft-deleted policies, most recent first"
+            ],
+            [
+              "POST",
+              "/compliance/policies/:id/restore",
+              "Restore a soft-deleted policy (compliance:write + step-up)"
+            ],
+            [
+              "POST",
+              "/compliance/policies/:id/purge",
+              "Permanently delete a soft-deleted policy (compliance:write + step-up)"
             ]
           ]
         },
@@ -638,7 +668,7 @@ export const complianceTopic: HelpTopic = {
             ],
             [
               "regex",
-              "Pattern match (pattern length capped, default 100 chars; configurable via COMPLIANCE_MAX_REGEX_LENGTH)"
+              "Pattern match (pattern length capped, default 100 chars, COMPLIANCE_MAX_REGEX_LENGTH; each match is cut off after COMPLIANCE_REGEX_TIMEOUT_MS, default 50 ms). A pattern that is too long, invalid or times out counts as a violation"
             ],
             [
               "exists / notExists",
@@ -683,7 +713,7 @@ export const complianceTopic: HelpTopic = {
             ],
             [
               "$lines(field)",
-              "$lines(dockerfile) — line count"
+              "$lines(description) — line count"
             ]
           ]
         },
@@ -798,14 +828,14 @@ export const complianceTopic: HelpTopic = {
               "Standard Compliance",
               "compliance_standard",
               "Five policies (security baseline, quality, naming, cost, production readiness) over a curated library of 9 CI/CD guardrails (pinned versions, semver, no privileged builds, no public plugins, naming, stage counts, …)",
-              "$29.99 / mo · $299.99 / yr",
+              "$29.99 / mo · $299.90 / yr",
               "Buy on Developer / Pro / Team / Business · included in Enterprise / Unlimited"
             ],
             [
               "Advanced Compliance",
               "compliance_advanced",
               "Three framework policies — SOC2, PCI-DSS, CIS (51 rules total), each rule tagged with its framework control id — requires Standard",
-              "$99.99 / mo · $999.99 / yr",
+              "$99.99 / mo · $999.90 / yr",
               "Buy on Developer / Pro / Team / Business (requires Standard, or buy the Suite) · included in Enterprise / Unlimited"
             ],
             [
@@ -880,12 +910,20 @@ export const complianceTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "Plugin upload (POST /api/plugins/upload)",
+              "Plugin upload (POST /api/plugins/upload), deploy of a generated plugin",
+              "Blocked (403) if error or critical violations. For an image plugin the image facts (signed, scanned, vuln*, runAsRoot, packages) are deferred and checked after the build; a failure there fails the build with COMPLIANCE_VIOLATION"
+            ],
+            [
+              "Plugin update (PUT /api/plugins/:id, PUT /api/plugins/bulk/update)",
               "Blocked (403) if error or critical violations"
             ],
             [
-              "Pipeline create (POST /api/pipelines)",
+              "Pipeline create (POST /api/pipelines, bulk create)",
               "Blocked (403) if error or critical violations"
+            ],
+            [
+              "Pipeline update (PUT /api/pipelines/:id, bulk update)",
+              "Blocked (403) when the change touches a field rules read"
             ]
           ]
         },
@@ -895,8 +933,12 @@ export const complianceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"success\": false,\n  \"status\": 403,\n  \"code\": \"COMPLIANCE_VIOLATION\",\n  \"details\": {\n    \"violations\": [{ \"ruleName\": \"block-latest-image-tag\", \"severity\": \"error\", \"field\": \"version\" }]\n  }\n}",
+          "content": "{\n  \"success\": false,\n  \"statusCode\": 403,\n  \"message\": \"Plugin upload blocked by compliance rules\",\n  \"code\": \"COMPLIANCE_VIOLATION\",\n  \"details\": {\n    \"violations\": [{ \"ruleId\": \"…\", \"ruleName\": \"block-latest-image-tag\", \"severity\": \"error\", \"field\": \"version\", \"operator\": \"neq\", \"expectedValue\": \"latest\", \"actualValue\": \"latest\", \"message\": \"…\" }]\n  }\n}",
           "language": "json"
+        },
+        {
+          "type": "text",
+          "content": "An unreachable compliance service answers 503 COMPLIANCE_SERVICE_UNAVAILABLE (a create or upload refunds its quota slot). Each validation attempt times out after COMPLIANCE_VALIDATE_TIMEOUT_MS (default 4000) and is retried; COMPLIANCE_BYPASS=true on the calling service turns an outage into a pass (fail-open)."
         }
       ]
     },
@@ -1127,6 +1169,10 @@ export const complianceTopic: HelpTopic = {
             [
               "compliance_notification_log",
               "Notification delivery history"
+            ],
+            [
+              "compliance_entitlement_watermark",
+              "Per-org timestamp of the last applied billing entitlement sync, so an out-of-order push can't revert a newer one"
             ]
           ]
         }
@@ -1175,6 +1221,11 @@ export const complianceTopic: HelpTopic = {
               "Max length of a user-supplied regex pattern"
             ],
             [
+              "COMPLIANCE_REGEX_TIMEOUT_MS",
+              "50",
+              "Wall-clock cap on one regex match; a match that runs over counts as a violation"
+            ],
+            [
               "COMPLIANCE_MAX_ATTRIBUTE_DEPTH",
               "10",
               "Max nesting depth of entity attributes evaluated"
@@ -1195,13 +1246,28 @@ export const complianceTopic: HelpTopic = {
               "Scan progress flush batch size"
             ],
             [
+              "COMPLIANCE_SCAN_ENTITY_PAGE_SIZE",
+              "1000",
+              "Page size when a scan reads a target's entities (every page is evaluated)"
+            ],
+            [
+              "COMPLIANCE_SCAN_ENTITY_MAX_TOTAL",
+              "100000",
+              "Most entities one scan reads per target; over it the scan fails rather than truncating"
+            ],
+            [
+              "COMPLIANCE_NOTIFY_TIMEOUT_MS",
+              "5000",
+              "Per-channel notification delivery timeout"
+            ],
+            [
               "SCAN_SCHEDULER_INTERVAL_MS",
               "60000",
               "Scan scheduler interval (ms)"
             ],
             [
               "SCAN_LOCK_TTL_MS",
-              "300000",
+              "120000",
               "Scan scheduler cross-pod leader-lock TTL (ms)"
             ],
             [
@@ -1216,7 +1282,7 @@ export const complianceTopic: HelpTopic = {
             ],
             [
               "DIGEST_LOCK_TTL_MS",
-              "300000",
+              "120000",
               "Digest scheduler cross-pod leader-lock TTL (ms)"
             ],
             [

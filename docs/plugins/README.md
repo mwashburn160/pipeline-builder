@@ -38,7 +38,7 @@ Pipeline Builder ships with **118 plugins** across **10 categories**, covering t
 | Monitoring | 3 | APM and release tracking | [monitoring.md](monitoring.md) |
 | Artifact & Registry | 16 | Package publishing, container image push, and binary compilation | [artifact.md](artifact.md) |
 | Deploy | 13 | Cloud provisioning, K8s, serverless, database migration | [deploy.md](deploy.md) |
-| Infrastructure | 5 | AWS CDK synth, pipeline utilities (approval gates, S3 cache, raw shell step) | [infrastructure.md](infrastructure.md) |
+| Infrastructure | 4 | Pipeline utilities (approval gates, S3 cache, raw shell step) | [infrastructure.md](infrastructure.md) |
 | Testing | 14 | Unit, integration, API contract, load/performance, E2E browser, and smoke testing | [testing.md](testing.md) |
 | Notification | 5 | Pipeline status alerts (Slack, Teams, PagerDuty, email, GitHub) | [notification.md](notification.md) |
 | AI | 1 | AI-powered Dockerfile generation (multi-provider) | [ai.md](ai.md) |
@@ -203,8 +203,8 @@ The following table lists every plugin that requires external tokens or credenti
 
 | Plugin | Category | Required Secrets | Source |
 |--------|----------|-----------------|--------|
-| snyk-nodejs | security | `SNYK_TOKEN` | [snyk.io](https://snyk.io) |
-| sonarcloud-nodejs | security | `SONAR_TOKEN` | [sonarcloud.io](https://sonarcloud.io) |
+| snyk-nodejs, snyk-java, snyk-python, snyk-go, snyk-dotnet, snyk-ruby, snyk-rust | security | `SNYK_TOKEN` | [snyk.io](https://snyk.io) |
+| sonarcloud-nodejs, sonarcloud-java, sonarcloud-python, sonarcloud-go, sonarcloud-dotnet, sonarcloud-ruby, sonarcloud-rust | security | `SONAR_TOKEN` | [sonarcloud.io](https://sonarcloud.io) |
 | dependency-check | security | `NVD_API_KEY` (optional) | [nvd.nist.gov](https://nvd.nist.gov) |
 | veracode | security | `VERACODE_API_ID`, `VERACODE_API_KEY` | [veracode.com](https://veracode.com) |
 | checkmarx | security | `CX_CLIENT_SECRET` | [checkmarx.com](https://checkmarx.com) |
@@ -218,14 +218,14 @@ The following table lists every plugin that requires external tokens or credenti
 | datadog | monitoring | `DD_API_KEY` | [datadoghq.com](https://www.datadoghq.com) |
 | newrelic | monitoring | `NEW_RELIC_API_KEY` | [newrelic.com](https://newrelic.com) |
 | sentry-release | monitoring | `SENTRY_AUTH_TOKEN` | [sentry.io](https://sentry.io) |
-| docker-build | artifact | ECR: IAM role / DockerHub: `DOCKER_USERNAME`, `DOCKER_PASSWORD` | - |
+| docker-build | artifact | ECR: IAM role / DockerHub: `DOCKER_USERNAME`, `DOCKER_PASSWORD` / custom registry: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` (all optional) | - |
 | ghcr-push | artifact | `GITHUB_TOKEN` | [github.com](https://github.com) |
 | gar-push | artifact | `GOOGLE_APPLICATION_CREDENTIALS` | [cloud.google.com](https://cloud.google.com) |
 | acr-push | artifact | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | [azure.microsoft.com](https://azure.microsoft.com) |
 | jfrog-push | artifact | `JFROG_TOKEN` | [jfrog.com](https://jfrog.com) |
 | npm-publish | artifact | `NPM_TOKEN` | [npmjs.com](https://www.npmjs.com) |
 | pypi-publish | artifact | `TWINE_PASSWORD` | [pypi.org](https://pypi.org) |
-| maven-publish | artifact | `OSSRH_USERNAME`, `OSSRH_PASSWORD`, `GPG_PASSPHRASE` | [central.sonatype.com](https://central.sonatype.com) |
+| maven-publish | artifact | `OSSRH_USERNAME`, `OSSRH_PASSWORD`; `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE` (optional, signing) | [central.sonatype.com](https://central.sonatype.com) |
 | nuget-publish | artifact | `NUGET_API_KEY` | [nuget.org](https://www.nuget.org) |
 | cargo-publish | artifact | `CARGO_REGISTRY_TOKEN` | [crates.io](https://crates.io) |
 | gem-publish | artifact | `GEM_HOST_API_KEY` | [rubygems.org](https://rubygems.org) |
@@ -234,6 +234,7 @@ The following table lists every plugin that requires external tokens or credenti
 | azure-deploy | deploy | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | [azure.microsoft.com](https://azure.microsoft.com) |
 | kubectl-deploy | deploy | `KUBECONFIG_DATA` (base64) | - |
 | helm-deploy | deploy | `KUBECONFIG_DATA` (base64) | - |
+| serverless-framework | deploy | `SERVERLESS_ACCESS_KEY` (optional; v4 licence key) | [serverless.com](https://www.serverless.com) |
 | flyway | deploy | `FLYWAY_USER`, `FLYWAY_PASSWORD` | [flywaydb.org](https://flywaydb.org) |
 | slack-notify | notification | `SLACK_WEBHOOK_URL` | [api.slack.com](https://api.slack.com) |
 | teams-notify | notification | `TEAMS_WEBHOOK_URL` | [learn.microsoft.com](https://learn.microsoft.com) |

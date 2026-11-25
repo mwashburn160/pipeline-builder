@@ -127,7 +127,7 @@ describe('EditUserModal', () => {
 });
 
 const plan = (id: string, monthly: number, annual: number) => ({
-  id, name: id[0].toUpperCase() + id.slice(1), description: `${id} plan`, tier: id, prices: { monthly, annual },
+  id, name: id[0].toUpperCase() + id.slice(1), description: `${id} plan`, tier: id, prices: { monthly, annual }, currency: 'usd',
   features: [`${id} feature`], isDefault: false, sortOrder: 0,
 });
 const plans = [plan('developer', 0, 0), plan('pro', 4900, 49_000), plan('team', 19_900, 199_000)];

@@ -20,6 +20,7 @@
 import { sendSuccess } from '@pipeline-builder/api-core';
 import { envLite } from '../config/env-lite.js';
 import { requirePlatformPermission, withController } from '../helpers/controller-helper.js';
+import { ACTIVE_KMS_CONFIG_FILTER } from '../helpers/org-kms-config.js';
 import { Organization, User } from '../models/index.js';
 import OrgIdpConfig from '../models/org-idp-config.js';
 
@@ -37,7 +38,7 @@ export const getAdminSummary = withController('Get admin summary', async (req, r
   const [orgCount, sysadminCount, perOrgKmsCount, idpConfiguredCount, totalUsers] = await Promise.all([
     Organization.countDocuments({}),
     User.countDocuments({ isSuperAdmin: true }),
-    Organization.countDocuments({ 'kmsConfig.keyId': { $exists: true, $ne: null } }),
+    Organization.countDocuments({ ...ACTIVE_KMS_CONFIG_FILTER }),
     OrgIdpConfig.countDocuments({ enabled: true }),
     User.countDocuments({}),
   ]);

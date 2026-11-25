@@ -50,6 +50,7 @@ import { isRuntimeVulnCheckEnabled, RUNTIME_VULN_CHECK_KEY } from '../core/runti
 import { resolveSecurityGroup } from '../core/security-group.js';
 import { selfMutationPartialBuildSpec } from '../core/self-mutation.js';
 import type { StepManifestEntry } from '../core/step-manifest.js';
+import { resolvePipelineProps } from '../template/pipeline-props.js';
 
 /** `operations.notificationevents` names (case-insensitive) → the CodePipeline notification event. */
 const PIPELINE_EVENTS = {
@@ -270,6 +271,13 @@ export class PipelineBuilder extends Construct {
 
   constructor(scope: Construct, id: string, props: BuilderProps) {
     super(scope, id);
+
+    // Pass 1: the props' own self-references (`project`, `vars.*`, and metadata
+    // across `global` ← `defaults.metadata` ← `synth.metadata`) — resolved HERE,
+    // before anything reads them, so every synth path (platform fetch, local
+    // spec, `pipeline create --deploy`) gives plugin templates real values. The
+    // same implementation the API's `?resolve=true` and `--show-resolved` use.
+    props = resolvePipelineProps(props);
 
     // Apply platform-sourced registry overrides BEFORE any Config.get('registry')
     // (plugin/default build-image resolution below) so the synth uses the pull

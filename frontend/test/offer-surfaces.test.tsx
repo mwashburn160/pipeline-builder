@@ -52,7 +52,7 @@ type Bundle = Parameters<typeof OfferBasketModal>[0]['bundles'][number];
 
 const PACK = {
   id: 'pipeline_pack', name: 'Pipeline Pack', description: '', grants: { pipelines: 10 },
-  prices: { monthly: 1199, annual: 11_990 }, stackable: true,
+  prices: { monthly: 1199, annual: 11_990 }, currency: 'usd', stackable: true,
   availableForTiers: ['pro'],
 } as Bundle;
 const PLUGIN_PACK = { ...PACK, id: 'plugin_pack', name: 'Plugin Pack', prices: { monthly: 999, annual: 9_990 } } as Bundle;

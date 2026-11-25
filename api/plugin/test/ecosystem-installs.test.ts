@@ -429,6 +429,33 @@ describe('catalog, install state, installs list and shadowing', () => {
     expect((await installs.shadowing(MEMBER({ userId: 'u-x' }))).shadowing.map((s) => s.name)).toEqual(['semgrep', 'trivy']);
     expect((await installs.shadowing(MEMBER({ orgId: 'team-b', parentOrgId: 'org-b' }))).shadowing).toEqual([]);
   });
+
+  it('never reports an org\'s own plugin as shadowing the listing its OWN publisher published from it', async () => {
+    const { official, acme } = seedPublishers(db, { tenantTier: 'verified' });
+    listing(official, 'acr-push', ['1.0.1']);
+    listing(acme, 'lint', ['1.0.0']);
+    db.seed('plugins', { orgId: SYSTEM_ORG, name: 'acr-push', visibility: 'public', createdBy: 'sa-loader', deletedAt: null });
+    db.seed('plugins', { orgId: 'org-acme', name: 'lint', visibility: 'public', createdBy: 'u-a', deletedAt: null });
+    const system = tenant({ userId: 'sa-loader', orgId: SYSTEM_ORG, permissions: ['plugins:read', 'plugins:install'] }) as any;
+    const acmeMember = tenant({ userId: 'u-a', orgId: 'org-acme', permissions: ['plugins:read', 'plugins:install'] }) as any;
+    db.seed('plugin_installs', { orgId: 'org-acme', listingId: db.tables.plugin_listings.find((l) => l.name === 'lint')!.id, status: 'active', installedBy: 'u-a', pinnedVersion: '1.0.0' });
+
+    expect((await installs.shadowing(system)).shadowing).toEqual([]);
+    expect((await installs.shadowingDecision(system, 'acr-push')).shadows).toEqual([]);
+    expect((await installs.installState(system, 'pipeline-builder', 'acr-push')).entry).toMatchObject({ shadowedBy: null });
+    expect((await installs.catalog(system, {})).listings.find((e) => e.listing.name === 'acr-push')).toMatchObject({ shadowedBy: null });
+    expect(await lookup.shadowedListing({ orgId: SYSTEM_ORG }, 'acr-push')).toBeNull();
+    // A tenant publisher's own source plugin is not shadowing its own listing either.
+    expect((await installs.shadowing(acmeMember)).shadowing).toEqual([]);
+    expect((await installs.shadowingDecision(acmeMember, 'lint')).shadows).toEqual([]);
+
+    // Another org's same-named plugin still shadows it.
+    db.seed('plugins', { orgId: 'org-b', name: 'acr-push', visibility: 'org', createdBy: 'u-member', deletedAt: null });
+    expect((await installs.shadowing(MEMBER())).shadowing.map((s) => s.name)).toEqual(['acr-push']);
+    expect((await installs.shadowingDecision(MEMBER(), 'acr-push')).shadows).toEqual(['listing:pipeline-builder/acr-push']);
+    expect((await installs.installState(MEMBER(), 'pipeline-builder', 'acr-push')).entry.shadowedBy).not.toBeNull();
+    expect(await lookup.shadowedListing({ orgId: 'org-b' }, 'acr-push')).toEqual({ publisher: 'pipeline-builder', name: 'acr-push' });
+  });
 });
 
 describe('lookup resolution and the signed tier annotation', () => {

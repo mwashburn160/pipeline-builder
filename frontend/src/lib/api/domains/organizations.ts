@@ -83,6 +83,10 @@ export interface OrgTeamRef {
 export interface DeletedTeam extends OrgTeamRef {
   deletedAt: string;
   purgeAfter: string;
+  /** Soft-deleted by a platform operator (a takedown), not by the account. */
+  deletedByPlatform: boolean;
+  /** Whether THIS viewer may restore it: false for a platform takedown seen by a tenant. */
+  restorable: boolean;
 }
 
 /** An org row from the sysadmin list, extended with soft-delete state. The list

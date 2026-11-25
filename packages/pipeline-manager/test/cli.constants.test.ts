@@ -81,6 +81,16 @@ describe('pipelineStackName', () => {
     expect(pipelineStackName('my.app', 'acme')).toBe(pipelineStackName('My.App', 'ACME'));
   });
 
+  // Regression: `<project>-<organization>` is ambiguous when the organization
+  // holds a hyphen — `a-b` / `c` and `a` / `b-c` both read `a-b-c`, so two
+  // slots of one org deploying to one account shared (and overwrote) a stack.
+  it('never lets two pairs share a stack when the organization holds a hyphen', () => {
+    expect(pipelineStackName('a', 'b-c')).not.toBe(pipelineStackName('a-b', 'c'));
+    expect(pipelineStackName('a-b', 'c')).toBe('a-b-c');
+    expect(pipelineStackName('web', 'acme-corp')).toMatch(/^web-acme-corp-[0-9a-f]{8}$/);
+    expect(pipelineStackName('web', 'acme-corp')).toMatch(CFN);
+  });
+
   it('keeps a 128-character plain name, and truncates a longer one to 128 with a hash', () => {
     expect(pipelineStackName('a'.repeat(123), 'acme')).toBe(`${'a'.repeat(123)}-acme`);
     const long = pipelineStackName('a'.repeat(124), 'acme');

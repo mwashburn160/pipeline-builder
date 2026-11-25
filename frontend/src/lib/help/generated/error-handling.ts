@@ -1,6 +1,6 @@
 // GENERATED FROM docs/error-handling.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8cdddef634342b20cd3f8eb2f062133ab526a38727b91ad3777a66e64cfb610b
+// SOURCE-SHA256: a586934dcfecf78da8646de47c25f047b8853419a393418283d980e5be79b4bb
 // SPDX-License-Identifier: Apache-2.0
 import { TriangleAlert } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -60,9 +60,22 @@ export const errorHandlingTopic: HelpTopic = {
           "items": [
             "Code throws a typed error. throw new NotFoundError('Plan not found') — not a status, not a response object, just the error.",
             "The error carries its own contract. Each class in packages/api-core/src/errors/app-errors.ts fixes an HTTP status and a stable code string.",
-            "A central layer translates it. The status and code come off the error; the message becomes the body. No controller needs a lookup table.",
+            "A central layer translates it. withRoute (packages/api-server/src/api/route-wrapper.ts) catches the throw; the status and code come off the error, the message becomes the body, and details is passed through when set. No controller needs a lookup table.",
             "The client reacts to code, not to the message. Messages are for humans and may be reworded; code is the stable contract."
           ]
+        },
+        {
+          "type": "text",
+          "content": "Every error body has the same shape (sendError in packages/api-core/src/utils/response.ts):"
+        },
+        {
+          "type": "code",
+          "content": "{ \"success\": false, \"statusCode\": 409, \"message\": \"…\", \"code\": \"CONFLICT\", \"details\": { } }",
+          "language": "json"
+        },
+        {
+          "type": "text",
+          "content": "A thrown value that is not an AppError becomes 500 INTERNAL_ERROR with the message Internal server error and details.requestId — the raw message is never echoed, since a database error carries SQL and bound parameters. The one exception is Postgres 22P02 (a value that could not be cast, such as a malformed UUID path parameter), which answers 400 VALIDATION_ERROR \"Invalid identifier or value format\"."
         },
         {
           "type": "text",
@@ -94,7 +107,22 @@ export const errorHandlingTopic: HelpTopic = {
             [
               "ConflictError",
               "409",
-              "CONFLICT"
+              "CONFLICT, or a narrower 409 code passed as the second argument (with optional details)"
+            ],
+            [
+              "ConcurrencyConflictError",
+              "412",
+              "PRECONDITION_FAILED — an optimistic-concurrency write lost; details carries expectedUpdatedAt / currentUpdatedAt"
+            ],
+            [
+              "AIDisabledError",
+              "403",
+              "AI_DISABLED — the organization switched AI features off"
+            ],
+            [
+              "AIConfigurationError",
+              "503 (default)",
+              "SERVICE_UNAVAILABLE (default) — an AI request can't be served as asked (the org's own provider key won't load, nothing is configured); thrown instead of falling back to the platform key"
             ],
             [
               "AppError (base)",
@@ -105,7 +133,7 @@ export const errorHandlingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "AppError is the escape hatch for a one-off (status, code, message)."
+          "content": "AppError is the escape hatch for a one-off (status, code, message, details?). Every code has a default status in ErrorCodeStatus (packages/api-core/src/types/error-codes.ts); the subclasses take their status from there."
         },
         {
           "type": "code",
@@ -199,6 +227,26 @@ export const errorHandlingTopic: HelpTopic = {
               "PLUGIN_NAME_LISTED",
               "409",
               "An auto-created placeholder plugin can't take the name of a listed plugin; install the listing instead"
+            ],
+            [
+              "PLUGIN_NAME_SHADOWS",
+              "409",
+              "An upload whose name would override a listing or the parent org's plugin, refused because the consumption policy's name shadowing is deny. details.shadows lists what it would override"
+            ],
+            [
+              "PLUGIN_NAME_LOCKED",
+              "409",
+              "A by-name delete, restore or purge of the name is running; uploads and builds of it are refused until it finishes. details.name"
+            ],
+            [
+              "NAME_TAKEN",
+              "409",
+              "An anonymous submission names a listing another submitter owns, a reserved or Official/Verified name, or one confusable with a top listing. details.reason says which"
+            ],
+            [
+              "SUBMISSIONS_DISABLED",
+              "404",
+              "The anonymous submission API is off on this instance; answered as a plain Not found"
             ]
           ]
         },
@@ -221,7 +269,7 @@ export const errorHandlingTopic: HelpTopic = {
             [
               "VERIFIED_PLAN_REQUIRED",
               "403",
-              "A Verified application (or its approval) from an org whose plan lacks verified_publisher (Team or Enterprise)"
+              "A Verified application (or its approval) from an org whose plan lacks verified_publisher (Team, Business or Enterprise)"
             ],
             [
               "VERIFIED_DOMAIN_REQUIRED",
@@ -310,6 +358,11 @@ export const errorHandlingTopic: HelpTopic = {
               "PLUGIN_UNAVAILABLE",
               "409",
               "The listing or version can't be used. details.reason: yanked (a pin to a yanked listing version), suspended or paused (a paused listing takes no new installs)"
+            ],
+            [
+              "PLUGIN_DELETED",
+              "410",
+              "An unqualified reference (no publisher) names a plugin your organization deleted. It does not fall back to a listing of the same name; restore the plugin or reference the listing with publisher. details: reason: 'deleted', state, name"
             ],
             [
               "IMAGE_VERIFICATION_FAILED",
@@ -411,6 +464,26 @@ export const errorHandlingTopic: HelpTopic = {
               "TOOLCHAIN_PAIR_MISMATCH",
               "500",
               "The release a default points at is missing a half, or its halves disagree. It is never served"
+            ],
+            [
+              "TOOLCHAIN_INITIAL_ALREADY_SET",
+              "409",
+              "System org: a second initial-default call; the initial default is set once, on a fresh install. details.currentDefault"
+            ],
+            [
+              "TOOLCHAIN_DEFAULT_CHANGED",
+              "409",
+              "System org: setting the platform default with an expectedCurrentDefault that no longer matches. details: expectedCurrentDefault, currentDefault"
+            ],
+            [
+              "TOOLCHAIN_DEFAULT_REQUIRED",
+              "409",
+              "System org: yanking the platform default when there is no live previous default to restore. Set another default first"
+            ],
+            [
+              "TOOLCHAIN_GUARD_PAIR_INCOMPLETE, TOOLCHAIN_GUARD_UNSCANNED, TOOLCHAIN_GUARD_VULN_FLOOR, TOOLCHAIN_GUARD_METADATA, TOOLCHAIN_GUARD_CANARY_GATE",
+              "409",
+              "System org: one code per guard on setting the platform default — the release is not a complete live pair, a half is not scanned, it is over the PLUGIN_VULN_MAX_FINDINGS floor, the bootstrap carries no complete toolchain metadata, or the canary gate did not pass"
             ]
           ]
         },

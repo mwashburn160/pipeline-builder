@@ -1,6 +1,6 @@
 // GENERATED FROM docs/metadata-keys.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b2aa3166a88341e483d4a1bd18137afbd64426f170fe8713fd1049b5623d0519
+// SOURCE-SHA256: bf2a897843f2e50ec8c6fe97a6b588169e22abdc80dc0e2ce150708c127cc7c8
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -643,7 +643,7 @@ export const metadataKeysTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Operational settings for execution tracking, metrics, artifact retention, and pipeline variables. Wiring: Custom synth — read directly in PipelineBuilder."
+          "content": "Operational settings for execution tracking, metrics, artifact retention, pipeline variables and the run-time plugin check. Wiring: Custom synth — read directly in PipelineBuilder."
         },
         {
           "type": "table",
@@ -672,6 +672,11 @@ export const metadataKeysTopic: HelpTopic = {
               "PIPELINE_VARIABLES",
               "aws:cdk:operations:variables",
               "Declares CodePipeline V2 pipeline-level variables. JSON array ([{\"name\":\"ENV\",\"default\":\"prod\",\"description\":\"...\"}]) or compact name=default comma list."
+            ],
+            [
+              "RUNTIME_VULN_CHECK",
+              "aws:cdk:operations:runtimevulncheck",
+              "Adds a report-only pipeline-manager plugin verify step per stage that grades the plugin images the stage is about to run (POST /api/plugins/runtime-check); it never blocks. Needs pipelineId and orgId (synthesize through pipeline-manager pipeline synth/deploy --id) — without either the steps are skipped with a warning."
             ]
           ]
         }

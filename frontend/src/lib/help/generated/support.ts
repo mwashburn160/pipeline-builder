@@ -1,6 +1,6 @@
 // GENERATED FROM docs/support.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: df15acd2140b13f1e8d7b219b54788e614bc46000341432cf6951812944c839f
+// SOURCE-SHA256: 06e388c9d0c3b02698f0e4c36fb06817ca6664ee427d34e810cf7bc28c76b203
 // SPDX-License-Identifier: Apache-2.0
 import { LifeBuoy } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -121,7 +121,7 @@ export const supportTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Annual is about 10× monthly, rounded like every other price. Volume pricing applies as contact counts rise. Premium is an upgrade to a Standard or Priority contact rather than a separate level, so it is bought for the specific people who need round-the-clock cover."
+          "content": "Annual is about 10× monthly, rounded like every other price. Volume pricing applies as contact counts rise. Larger accounts also carry a seat-derived size floor (BILLING_SUPPORT_FLOOR_*, on by default): beyond the first 15 seats, the support price is at least $4.99 per seat per month, weighted by level and billed as a visible top-up line — never charged to an account holding no support. See Environment Variables. Premium is an upgrade to a Standard or Priority contact rather than a separate level, so it is bought for the specific people who need round-the-clock cover."
         },
         {
           "type": "text",
@@ -129,7 +129,7 @@ export const supportTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "One-time incidents are the second door: a concession the support desk grants (never sold) that lets an organisation with no contact of its own open one case. The balance belongs to the account — a grant typed against a team lands on its root, and a case opened from any team in the account spends from it. A case opened this way is always filed at level support_incident, which carries no response target, even when the account holds a baseline it could not open against from that team. Members read the remaining balance with GET /billing/support-incidents (messages:read)."
+          "content": "One-time incidents are the second door: a concession the support desk grants (never sold) that lets an organisation with no contact of its own open one case. The balance belongs to the account — a grant typed against a team lands on its root, and a case opened from any team in the account spends from it. A case opened this way is always filed at level support_incident, which carries no response target, even when the account holds a baseline it could not open against from that team. Members read the remaining balance with GET /billing/support-incidents (messages:read); staff grant them with POST /billing/admin/orgs/:orgId/support-incidents (support_cases:write in the system org, step-up, audited as billing.support-incident.grant)."
         }
       ]
     },
@@ -281,7 +281,7 @@ export const supportTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "When a case is closed you can rate it 1–5 with an optional comment. CSAT is the one case field staff may not write, and it is deliberately not in the audit trail: your opinion of your own closed case changes no entitlement and no clock, so it belongs in the record of the case rather than the record of who did what."
+          "content": "Once a case is resolved or closed you can rate it 1–5 with an optional comment. CSAT is the one case field staff may not write, and it is deliberately not in the audit trail: your opinion of your own closed case changes no entitlement and no clock, so it belongs in the record of the case rather than the record of who did what."
         },
         {
           "type": "text",
@@ -371,7 +371,7 @@ export const supportTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "support.case.open and support.case.reply (staff side only, carrying whether that reply stopped the clock); the four workflow actions status, severity, assign and transfer, each with both sides of the transition; the contact entitlement actions designate, revoke, upgrade and downgrade; and support.case.note for internal staff notes, which records that a note was written and its length but never its text."
+          "content": "support.case.open and support.case.reply (staff side only, carrying whether that reply stopped the clock); the four workflow actions status, severity, assign and transfer, each with both sides of the transition; the contact entitlement actions designate, revoke, upgrade and downgrade; and support.case.note for internal staff notes, which records that a note was written and its length but never its text; support.canned.write for staff reply templates; billing.support-incident.grant for one-time incident grants; and the on-call actions support.oncall.paged, .acknowledged, .escalated and .test (see On-call Paging)."
         },
         {
           "type": "text",

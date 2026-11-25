@@ -145,5 +145,17 @@ export {
   type TemplateDraftProblemKind,
   type TemplateDraftValidation,
 } from './template/index.js';
+// The pipeline props' own `{{ … }}` contract (validate / resolve / bake the source)
+export {
+  PIPELINE_SELF_SCOPE_ROOTS,
+  isPipelineTemplatableField,
+  pipelineFieldScopePath,
+  pipelineTemplatableView,
+  type PipelineTemplatableView,
+  validatePipelineProps,
+  type ValidatePipelinePropsOptions,
+  resolvePipelineProps,
+  bakeSourceTemplates,
+} from './template/pipeline-props.js';
 // A plugin's `{{ … }}` resolution against a pipeline scope (synth, `plugin test`)
 export { resolvePluginTemplates } from './template/plugin-resolver.js';

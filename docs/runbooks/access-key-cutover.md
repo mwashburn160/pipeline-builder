@@ -10,7 +10,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Access Keys and Machine Credentials
 
-Issuing the personal keys people need, and provisioning the three machine credentials an AWS deployment cannot run without.
+Issuing the personal keys people need, and provisioning the four machine credentials an AWS deployment runs on.
 
 ## Highlights
 
@@ -18,7 +18,7 @@ Issuing the personal keys people need, and provisioning the three machine creden
 - **A key is shown once.** Only its SHA-256 is stored, so a lost key is reissued, never recovered.
 - **Every step is repeatable.** Re-running it rotates rather than duplicates.
 - **`registry-push` is not optional on AWS** — synth wires it into every build image unconditionally.
-- **Redeploy the ingestion Lambda after storing its key**, or it keeps running the old handler.
+- **Run `infra setup-events --scoped-ingest` after storing the ingest key**, or the Lambda reads the platform secret and every ingest is refused `403` (no `reporting:ingest` scope).
 - **Keys are per organization.** The stored secrets live at `pipeline-builder/{orgId}/…`, so each org you onboard needs its own.
 - **`audit tokens` is the check that matters** — it lists every stored credential, its expiry, and whether it is a key at all.
 
@@ -40,11 +40,12 @@ For *why* an opaque key is the only shape in which revocation actually works, se
 ## Configuration
 
 1. **Issue the personal keys** people need — see [Issuing personal keys](#issuing-personal-keys). Issuing is step-up gated, so it asks for your password.
-2. **Provision the three machine credentials** on an AWS target, in this order — see [Machine credentials](#machine-credentials-the-service-accounts):
-   1. the org's full-privilege automation credential, for synth, deploy and plugin lookup;
+2. **Provision the four machine credentials** on an AWS target, in this order — see [Machine credentials](#machine-credentials-the-service-accounts):
+   1. the org's automation credential, for synth, deploy, plugin lookup and the run-time vulnerability check;
    2. the `registry-push` credential CodeBuild presents as Basic auth — **required**, because synth wires it into every build image unconditionally;
-   3. the `reporting:ingest` credential the events Lambda reads.
-3. **Redeploy the ingestion Lambda** so it runs the key-exchanging handler.
+   3. the `pipeline_registry:write` credential `pipeline deploy --store-tokens` registers the pipeline with — event ingestion attributes events through that registry;
+   4. the `reporting:ingest` credential the events Lambda reads.
+3. **Redeploy the ingestion Lambda with `--scoped-ingest`** so it reads the `reporting-ingest` secret.
 4. **Verify with `pipeline-manager audit tokens`** — every stored credential, its expiry, and whether it is a key at all.
 5. **Repeat per organization.** These secrets are org-scoped; onboarding another org means provisioning its keys too.
 
@@ -52,7 +53,7 @@ For *why* an opaque key is the only shape in which revocation actually works, se
 
 | Credential | Issued by | Notes |
 |---|---|---|
-| Personal access key | `POST /user/keys`, `pipeline-manager auth pat` | A person's own; step-up gated, listed at **Dashboard → API Tokens** |
+| Personal access key | `POST /user/keys`, `pipeline-manager auth pat` | A person's own; step-up gated, listed at **Dashboard → Security → Access keys** |
 | The `reporting:ingest` webhook token on the Incident Reporting page | Settings → Incident reporting | A scoped key, not a person's credential |
 | Stored platform credential (`pipeline-manager infra store-token`) | `POST /organization/:id/service-accounts/:accountId/keys` | A service-account key. See [Machine credentials](#machine-credentials-the-service-accounts) below |
 | CodeBuild's registry credential | the `…/registry-push` secret | `registry:push` scope, no Roles |
@@ -68,7 +69,7 @@ The AWS secret **schema** is `{ username, password, platformUrl, … }`, and
 
 ## Issuing personal keys
 
-1. **Each holder creates their own**, either in the UI (**Dashboard → API Tokens
+1. **Each holder creates their own**, either in the UI (**Dashboard → Security
    → Access keys → Create key**, step-up gated) or from the CLI:
 
    ```bash
@@ -77,8 +78,8 @@ The AWS secret **schema** is `{ username, password, platformUrl, … }`, and
    eval $(pipeline-manager auth pat --name ci --quiet)
    ```
 
-   Both open a browser to approve the sign-in and the step-up — there is no
-   password flag on the CLI any more. That is not a convenience: the step-up is
+   Both open a browser to approve the sign-in and the step-up — `auth pat` has
+   no password flag. That is not a convenience: the step-up is
    satisfied by the account's **real** factors (passkey, authenticator code),
    which live in the browser and not in a flag. `--no-browser` prints the
    verification URL instead, for a headless box.
@@ -87,7 +88,7 @@ The AWS secret **schema** is `{ username, password, platformUrl, … }`, and
    least-privilege key carrying that one capability and no Roles.
 
    The printed `pb_pat_…` value is what `PLATFORM_TOKEN` and
-   `Authorization: Bearer …` now expect. **Copy it immediately** — only its hash
+   `Authorization: Bearer …` expect. **Copy it immediately** — only its hash
    is stored, so it is never shown again.
 
    Two refusals to expect rather than debug. Creating a key needs a step-up, and
@@ -112,57 +113,69 @@ read as if they had personally pushed every image:
 
 | Secret | Service account | Roles | Key scope | Read by |
 |---|---|---|---|---|
-| `pipeline-builder/{orgId}/platform` | `platform-automation` | org admin | none | CDK synth/deploy (`--store-tokens`) |
+| `pipeline-builder/{orgId}/platform` | `platform-automation` | Pipeline Automation (pipeline and plugin reads) | none | CDK synth/deploy (`--store-tokens`), the run-time vulnerability check |
 | `pipeline-builder/{orgId}/registry-push` | `registry-push` | **none** | `registry:push` | CodeBuild's `secretsManagerCredentials` |
+| `pipeline-builder/{orgId}/pipeline-registry-write` | `pipeline-register` | Pipeline Registration (`pipeline_registry:write`) | none | the self-mutating synth registering its step manifest (`POST /api/pipelines/registry`) |
 | `pipeline-builder/{orgId}/reporting-ingest` | `reporting-ingest` | **none** | `reporting:ingest` | the event-ingestion Lambda |
 
 `store-token` creates the account if it is missing, issues the key, writes the
 secret, and only then retires the key the previous run stored — so an
 interrupted run never leaves an empty secret.
 
-`--scope` takes exactly the two catalogued values above (`registry:push`,
-`reporting:ingest`); each selects its own service account. With no `--scope` the
-key is issued on the org's single full-privilege `platform-automation` account.
+`--scope` takes exactly the three catalogued values above (`registry:push`,
+`pipeline_registry:write`, `reporting:ingest`); each selects its own service
+account and secret leaf. `registry:push` and `reporting:ingest` are key scopes (a
+key with no Roles); `pipeline_registry:write` is an ordinary permission, so that
+key is unscoped and its account holds the one built-in Role carrying it. With no
+`--scope` the key is issued on the org's `platform-automation` account.
 `--account <name>` overrides the account a key lands on, and `--dry-run` shows
 what would be provisioned without calling platform or writing to Secrets
 Manager — worth doing once per AWS account before the real run.
 
 ### Provisioning, per AWS account
 
-Both writes are step-up gated, so `store-token` needs the operator's password.
-Put it in the environment rather than on the command line (it shows in shell
-history and in `provision` plan output):
+Both writes are step-up gated. `store-token --step-up auto` (the default)
+re-verifies with the operator's password when one is given, and otherwise opens a
+browser approval (`--step-up totp|browser|password` forces one; `--from-key`
+stores a key issued in the web UI and needs no password). When you use the
+password, put it in the environment rather than on the command line (it shows in
+shell history and in `provision` plan output):
 
 ```bash
 export PLATFORM_BASE_URL=https://<your-platform>
 export PLATFORM_PASSWORD='…'          # the operator's own password
 export AWS_REGION=<region>
 
-# 1. The org's full-privilege automation credential (synth/deploy, plugin lookup)
+# 1. The org's automation credential (synth/deploy, plugin lookup)
 pipeline-manager infra store-token --schedule
 
 # 2. The CI registry credential CodeBuild presents as Basic auth. REQUIRED:
 #    synth wires `.../registry-push` into every build image unconditionally.
 pipeline-manager infra store-token --scope registry:push --schedule
 
-# 3. The event-ingestion credential the Lambda reads
+# 3. The pipeline-registration credential (pipeline deploy --store-tokens)
+pipeline-manager infra store-token --scope pipeline_registry:write --schedule
+
+# 4. The event-ingestion credential the Lambda reads
 pipeline-manager infra store-token --scope reporting:ingest --schedule
 
-# 4. Redeploy the ingestion Lambda so it runs the key-exchanging handler
+# 5. Redeploy the ingestion Lambda so it reads the reporting-ingest secret
 pipeline-manager infra setup-events --scoped-ingest
 ```
 
 Then **synth and deploy every pipeline** (`pipeline-manager pipeline synth --id
 <id> --store-tokens`, then deploy) so each build wires `…/registry-push` into its
-build image. A pipeline synthesised before the registry-push secret existed falls
-back to `…/platform`, which works but hands CodeBuild a full-privilege
-credential — the whole point of the scoped account is unmet.
+build image. There is no fallback to `…/platform`: with no `…/registry-push`
+secret, CodeBuild cannot pull its build images. A missing
+`…/pipeline-registry-write` secret does not break the build — the synth skips
+registration and says so — but that pipeline's events then cannot be attributed
+to its org.
 
-### What `--schedule` now installs
+### What `--schedule` installs
 
-The daily Lambda is a **key rotator**, not a token re-minter. It no longer
-npm-installs the CLI at runtime; it calls two pre-auth platform endpoints where
-the key itself is the authorization, in this order:
+The daily Lambda is a **key rotator**, not a token re-minter. It calls two
+pre-auth platform endpoints where the key itself is the authorization, in this
+order:
 
 1. `POST /auth/key/rotate` — mint a sibling key. The current key stays live.
 2. `PutSecretValue` — the secret now names the new key.
@@ -177,7 +190,7 @@ in which the deployment is left without a working credential.
 
 ```bash
 # Every stored credential, its expiry, and whether it is a key at all.
-pipeline-manager infra audit-tokens --region <region>
+pipeline-manager audit tokens --region <region>
 ```
 
 A secret that does not hold a key — empty, or holding anything JWT-shaped — is
@@ -186,9 +199,9 @@ as an opaque `401` from three different services. The same guard is built into
 the consumers: the events Lambda and the rotator both refuse a non-key at startup
 with a message naming `store-token`.
 
-In the UI, **Settings → Service Accounts** lists the three accounts, their Roles
-(two of them hold none) and their keys. `Dashboard → API Tokens` shows the same
-keys labelled with the owning account.
+In the UI, **Dashboard → Security → Service accounts** lists the four accounts,
+their Roles (two of them hold none) and their keys. **Dashboard → Security →
+Access keys** shows the same keys labelled with the owning account.
 
 ### Why none of these is a person
 

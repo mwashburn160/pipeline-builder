@@ -31,7 +31,7 @@ import type { Discount } from '@/types';
 const lastInstantOf = (y: number, m: number, d: number) => new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
 
 const discount = (over: Partial<Discount> = {}): Discount => ({
-  id: 'd1', value: 10, unit: 'percent', kind: 'onetime', timesRedeemed: 0, isActive: true,
+  id: 'd1', value: 10, unit: 'percent', currency: 'usd', kind: 'onetime', timesRedeemed: 0, isActive: true,
   redeemBy: lastInstantOf(2026, 12, 31), appliesToTiers: [], ...over,
 });
 

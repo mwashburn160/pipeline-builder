@@ -147,6 +147,29 @@ describe('pipeline create', () => {
     expect(text()).toContain('acme/jest@1.2.3');
   });
 
+  // Regression: the flags overrode only the RECORD's slot and name. The synth
+  // names the CodePipeline and the stack from `props`, so `-p` / `-o` / `-n`
+  // deployed a pipeline under the file's names while the record (and the
+  // dashboard's trigger) named another.
+  it('carries -p / -o / -n into the props the synth names the pipeline from', async () => {
+    reply = validateReply();
+    const file = props('flags.json', JSON.stringify({ project: 'web', organization: 'acme' }));
+    await run(createPipeline, 'pipeline', ['create', '-f', file, '-p', 'api', '-o', 'other-org', '-n', 'custom', '--dry-run']);
+    expect(requests[0]!.body).toMatchObject({
+      project: 'api',
+      organization: 'other-org',
+      pipelineName: 'custom',
+      props: { project: 'api', organization: 'other-org', pipelineName: 'custom' },
+    });
+  });
+
+  it('leaves the props alone when no flag overrides them (no pipelineName invented)', async () => {
+    reply = validateReply();
+    await run(createPipeline, 'pipeline', ['create', '-f', props('plain.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
+    const body = requests[0]!.body as { props: Record<string, unknown> };
+    expect(body.props).toEqual({ project: 'web', organization: 'acme' });
+  });
+
   it('--dry-run exits NON-ZERO when the server reports problems', async () => {
     // Printing the problems and returning 0 is how a broken config reaches a
     // pipeline: a CI step running --dry-run must fail.

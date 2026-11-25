@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7261ad7515c51bfbf27b8fe3bb3692d5b0547da64945e426ec085e29b8ff15ad
+// SOURCE-SHA256: 4dc0bccc864b0ca81a8156153b4fbbd0050e8e96ffd75f5d429c8b93f1ba92e5
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -133,8 +133,18 @@ export const billingDiscountsTopic: HelpTopic = {
             ],
             [
               "BILLING_PROMOTION_BACKFILL_INTERVAL_MS",
-              "—",
+              "3600000 (1 h)",
               "Backfill cron cadence (leader-locked)"
+            ],
+            [
+              "BILLING_DISCOUNT_PROBE_RATE_LIMIT_PER_MIN",
+              "10",
+              "Per-org limit on self-service redemption previews"
+            ],
+            [
+              "BILLING_DISCOUNT_REDEEM_RATE_LIMIT_PER_MIN",
+              "5",
+              "Per-org limit on self-service redemptions"
             ],
             [
               "BILLING_PROMOTION_CLAWBACK_WINDOW_MS",
@@ -489,7 +499,7 @@ export const billingDiscountsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "The aggregate floor covers promotions too. It did not: the floor lived with the discount code and consulted only the credits derivable from the composition (combo + volume), so a coupon on a maxed stack was refused while a promotion on the identical account was granted — and promotions fire automatically, with no human in the loop. The floor is now one calculation (helpers/credit-floor.ts) that every gate reads, and \"standing credits\" counts the account's recurring discount and its eligible recurring promotions as well. A promotion that would breach it is refused before any budget is reserved (promotion_floor_refused), and the per-period re-grant of a standing recurring discount clamps to the remaining headroom rather than vanishing from the invoice (discount_floor_clamped)."
+          "content": "The aggregate floor covers promotions too. The floor is one calculation (helpers/credit-floor.ts) that every gate reads — discount codes and promotions alike, since promotions fire automatically with no human in the loop — and \"standing credits\" counts the account's recurring discount and its eligible recurring promotions as well as the composition credits (combo + volume). A promotion that would breach it is refused before any budget is reserved (promotion_floor_refused), and the per-period re-grant of a standing recurring discount clamps to the remaining headroom rather than vanishing from the invoice (discount_floor_clamped)."
         },
         {
           "type": "text",
@@ -594,7 +604,7 @@ export const billingDiscountsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A referral promotion is two-sided. A new org subscribes with a referral code — the referrer's org id — via referralCode on POST /billing/subscriptions:"
+          "content": "A referral promotion is two-sided. A new org subscribes with a referral code — the referrer's org id — via referralCode on POST /billing/subscriptions (or /subscriptions/checkout):"
         },
         {
           "type": "list",
@@ -615,7 +625,7 @@ export const billingDiscountsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "All routes are under /billing and gated by BILLING_DISCOUNTS_ENABLED."
+          "content": "All routes are under /billing. The discount and campaign routes 404 when BILLING_DISCOUNTS_ENABLED is off; the promotion routes 404 when promotions are off. \"billing:operate\" below means the system-org-only permission, with the system org as the active org and an MFA-grade session. Self-service redeem and remove additionally require an MFA-grade admin session and the account root (a team cannot change billing); redeem and preview are rate-limited per org."
         },
         {
           "type": "table",
@@ -629,56 +639,68 @@ export const billingDiscountsTopic: HelpTopic = {
             [
               "POST",
               "/admin/campaigns",
-              "system admin",
+              "billing:operate",
               "Create a campaign (budget, window, exclusivity)"
             ],
             [
               "GET",
               "/admin/campaigns · /:id",
-              "system admin",
+              "billing:operate",
               "List / inspect one, with its code counts and ledger-sourced spend"
             ],
             [
               "PUT",
               "/admin/campaigns/:id",
-              "system admin",
+              "billing:operate",
               "Edit, or end with isActive: false (a budget below committed spend is refused); null for budgetCents / startsAt / endsAt clears it (unlimited budget, window open on that side)"
             ],
             [
               "POST",
               "/admin/campaigns/:id/end",
-              "system admin",
+              "billing:operate",
               "End the campaign and every code in it"
             ],
             [
               "POST",
               "/admin/discounts",
-              "system admin",
+              "billing:operate",
               "Mint a discount (ceiling-checked; a named campaign must exist)"
             ],
             [
               "POST",
               "/admin/discounts/:id/token",
-              "system admin",
+              "billing:operate",
               "Mode B — issue / re-issue an opaque token"
             ],
             [
               "POST",
               "/admin/discounts/:id/apply",
-              "system admin",
+              "billing:operate",
               "Mode A — direct grant to { targetOrgId }"
+            ],
+            [
+              "POST",
+              "/admin/discounts/:id/preview",
+              "billing:operate",
+              "Dry-run against { targetOrgId }: the resulting price breakdown"
             ],
             [
               "GET",
               "/admin/discounts · /:id",
-              "system admin",
+              "billing:operate",
               "List (filter by campaign/active/target) / inspect"
             ],
             [
               "PUT · DELETE",
               "/admin/discounts/:id",
-              "system admin",
+              "billing:operate",
               "Edit / revoke"
+            ],
+            [
+              "POST",
+              "/subscriptions/:id/discounts/preview",
+              "billing:read",
+              "Self-service preview of a token or alias before redeeming"
             ],
             [
               "POST",
@@ -693,16 +715,56 @@ export const billingDiscountsTopic: HelpTopic = {
               "Stop a standing recurring discount (granted credits persist). One write guarded on that id: 404 when it is not the standing rule, 409 if the rule changed concurrently — a different discount is never cleared"
             ],
             [
+              "POST · GET",
+              "/admin/promotions · /:id",
+              "billing:operate",
+              "Create / list / inspect promotions"
+            ],
+            [
+              "PUT · DELETE",
+              "/admin/promotions/:id",
+              "billing:operate",
+              "Edit / revoke (stops future grants)"
+            ],
+            [
+              "POST",
+              "/admin/promotions/:id/grant",
+              "billing:operate",
+              "Manual grant to one account"
+            ],
+            [
+              "POST",
+              "/admin/promotions/:id/activate",
+              "billing:operate",
+              "Batch activation across the eligible base"
+            ],
+            [
+              "POST",
+              "/admin/promotions/:id/preview",
+              "billing:operate",
+              "Projected reach and committed spend"
+            ],
+            [
+              "GET",
+              "/admin/promotions/:id/spend",
+              "billing:operate",
+              "Ledger spend vs the advisory cache, and their drift"
+            ],
+            [
               "GET",
               "/events",
               "billing:read",
-              "The caller's own billing events — credit applied/consumed/exhausted, discounts, combos (own org only)"
+              "The caller's own billing events — credit applied/consumed/exhausted, discounts, combos (own org only; not behind the discounts flag)"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "Every mutation writes a local billing_events row and mirrors to the central audit trail: billing.discount.generate / .issue / .apply / .remove / .revoke, billing.campaign.create / .update / .end, plus billing.credit.consumed / .exhausted and billing.combo.expired for usage-credit realization, attributing both the acting party and the affected account."
+          "content": "Every mutation writes a local billing_events row and mirrors to the central audit trail: billing.discount.generate / .issue / .apply / .remove / .revoke, billing.campaign.create / .update / .end, billing.promotion.create / .update / .revoke / .grant / .activate, plus billing.credit.consumed / .exhausted and billing.combo.expired for usage-credit realization, attributing both the acting party and the affected account."
+        },
+        {
+          "type": "text",
+          "content": "Discount and promotion records, and the priceBreakdown a preview returns, carry currency (BILLING_CURRENCY, lower-case ISO 4217) — the currency of a dollar value and of every cent amount."
         },
         {
           "type": "text",

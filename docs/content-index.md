@@ -44,6 +44,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 ## A
 
 - **Access control / visibility (private vs org vs public)** — [Permissions](permissions.md#the-model), [CDK: IAM Roles](cdk-usage.md#iam-roles)
+- **Access key (`pb_pat_…`, the CLI/automation credential)** — [Onboarding: Create an access key](onboarding.md#step-4--create-an-access-key), [Authentication: Access keys](authentication.md#access-keys-opaque-verified-by-exchange), [Pipeline Manager: auth](pipeline-manager.md#auth--infrastructure)
 - **Admin consoles (pgAdmin, Mongo Express, Grafana, Kiali, RustFS)** — [Env vars: Admin consoles](environment-variables.md#admin-consoles-infrastructure), [Deploy Operations: Operator consoles](deploy-operations.md#operator-consoles-all-five)
 - **AI pipeline generation (prompt → pipeline)** — [Developer Guide: AI Prompt](developer-guide.md#2-ai-prompt), [API: AI Generation](api-reference.md#ai-generation), [AI Plugins](plugins/ai.md)
 - **Ambient mesh** — see **Service mesh** → [Service Mesh](service-mesh.md#why-ambient-not-sidecars)
@@ -52,7 +53,6 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 - **Artifact passing between steps** — [CDK: Artifact Passing](cdk-usage.md#artifact-passing-between-steps), [Artifact & Registry Plugins](plugins/artifact.md)
 - **Audit events / audit log / tamper-evidence** — [Audit Events](audit-events.md), [Integrity](audit-events.md#integrity--tamper-evidence), [Action catalog](audit-events.md#action-catalog)
 - **Application logs / log search / log download** — [Logs](observability-logs.md), [Search syntax](observability-logs.md#searching), [Downloading](observability-logs.md#downloading), [Masking](observability-logs.md#what-gets-masked)
-- **Log tenancy (per-org isolation, `_infra`)** — [Logs: what you can see](observability-logs.md#what-you-can-see), [Operating](observability-logs.md#configuration)
 - **Authentication (login, JWT, OAuth)** — [Authentication & SSO](authentication.md), [Env vars: Authentication](environment-variables.md#authentication)
 - **Sessions, devices and machine credentials** — [Authentication: Sessions, devices and machine credentials](authentication.md#sessions-devices-and-machine-credentials), [Authentication: Token claims](authentication.md#token-claims-what-a-request-proves), [API: Account & Sessions](api-reference.md#account--sessions)
 - **AWS deployment** — [AWS Deployment](aws-deployment.md), [EC2](aws-deployment.md#ec2), [EKS](aws-deployment.md#eks)
@@ -62,12 +62,9 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 ## B
 
 - **Backups & disaster recovery** — [Deploy Operations: Backups & DR](deploy-operations.md#backup-and-restore-are-one-implementation), [RPO and RTO](deploy-operations.md#rpo-and-rto), [What is NOT backed up](deploy-operations.md#what-is-not-backed-up)
-- **Support cases / support contacts / response target / first response / CSAT** — [Support](support.md), [Billing Add-on Bundles](billing-bundles.md#the-bundles), [On-call Paging](oncall-paging.md)
-- **Business hours / response clock / holidays** — [Support: The response clock](support.md#the-response-clock), [Env vars: SUPPORT_BUSINESS_HOURS_*](environment-variables.md)
-- **Postgres failover / promoting the standby / primary is gone** — [Runbook: Postgres Failover](runbooks/postgres-failover.md), [Deploy Operations: What the data tier actually is](deploy-operations.md#what-the-data-tier-actually-is), [RPO and RTO](deploy-operations.md#rpo-and-rto). Promotion is MANUAL and there is a streaming standby on every target — do not restore from the nightly dump first.
-- **Postgres scaling / read replicas / replication lag / replication slots** — [Runbook: Postgres Scaling](runbooks/postgres-scaling.md), [Env vars: PG_READ_REPLICA_MIN / MAX](environment-variables.md)
 - **Billing (plans, usage, credits)** — [Organization Benefits: Billing](organization-benefits.md#organizations-teams--billing), [Env vars: Billing](environment-variables.md#billing)
 - **Billing providers (Stripe / AWS Marketplace setup)** — [Billing Providers](billing-providers.md)
+- **Business hours / response clock / holidays** — [Support: The response clock](support.md#the-response-clock), [Env vars: SUPPORT_BUSINESS_HOURS_*](environment-variables.md)
 - **Build health (per-pipeline stage success rate + timing percentiles)** — [DORA Metrics: Build health](dora-metrics.md#build-health)
 - **Build queue (BullMQ / KEDA scaling)** — [Env vars: Build Queue](environment-variables.md#build-queue), [Mesh: Queues, KEDA & buildkit](service-mesh.md#queues-keda--buildkit)
 - **Build types (Dockerfile vs shared base)** — [Architecture: Build Types](architecture-flow.md#build-types), [Plugins: Build Types](plugins/README.md#build-types)
@@ -99,7 +96,6 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 - **Disaster recovery (RPO, what is NOT backed up)** — [Deploy Operations: What the data tier actually is](deploy-operations.md#what-the-data-tier-actually-is), [RPO and RTO](deploy-operations.md#rpo-and-rto), [What is NOT backed up](deploy-operations.md#what-is-not-backed-up), [Enabling the EKS backup CronJob](deploy-operations.md#eks--enabling-the-nightly-cronjob)
 - **Developer guide / getting started (dev)** — [Developer Guide](developer-guide.md), [Five ways to create a pipeline](developer-guide.md#five-ways-to-create-a-pipeline)
 - **Developer portal (catalog ownership, scorecards)** — [Developer Portal](developer-portal.md)
-- **Plugin ecosystem — publishing (publishers, listings, publish requests, trust tiers, Verified)** — [Plugin Publishing](plugin-publishing.md), [Plugins: Publishing to the ecosystem](plugins/README.md#publishing-to-the-ecosystem), [Architecture: Publishing](architecture-flow.md#flow-1b-publishing-to-the-plugin-ecosystem), [Runbook: Ecosystem moderation](runbooks/ecosystem-moderation.md)
 - **Discounts / promo codes / referrals** — [Billing Discounts](billing-discounts.md), [Promotions](billing-discounts.md#promotions)
 - **Docker registry (config, tags)** — [Env vars: Docker Registry](environment-variables.md#docker-registry), [Registry audit events](audit-events.md#registry-structured-log-events)
 - **Delivery report for a manager (scheduled, frozen snapshot)** — [Stakeholder Reports](stakeholder-reports.md)
@@ -162,6 +158,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 - **Lead time (DORA)** — [DORA Metrics: How each metric is defined](dora-metrics.md#how-each-metric-is-defined)
 - **Lead time unknown (why, and the fix)** — [DORA Metrics: Why lead time is unknown](dora-metrics.md#why-lead-time-is-unknown)
 - **LEAN mode (trim footprint — minikube & ec2)** — [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint)
+- **Log tenancy (per-org isolation, `_infra`)** — [Logs: what you can see](observability-logs.md#what-you-can-see), [Operating](observability-logs.md#configuration)
 
 ## M
 
@@ -181,20 +178,24 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 
 - **OAuth / social login** — [Authentication: OAuth social login](authentication.md#oauth-social-login-platform-wide), [Env vars: OAuth](environment-variables.md#oauth--social-login-optional)
 - **OIDC (enterprise SSO, IAM role trust)** — [Authentication: Per-org SSO](authentication.md#per-org-enterprise-sso), [CDK: Role Types](cdk-usage.md#role-types)
-- **SAML 2.0 (enterprise SSO)** — [Authentication: SAML 2.0](authentication.md#saml-20), [Runbook: rotating the IdP signing certificate](runbooks/secret-rotation.md#idp-saml-signing-certificates-per-org)
 - **Onboarding a new organization (initial login → PAT → events)** — [Onboarding](onboarding.md)
+- **On-call paging (PagerDuty, support criticals)** — [On-call Paging](oncall-paging.md)
 - **Organizations / teams / hierarchy** — [Docs: Organizations](README.md#organizations), [Organization Benefits](organization-benefits.md), [Permissions: Teams](permissions.md#teams)
 
 ## P
 
 - **Pagination & limits** — [Env vars: Pagination & Limits](environment-variables.md#pagination--limits), [API: Common Query Parameters](api-reference.md#common-query-parameters)
-- **Access key (`pb_pat_…`, the CLI/automation credential)** — [Onboarding: Create an access key](onboarding.md#step-4--create-an-access-key), [Authentication: Access keys](authentication.md#access-keys-opaque-verified-by-exchange), [Pipeline Manager: auth](pipeline-manager.md#auth--infrastructure)
 - **Permissions / RBAC / roles** — [Roles & Permissions](permissions.md), [Permission catalog](permissions.md#permission-catalog)
+- **Permission contract (route → permission table)** — [Permission Contract](permission-contract.md), [Review rule](permission-contract.md#review-rule), [Testing: The permission contract](testing.md#the-permission-contract)
 - **Pipeline creation (5 ways)** — [Developer Guide: Five Ways](developer-guide.md#five-ways-to-create-a-pipeline), [Docs: Creating Pipelines](README.md#creating-pipelines)
 - **Plugins (catalog, categories, structure)** — [Plugin Catalog](plugins/README.md), [Categories](plugins/README.md#categories), by type: [AI](plugins/ai.md) · [Artifact](plugins/artifact.md) · [Deploy](plugins/deploy.md) · [Infrastructure](plugins/infrastructure.md) · [Language](plugins/language.md) · [Monitoring](plugins/monitoring.md) · [Notification](plugins/notification.md) · [Quality](plugins/quality.md) · [Security](plugins/security.md) · [Testing](plugins/testing.md)
+- **Plugin ecosystem — publishing (publishers, listings, publish requests, trust tiers, Verified)** — [Plugin Publishing](plugin-publishing.md), [Plugins: Publishing to the ecosystem](plugins/README.md#publishing-to-the-ecosystem), [Architecture: Publishing](architecture-flow.md#flow-1b-publishing-to-the-plugin-ecosystem), [Runbook: Ecosystem moderation](runbooks/ecosystem-moderation.md)
+- **Plugin installs / consumption policy / trust tiers / version policies** — [Installing Plugins](plugin-installing.md), [Installs](plugin-installing.md#installs), [Consumption policy](plugin-installing.md#consumption-policy), [Trust tiers](plugin-installing.md#trust-tiers), [Resolution order](plugin-installing.md#resolution-order)
 - **Plugin contract (requiredMetadata / requiredVars / metadataTypes)** — [Templates: Plugin contract](templates.md#plugin-contract-declare-your-requirements)
 - **Policies (compliance)** — [Compliance: Policies](compliance.md#policies)
 - **Provenance (SLSA, BuildKit `mode=min`)** — [Plugins: Supply Chain](plugins/README.md#supply-chain-sbom-signature-provenance)
+- **Postgres failover / promoting the standby / primary is gone** — [Runbook: Postgres Failover](runbooks/postgres-failover.md), [Deploy Operations: What the data tier actually is](deploy-operations.md#what-the-data-tier-actually-is), [RPO and RTO](deploy-operations.md#rpo-and-rto). Promotion is MANUAL and there is a streaming standby on every target — do not restore from the nightly dump first.
+- **Postgres scaling / read replicas / replication lag / replication slots** — [Runbook: Postgres Scaling](runbooks/postgres-scaling.md), [Env vars: PG_READ_REPLICA_MIN / MAX](environment-variables.md)
 - **Private vs public deployment** — [AWS Deployment: Deployment modes](aws-deployment.md#deployment-modes-public-vs-private)
 - **Product metrics (deliveries, sign-ins, scanning, quota, AI spend)** — [Deploy Operations: The `Product health` dashboard](deploy-operations.md#the-product-health-dashboard)
 - **Promotions / referrals** — [Billing Discounts: Promotions](billing-discounts.md#promotions)
@@ -215,13 +216,13 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 
 ## S
 
+- **SAML 2.0 (enterprise SSO)** — [Authentication: SAML 2.0](authentication.md#saml-20), [Runbook: rotating the IdP signing certificate](runbooks/secret-rotation.md#idp-saml-signing-certificates-per-org)
 - **SBOM (plugin image SPDX, signed attestation, download)** — [Plugins: Supply Chain](plugins/README.md#supply-chain-sbom-signature-provenance), [API: Plugin Service](api-reference.md#plugin-service)
 - **Samples (pipeline templates + CDK examples)** — [Samples](samples.md), [Loading Samples](samples.md#1-load-the-templates)
 - **Scheduled pipelines (cron/EventBridge)** — [CDK: Scheduled Pipelines](cdk-usage.md#scheduled-pipelines)
 - **SCIM (directory provisioning, Okta / Entra)** — [Authentication: SCIM 2.0 provisioning](authentication.md#scim-20-provisioning), [API: SCIM 2.0](api-reference.md#scim-20-apiscimv2), [Permissions: SCIM is a scope, not a permission](permissions.md#scim-apiscimv2--a-capability-scope-not-a-permission), [Audit: SCIM provisioning](audit-events.md#action-catalog)
 - **Scopes (compliance / metadata scope levels)** — [Compliance: Scopes](compliance.md#scopes), [Metadata: Scope Levels](metadata-keys.md#scope-levels)
 - **Secrets — usage & injection** — [CDK: Secrets Management](cdk-usage.md#secrets-management), [Plugins: How Secrets Work](plugins/README.md#how-secrets-work), [Env vars](environment-variables.md#authentication)
-- **Service token (`store-token`, JWT in Secrets Manager)** — [Onboarding: Store the service-account keys](onboarding.md#step-5--store-the-service-account-keys-aws-targets), [AWS: Store Service Credentials](aws-deployment.md#2-store-service-credentials)
 - **Secret naming convention (`pipeline-builder/{orgId}/{name}`)** — [Plugins: Naming Convention](plugins/README.md#naming-convention)
 - **Secrets — rotation runbook** — [Secret Rotation](runbooks/secret-rotation.md) (per-secret: JWT, refresh, at-rest master key + re-encryption tool, alert relay, registry signing key, plugin-signing key), [Deploy Operations: Secret rotation](deploy-operations.md#secret-rotation) (databases, Mongo keyfile)
 - **Slack alert delivery (ops-team channels)** — [Notifications: Alertmanager and ops-team Slack](notifications.md#platform-alertmanager-and-ops-team-slack), [Env vars: Ops-team Slack alert delivery](environment-variables.md#ops-team-slack-alert-delivery) (`SLACK_CRITICAL_WEBHOOK_URL` / `SLACK_WARNING_WEBHOOK_URL`; the deploy refuses to start on a placeholder)
@@ -229,12 +230,14 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 - **Security plugins (SAST, SCA, secret detection)** — [Security Plugins](plugins/security.md)
 - **Self-references (pipeline.json cross-refs)** — [Templates: pipeline-level self-references](templates.md#example-pipeline-level-self-references)
 - **Service mesh (Istio ambient, mTLS, AuthZ)** — [Service Mesh](service-mesh.md), also [AWS](aws-deployment.md#service-mesh-istio-ambient) / [Ops](deploy-operations.md#service-mesh-istio-ambient)
+- **Service token (`store-token`, JWT in Secrets Manager)** — [Onboarding: Store the service-account keys](onboarding.md#step-5--store-the-service-account-keys-aws-targets), [AWS: Store Service Credentials](aws-deployment.md#2-store-service-credentials)
 - **Session invalidation (token revocation)** — [Permissions: Session invalidation](permissions.md#session-invalidation)
 - **SSE / Server-Sent Events** — [Env vars: Server-Sent Events](environment-variables.md#server-sent-events)
 - **SSO (single sign-on)** — see **OAuth** / **OIDC** / **SAML 2.0** / **SCIM** → [Authentication & SSO](authentication.md)
 - **Stages and steps** — [CDK: Stages and Steps](cdk-usage.md#stages-and-steps)
 - **Storage requirements (disk sizing)** — [AWS Deployment: Storage (EC2)](aws-deployment.md#storage-requirements), [Storage (EKS)](aws-deployment.md#storage-requirements)
 - **Stripe (billing provider setup)** — [Billing Providers: Stripe](billing-providers.md#stripe), [Env vars: Stripe](environment-variables.md#stripe-billing_providerstripe)
+- **Support cases / support contacts / response target / first response / CSAT** — [Support](support.md), [Billing Add-on Bundles](billing-bundles.md#the-bundles), [On-call Paging](oncall-paging.md)
 - **Synth-time templating** — see **Templates** → [Templates: How it works](templates.md#how-it-works)
 
 ## T
@@ -244,6 +247,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 - **Templates — syntax (`{{ }}`, vars, scopes)** — [Template Syntax](templates.md), [Scope reference](templates.md#scope-reference)
 - **Templates — golden pipeline (starters)** — [Templates: Golden pipeline templates](templates.md#golden-pipeline-templates)
 - **Testing plugins (unit, e2e, load, smoke)** — [Testing Plugins](plugins/testing.md)
+- **Testing conventions (mock factories, coverage, parity tests)** — [Testing Conventions](testing.md), [Running the tests](testing.md#running-the-tests)
 - **Timeouts (build, upload chain)** — [Env vars: Timeouts](environment-variables.md#timeouts)
 - **TLS (certs, renewal)** — [AWS: EC2 TLS](aws-deployment.md#tls), [EKS TLS Renewal](aws-deployment.md#tls-renewal)
 - **Troubleshooting** — [AWS Deployment](aws-deployment.md#troubleshooting), [Service Mesh](service-mesh.md#troubleshooting), [Templates](templates.md#troubleshooting)
@@ -279,6 +283,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 | [developer-guide](developer-guide.md) | Five ways to create a pipeline, plugin cut-and-paste patterns |
 | [developer-portal](developer-portal.md) | Catalog ownership, golden-path templates, scorecards |
 | [plugin-publishing](plugin-publishing.md) | Publisher profile, listings limits, publish requests, accept-or-edit metadata, review and auto-approval, pause |
+| [plugin-installing](plugin-installing.md) | Trust tiers, installs and version policies, consumption policy, reviews |
 | [runbooks/ecosystem-moderation](runbooks/ecosystem-moderation.md) | Ecosystem Manager runbook: queue, SLAs, two-person approval, rules, takedown, re-sign |
 | [support](support.md) | Support cases, named contacts, the three response targets, the business calendar, fair use |
 | [runbooks/postgres-failover](runbooks/postgres-failover.md) | Promoting the streaming standby: deciding to, the async loss window, stopping the old primary, repointing the write path, re-seeding |
@@ -291,11 +296,15 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 | [error-handling](error-handling.md) | Typed `AppError` convention |
 | [metadata-keys](metadata-keys.md) | All `aws:cdk:*` and step/pipeline metadata keys |
 | [notifications](notifications.md) | Email, Slack, webhooks and the in-app inbox — operator switches, org settings, symptom table |
+| [observability-logs](observability-logs.md) | Per-org application logs: search syntax, raw view, download, masking |
+| [oncall-paging](oncall-paging.md) | PagerDuty paging for support criticals and alert-delivery meta-alerts |
 | [onboarding](onboarding.md) | New-org walkthrough: initial login → org → members → access key → store-token → setup-events → first pipeline |
 | [organization-benefits](organization-benefits.md) | Value story, orgs/teams/billing, impact by role |
 | [permissions](permissions.md) | RBAC model, permission catalog, enforcement, sessions |
+| [permission-contract](permission-contract.md) | The hand-maintained route-to-permission table and its review rule |
 | [pipeline-manager](pipeline-manager.md) | CLI install, commands, workflows |
 | [plugins/README](plugins/README.md) | Plugin catalog, secrets, structure, versioning |
 | [samples](samples.md) | Language pipeline templates + CDK examples |
 | [service-mesh](service-mesh.md) | Istio ambient, mTLS, L4 authorization, egress |
 | [templates](templates.md) | `{{ }}` synth-time templating, scopes, filters, golden templates |
+| [testing](testing.md) | Test conventions: mock factories, real authz gates, coverage ratchets, parity tests |

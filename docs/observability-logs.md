@@ -31,7 +31,7 @@ It is for two audiences: developers debugging their own pipelines and plugins, a
 
 1. **A service logs a line** inside a request scope. The logger stamps the line with the request's `orgId` from the tenant scope (`setLogContextProvider`, wired once in api-server's `tenant-context.ts`).
 2. **Masking runs at ingest.** Credential-shaped values are replaced with `[REDACTED]` before the line is stored — and again on the way out.
-3. **Promtail routes the line.** It promotes `orgId` to structured metadata and uses its `tenant` stage to send the line to that organization's Loki tenant.
+3. **Grafana Alloy routes the line.** Its `loki.process` pipeline promotes `orgId` to structured metadata and uses `stage.tenant` to send the line to that organization's Loki tenant.
 4. **A line with no `orgId` goes to `_infra`.** Anything written outside a request scope — service startup, background workers, nginx, Postgres, Loki itself — lands in the infrastructure tenant, visible only to system administrators. This is fail-closed by construction.
 5. **A search compiles to LogQL server-side.** Your filter is parsed, validated against the field allow-list, and combined with the tenant header taken from your token.
 6. **Loki answers within its tenant only.** The organization scope is a property of the request to Loki, not a clause in the query.
@@ -52,34 +52,35 @@ Masking is a net under the rule that services should not log secrets in the firs
 
 | Setting | Where | Note |
 |---|---|---|
-| `LOKI_URL` | platform env | Defaults to `http://loki:3100` |
-| `LOKI_BASE_SELECTOR` | platform env | Anchor matcher when no label is constrained; defaults to `service_name=~".+"` |
+| `LOKI_URL` | ops-center env | Defaults to `http://loki:3100` |
+| `LOKI_BASE_SELECTOR` | ops-center env | Anchor matcher when no label is constrained; defaults to `service_name=~".+"` |
 
 ### Loki settings
 
-All four live in each target's `config/loki/loki-config.yml`.
+All five live in each target's `config/loki/loki-config.yml`.
 
 | Setting | Why it is required |
 |---|---|
 | `auth_enabled: true` | Turns on per-organization tenancy. **Every** Loki client must then send `X-Scope-OrgID`, Grafana included |
 | `multi_tenant_queries_enabled: true` | Lets an administrator read several tenants in one query |
-| `allow_structured_metadata: true` | Required, or Loki rejects the `orgId` metadata promtail attaches |
+| `allow_structured_metadata: true` | Required, or Loki rejects the `orgId` metadata Alloy attaches |
 | `deletion_mode: filter-and-delete` | Enables per-tenant deletion when an organization is removed |
 | `retention_period: ${LOG_RETENTION_HOURS:-720}h` | 30 days by default; expanded by `-config.expand-env` |
 
 ### Steps
 
-1. **Set `auth_enabled: true`** in the target's `loki-config.yml`, along with the other three Loki settings above. Tenancy does not work without it.
+1. **Set `auth_enabled: true`** in the target's `loki-config.yml`, along with the other Loki settings above. Tenancy does not work without it.
 2. **Point every Loki client at a tenant.** With auth on, any client that does not send `X-Scope-OrgID` is refused — including Grafana.
-3. **Confirm `orgId` reaches promtail.** Tenancy depends on it: the logger stamps it, promtail promotes it to structured metadata and routes on it. Lines missing it silently become `_infra` lines.
+3. **Confirm `orgId` reaches Alloy.** Tenancy depends on it: the logger stamps it, Alloy (`config/alloy/config.alloy`) promotes it to structured metadata and routes on it. Lines missing it silently become `_infra` lines.
 4. **Regenerate the masking stages** rather than hand-editing them:
 
    ```bash
-   node scripts/gen-promtail-masking.mjs          # print the block
-   node scripts/gen-promtail-masking.mjs --check  # CI: fail if a config drifted
+   node scripts/gen-alloy-masking.mjs          # print the block
+   node scripts/gen-alloy-masking.mjs --write  # rewrite the block in all four config.alloy files
+   node scripts/gen-alloy-masking.mjs --check  # CI: fail if a config drifted
    ```
 
-   They are generated from `packages/api-core/src/utils/sensitive-patterns.ts`, the single source shared with the logger and the read path.
+   They are generated from `packages/api-core/src/utils/sensitive-patterns.ts`, the single source shared with the logger and the read path. The script reads api-core's **built** `lib/`, so rebuild api-core after editing the patterns.
 5. **Grant `logs:export` deliberately.** Viewing rides `observability:read`, which the built-in Member role already has; export is granted to admins and owners by default so an organization can let members read logs on screen while withholding bulk egress.
 
 If Loki is unreachable — a LEAN deployment omits it — the pages render an empty state with a banner rather than an error.
@@ -89,7 +90,7 @@ If Loki is unreachable — a LEAN deployment omits it — the pages render an em
 | You are | You see |
 |---|---|
 | A member of an organization | Only lines your organization produced |
-| A system administrator | The `_infra` tenant by default; any organization, or several, by selecting them |
+| A system administrator | The `_infra` tenant by default; any organization, or several (up to 100 tenants per query, `_infra` included), by selecting them. Reading an organization's tenant is audited as `observability.logs.cross-org-read` |
 
 ## Searching
 
@@ -110,7 +111,7 @@ Regular expressions are safe to use freely: Loki evaluates them with RE2, which 
 
 ### Time range
 
-Presets (15m / 1h / 6h / 24h / 7d / 30d), or an absolute range. Clicking a bar in the volume histogram zooms to that bucket. Because retention is 7 days, a wider request is narrowed to that window with a banner.
+Presets (15m / 1h / 6h / 24h / 7d / 30d), or an absolute range. Clicking a bar in the volume histogram zooms to that bucket. A request wider than `LOG_RETENTION_HOURS` (30 days by default) is narrowed to that window with a banner; a `to` in the future is refused.
 
 ## Reading an entry
 
@@ -130,15 +131,15 @@ The download runs the *same* compiled query, tenant scope and masking as the sea
 
 | Property | Value |
 |---|---|
-| Permission | `logs:export` (separate from viewing) |
-| Cap | 100 MB or 60 seconds, whichever comes first |
+| Permission | `logs:export` (separate from viewing), plus the org's *administrative actions require MFA* policy when it is on (machine credentials pass) |
+| Cap | 100 MB, 1,000,000 entries or 60 seconds, whichever comes first |
 | Truncation | A truncated file says so on its last line |
 | Audit | Recorded as `observability.logs.export` |
 | Impersonation | Refused during a read-only impersonation session |
 
 ## What gets masked
 
-JWTs, `Bearer` tokens, AWS access keys, Stripe / GitHub / Slack tokens, credentials embedded in connection strings and URLs, `?token=`-style query parameters, inline `secret=` assignments, private-key headers, and AWS account identifiers.
+JWTs, `Bearer` tokens, AWS access keys, Stripe / GitHub (classic and fine-grained) / GitLab / Slack tokens, credentials embedded in connection strings and URLs, `?token=`-style query parameters, inline `secret=` assignments, private-key headers, and AWS account identifiers.
 
 ## Related
 

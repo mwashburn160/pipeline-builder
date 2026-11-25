@@ -18,7 +18,7 @@
  *    could not fix, with package, CVE, fixed version, why, and the upgrade
  *    level a fix would need.
  *  - **N40** a fix request to a third-party listing's publisher (the findings
- *    and a suggested patch), and, as a separate notice, its installers are
+ *    and their fixed versions), and, as a separate notice, its installers are
  *    told the request was sent. Always immediate.
  *
  * N36, N37 and N39 go to the org's plugin security recipients (the same rules
@@ -80,8 +80,6 @@ const logger = createLogger('remediation-notices');
 export const REMEDIATION_NOTICE_DEDUPE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 /** At most this many findings are listed in one notice (the rest are counted). */
 export const NOTICE_FINDINGS_MAX = 25;
-/** At most this many characters of a suggested patch ride in an N40 notice. */
-export const NOTICE_PATCH_MAX = 6_000;
 /** Recipient rules per relay request (the relay caps a request at 50). */
 const RECIPIENT_CHUNK = 50;
 
@@ -147,8 +145,6 @@ export interface PublisherFixRequestNotice {
   listingId: string;
   version: string;
   remaining: RemediationRemainingFinding[];
-  /** The suggested patch (a unified diff), already read from storage; null when there is none. */
-  suggestedPatch: string | null;
 }
 
 export type RemediationNotice = FixPublishedNotice | RolloutNotice | RollbackNotice | OwnerRequestNotice | PublisherFixRequestNotice;
@@ -163,7 +159,9 @@ export const remediationUrl = (remediationId: string): string =>
   `${frontendBaseUrl()}/dashboard/plugins?tab=remediations&remediation=${encodeURIComponent(remediationId)}`;
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
-const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+/** `1 finding` / `2 findings`; a consonant + `y` takes `-ies` (`2 vulnerabilities`). */
+const plural = (n: number, word: string): string =>
+  `${n} ${n === 1 ? word : /[^aeiou]y$/i.test(word) ? `${word.slice(0, -1)}ies` : `${word}s`}`;
 
 /** One finding left for the owner, as a notice line. */
 export function remainingLine(f: RemediationRemainingFinding): string {
@@ -314,15 +312,12 @@ export function renderOwnerRequest(n: OwnerRequestNotice): { subject: string; te
 }
 
 export function renderPublisherFixRequest(ref: string, n: PublisherFixRequestNotice): { publisher: { subject: string; text: string }; installers: { subject: string; text: string } } {
-  const patch = n.suggestedPatch
-    ? `\n\nSuggested patch:\n${n.suggestedPatch.length > NOTICE_PATCH_MAX ? `${n.suggestedPatch.slice(0, NOTICE_PATCH_MAX)}\n…(truncated)` : n.suggestedPatch}`
-    : '';
   return {
     publisher: {
       subject: `Fix request: ${plural(n.remaining.length, 'vulnerability')} in ${ref} ${n.version}`,
       text: `The platform's nightly rescan found ${plural(n.remaining.length, 'fixable Critical/High finding')} in your listed version ${ref} ${n.version}. `
         + 'Listed plugins are never rebuilt by the platform: please publish a fixed version.\n\n'
-        + `${remainingText(n.remaining)}${patch}`,
+        + remainingText(n.remaining),
     },
     installers: {
       subject: `Fix requested from the publisher of ${ref}`,

@@ -14,7 +14,7 @@ REST endpoints for pipelines, plugins, the Ask assistant, compliance, quota, org
 
 ## Highlights
 
-- **Two headers on every request**: `Authorization: Bearer <JWT>` and `x-org-id`.
+- **One header on every request**: `Authorization: Bearer <JWT>`. The tenant comes from the token's organization, not from a header.
 - **Paths here are service-relative.** Every route is served through the gateway under `/api`, so `/pipelines/:id` is `/api/pipelines/:id` over the wire.
 - **The gateway does not validate tokens.** Each service does; the gateway only decodes claims for its access log.
 - **Many routes consume quota as well as a permission**, and the tables say which.
@@ -33,7 +33,7 @@ It is for API integrators and operators calling the platform directly. Endpoints
 1. **A request arrives at the Nginx gateway**, which terminates TLS and routes by path prefix under `/api`.
 2. **The gateway decodes the token's claims for its access log only** — it does not validate them. See [Authentication](authentication.md#how-tokens-are-signed-and-who-can-sign-one).
 3. **The owning service validates the token** and resolves the caller's permissions.
-4. **`x-org-id` scopes the request** to one tenant; a caller cannot reach another org's resources by changing it.
+4. **The token's organization scopes the request** to one tenant. The gateway overwrites any client-sent `x-org-id` with the token's org, and the services re-derive the tenant from the verified token, so a caller cannot reach another org's resources by sending a header. To act in another org you belong to, switch organization and use the new token.
 5. **The route's gate runs** — permission, feature entitlement, scope or assurance level — and a refused write is audited.
 6. **Quota is consumed** where the route declares it, against the account root's pooled cap.
 7. **The response comes back in the shared envelope**, success or error.
@@ -41,7 +41,7 @@ It is for API integrators and operators calling the platform directly. Endpoints
 ## Configuration
 
 1. **Get a credential.** An access key from `pipeline-manager auth pat` or the dashboard, exchanged for a short-lived token; or a service-account key for automation. See [Authentication](authentication.md).
-2. **Send both headers** on every call — the token and `x-org-id`.
+2. **Send the token** on every call as `Authorization: Bearer <token>`.
 3. **Prefix paths with `/api`** when calling over the wire.
 4. **Check the permission column** before wiring a call, and grant it via a Role rather than a membership label.
 5. **Handle the error envelope**, not just the status: the machine-readable `code` is the stable contract. See [Error Handling](error-handling.md).
@@ -49,12 +49,13 @@ It is for API integrators and operators calling the platform directly. Endpoints
 
 ## Authentication
 
-All requests require two headers:
+All requests require one header:
 
 | Header | Description |
 |--------|-------------|
 | `Authorization` | `Bearer <JWT>` -- obtained from the platform login endpoint |
-| `x-org-id` | Organization ID -- scopes the request to a specific tenant |
+
+The request's organization is the token's. An `x-org-id` header is not needed: the gateway overwrites it with the token's org, and a service honours it only for a system admin on the few cross-org admin routes that opt in.
 
 > **Paths in this document are service-relative.** Every route is served through the
 > Nginx gateway under the `/api` prefix, so the table entry `/pipelines/:id` is
@@ -384,7 +385,7 @@ Cross-tenant permissions such as `orgs:manage` are **system-org-only**: they can
 | `GET` | `/organization/:id` | Get an organization, with a page of its member roster (`?membersLimit=` 1–500, default 100; `?membersOffset=`) — `memberCount` is always the full total. For a sysadmin it also carries the hierarchy: `parentOrgId`, `parentOrgName` and `teams: [{ orgId, orgName }]` (live teams) | — (own org / managed team / sysadmin) |
 | `PUT` | `/organization/:id` | Update an organization's name, slug and/or description (+ step-up). The only route that edits the description | `orgs:manage` |
 | `DELETE` | `/organization/:id` | Soft-delete an organization (+ step-up): recovery snapshot, `purgeAfter` retention window, sessions cut → `202 { deletedAt, purgeAfter, snapshotId }`. The window is `max(ORG_DELETION_RETENTION_DAYS, SOFT_DELETE_RETENTION_DAYS)` — the org must outlive the rows its cascade tombstones. At purge, platform removes its own data and hands every other service's share to its durable cascade outbox (one retried, dead-letter-alerted leg per service, written in the hard delete's own transaction). Refused (`400`) while it has live teams | `orgs:manage` |
-| `POST` | `/organization/:id/restore` | Restore a soft-deleted org inside its window (+ step-up). A parent admin may restore its own team; a team restore needs its parent live and still team-capable (`409`) and room in the account's pooled seats (`409`), and re-syncs the root's tier + entitlements | `org_settings:write` (own org / managed team) |
+| `POST` | `/organization/:id/restore` | Restore a soft-deleted org inside its window (+ step-up). A parent admin may restore its own team; a team restore needs its parent live and still team-capable (`409`) and room in the account's pooled seats (`409`), and re-syncs the root's tier + entitlements. A team deleted by a platform operator (a takedown) can be restored only by the platform (`403 ORG_RESTORE_PLATFORM_DELETED`) | `org_settings:write` (own org / managed team) |
 | `POST` | `/organization/:id/move` | Reparent (+ step-up). Body `{ parentOrgId: string \| null }`: a team to another eligible root (team/enterprise tier), a team out as a standalone root (`null`), or a root **with no teams** (live or pending deletion) in under a root. Refuses self-parenting, cycles, nesting two deep, an ineligible/missing destination and a no-op (`400`/`404`), a move over the destination's seat cap (`409`), a competing move that landed first (`409 ORG_MOVE_CONFLICT` — every structural check is re-asserted inside the transaction and the write is conditional on the parent this request read, so of two interleaved moves exactly one commits), and nesting a root that still has a billable subscription (`409`, cancel it first; `503` if billing can't confirm). Re-syncs tier, entitlements and quota seeding for the new account (a team takes the root's tier + entitlements with `-1` quotas; a new root starts on the default tier, since no subscription follows it, with that tier's quota preset and no entitlements) and invalidates every session scoped to the org → `{ organization }` (the detail DTO with hierarchy) | `orgs:manage` |
 | `PATCH` | `/organization/:id/tier` | Change pricing tier (+ step-up) | `orgs:manage` |
 | `GET` | `/organization/:id/export` | GDPR data export (+ step-up) — a single JSON blob carrying every Postgres table and every Mongo collection the delete cascade removes (invitations, audit events, IdP config + group mappings, domains, join requests, SAML SLO sessions, service accounts + keys with the key hash stripped, memberships, Role assignments and Roles). The same artifact is captured as the recovery snapshot at soft-delete time; `failed` names any store that could not be read and `truncated` any that hit its cap | `org_settings:write` |
@@ -393,15 +394,15 @@ Cross-tenant permissions such as `orgs:manage` are **system-org-only**: they can
 | `GET` | `/organization/:id/members/:userId/exists` | Active-membership probe (`{ isMember }`) — internal, used by the message service to reject a per-user DM to a non-member | — (service / member) |
 | `POST` \| `DELETE` \| `PATCH` | `/organization/:id/members[/:userId[/activate\|deactivate]]` | Add / remove / change-role / (de)activate a member | `members:manage` |
 | `GET` | `/organization/:id/teams` | List live descendant teams (soft-deleted teams are excluded here, from `/:id/member/:memberId/teams` and from `/:id/descendants`) | — (member) |
-| `GET` | `/organization/:id/teams/deleted` | Soft-deleted teams of `:id` still inside their retention window → `{ teams: [{ orgId, orgName, deletedAt, purgeAfter }] }`, newest first. Restore with `POST /organization/:teamId/restore` | `org_settings:write` (admin of `:id`) |
+| `GET` | `/organization/:id/teams/deleted` | Soft-deleted teams of `:id` still inside their retention window → `{ teams: [{ orgId, orgName, deletedAt, purgeAfter, deletedByPlatform, restorable }] }`, newest first. Restore with `POST /organization/:teamId/restore`. `restorable` is false for a team a platform operator deleted (a takedown) unless the viewer is a platform admin | `org_settings:write` (admin of `:id`) |
 | `DELETE` | `/organization/:id/teams/:teamId` | A parent admin soft-deletes one of its own teams (+ step-up) — the same snapshot + retention window as the sysadmin delete → `202 { deletedAt, purgeAfter, snapshotId }`. `404` unless the team's direct parent is `:id`. The team leaves the live scope at once: its members stop counting against pooled seats and it drops out of team lists and rollups | `org_settings:write` (admin of `:id`) |
 | `GET` | `/organization/:id/roles` | List Roles (permission sets) + members. Every Role without `?limit=`; with it (1–100, plus `?offset=`) one page, members loaded for that page only. Always returns `pagination.total` | — (member) |
 | `POST` | `/organization/:id/roles` | Create a custom Role | `roles:manage` |
 | `PUT` \| `DELETE` | `/organization/:id/roles/:roleId` | Update / delete a custom Role | `roles:manage` |
 | `POST` \| `DELETE` | `/organization/:id/roles/:roleId/members[/:userId]` | Add / remove a Role member | `roles:manage` |
 | `GET` | `/organization/:id/service-accounts[/:accountId]` | List (or read) the org's [service accounts](authentication.md#service-accounts) with their roles + key metadata — never a secret | `service_accounts:manage` |
-| `POST` \| `PATCH` \| `DELETE` | `/organization/:id/service-accounts[/:accountId]` | Create / update (description, roles, token budget, disabled) / delete a service account. Delete removes every key with it | `service_accounts:manage` + step-up |
-| `POST` | `/organization/:id/service-accounts/:accountId/keys` | Issue a `pb_sa_…` key — returned **once** (`{ key, accessKey }`); optional `ipAllowlist` and `scope` ([one capability instead of the account's Roles](authentication.md#scoped-keys--one-capability-no-roles): `reporting:ingest`, `registry:push`, `scim`), max 365 days, 5 active keys per account | `service_accounts:manage` + step-up |
+| `POST` \| `PATCH` \| `DELETE` | `/organization/:id/service-accounts[/:accountId]` | Create / update (description, roles, token budget, disabled) / delete a service account. Delete removes every key with it. Re-enabling or deleting an account is refused with 403 (`RL_ASSIGN_EXCEEDS_CEILING` / `RL_REQUIRES_SUPERADMIN`) when its Roles exceed the caller's own authority; disabling is not | `service_accounts:manage` + step-up |
+| `POST` | `/organization/:id/service-accounts/:accountId/keys` | Issue a `pb_sa_…` key — returned **once** (`{ key, accessKey }`); optional `ipAllowlist` and `scope` ([one capability instead of the account's Roles](authentication.md#scoped-keys--one-capability-no-roles): `reporting:ingest`, `registry:push`, `scim`), max 365 days, 5 active keys per account. Refused with 403 when the account's Roles exceed the caller's own authority | `service_accounts:manage` + step-up |
 | `POST` | `/organization/:id/service-accounts/provision-key` | Find-or-create an account by name, issue it a key, and retire its oldest key at the 5-key cap — **one** step-up for all of it (`pipeline-manager infra store-token`). Body `{ accountName, description?, role?, scope?, key: { name, expiresIn } }`; `role` (a seed bundle, e.g. `pipeline_automation`) is granted only to a NEW account, never to an existing one. `201 { organizationId, serviceAccount: { id, name, created }, key, accessKey: { id, expiresAt, scope }, retiredKeyIds }`; `409 SA_BUILTIN_ROLE_MISSING` when the org lacks that built-in Role. Audited as the same create / key-create / key-revoke events the individual routes write ([details](authentication.md#one-step-up-for-the-whole-provisioning--provision-key)) | `service_accounts:manage` + step-up |
 | `DELETE` | `/organization/:id/service-accounts/:accountId/keys/:keyId` | Revoke one key — it stops working fleet-wide within 5 minutes. Deliberately **not** step-up gated, so a compromised key can be killed immediately | `service_accounts:manage` |
 | `GET` \| `POST` | `/organization/:id/idp/group-mappings` | List / create an [IdP group → Role mapping](authentication.md#just-in-time-membership-and-group--role-mapping). SSO sign-in grants the mapped Roles (and creates the membership). Refused for a `google` config — Google issues no group claims | `roles:manage` (+ `sso` entitlement) |
@@ -420,6 +421,7 @@ Cross-tenant permissions such as `orgs:manage` are **system-org-only**: they can
 | `GET` \| `PATCH` | `/organization/:id/impersonation-policy` | Read / change whether platform operators may view as this org's members (`open`, `consent`, `denied`) and `allowSelfApproval`. Returns the EFFECTIVE policy (strictest across the org and its ancestors) with the org's `own` setting; when a parent's stricter policy applies, `inheritedFrom` + `inheritedFromName` name it. The write is step-up gated | `org_impersonation:write` |
 | `GET` | `/admin/orgs/:orgId/kms-config` | Whether the org has its own [per-org KMS](runbooks/secret-rotation.md) config (`configured`, `keyId`); the wrapped master is never returned | `org_kms:write` + *system admin* |
 | `PUT` \| `DELETE` | `/admin/orgs/:orgId/kms-config` | Set (`{ keyId, ciphertextBase64 }`) / clear the org's per-org KMS config — DELETE falls the org back to the shared master. **Both re-encrypt the org's platform secrets** under the incoming provider and re-wrap its runner signing keys → `{ configured, keyId?, …counts }` (DELETE on an org with no config answers `200 { configured: false }` and changes nothing). `?reencrypt=false` skips only the platform-secret re-encrypt (those secrets become unreadable; the runner keys are still re-wrapped). `409` when a stored secret cannot be decrypted under the current provider — nothing is changed; `500` when the config was saved but the re-encrypt (or the runner-key re-wrap) failed mid-flight — audited as a failure. MFA session (aal2) + step-up by passkey or authenticator code | `org_kms:write` + *system admin* |
+| `POST` | `/admin/orgs/:orgId/kms-config/runner-keys/reencrypt` | Retry a KMS change's failed runner-signing-key re-wrap: re-wraps the org's runner keys reading them under the current config, then the outgoing config the failed change recorded, then the shared provider. Safe to repeat; `409` when no re-wrap is pending; `500` (record kept) when it fails again. MFA session (aal2) + step-up by passkey or authenticator code | `org_kms:write` + *system admin* |
 | `POST` | `/admin/orgs/:orgId/kms-config/test` | Dry-run a proposed config (the CMK exists, the platform can decrypt it, the wrapped master is well-formed). Saves nothing | `org_kms:write` + *system admin* |
 
 #### SCIM 2.0 (`/api/scim/v2`)
@@ -823,7 +825,6 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 ```bash
 curl -X POST https://localhost:8443/api/plugins \
   -H "Authorization: Bearer $TOKEN" \
-  -H "x-org-id: $ORG_ID" \
   -F "plugin=@./my-plugin.zip" \
   -F "visibility=private"
 ```
@@ -832,17 +833,17 @@ curl -X POST https://localhost:8443/api/plugins \
 
 ```bash
 curl "https://localhost:8443/api/plugins?name=node-build&limit=10" \
-  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID"
+  -H "Authorization: Bearer $TOKEN"
 
 curl "https://localhost:8443/api/plugins/find?name=node-build&version=1.0.0" \
-  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 **Update:**
 
 ```bash
 curl -X PUT "https://localhost:8443/api/plugins/<id>" \
-  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"summary": "Scans images for CVEs.", "homepageUrl": "https://trivy.dev", "isDefault": true}'
 ```
@@ -851,7 +852,7 @@ curl -X PUT "https://localhost:8443/api/plugins/<id>" \
 
 ```bash
 curl -X DELETE "https://localhost:8443/api/plugins/<id>" \
-  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Pipelines
@@ -860,7 +861,7 @@ curl -X DELETE "https://localhost:8443/api/plugins/<id>" \
 
 ```bash
 curl -X POST https://localhost:8443/api/pipelines \
-  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "project": "my-app",
@@ -875,7 +876,7 @@ curl -X POST https://localhost:8443/api/pipelines \
           "type": "github",
           "options": { "repo": "my-org/my-app", "branch": "main" }
         },
-        "plugin": { "name": "cdk-synth", "filter": { "version": "1.0.0" } }
+        "plugin": { "name": "cdk-synth" }
       }
     }
   }'
@@ -885,10 +886,10 @@ curl -X POST https://localhost:8443/api/pipelines \
 
 ```bash
 curl "https://localhost:8443/api/pipelines?project=my-app&limit=10" \
-  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID"
+  -H "Authorization: Bearer $TOKEN"
 
 curl "https://localhost:8443/api/pipelines/find?project=my-app&organization=my-org" \
-  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### AI Generation
@@ -897,12 +898,12 @@ curl "https://localhost:8443/api/pipelines/find?project=my-app&organization=my-o
 
 ```bash
 curl -X POST https://localhost:8443/api/pipelines/generate \
-  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "Build a Node.js app from GitHub, run tests, and deploy with CDK",
     "provider": "anthropic",
-    "model": "claude-sonnet-5"
+    "model": "claude-sonnet-5-5"
   }'
 ```
 
@@ -915,17 +916,17 @@ The model is told to follow the catalog's [Dockerfile rules](../deploy/plugins/R
 ```bash
 # Step 1: Generate
 curl -X POST https://localhost:8443/api/plugins/generate \
-  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "A Node.js 20 build plugin that runs npm ci, npm test, and npm run build",
     "provider": "anthropic",
-    "model": "claude-sonnet-5"
+    "model": "claude-sonnet-5-5"
   }'
 
 # Step 2: Deploy (review/edit the generated output, then submit)
 curl -X POST https://localhost:8443/api/plugins/deploy-generated \
-  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "nodejs-build",
@@ -951,17 +952,19 @@ All API responses follow a consistent format:
 }
 ```
 
-**Paginated:** list endpoints return their items under a named key (`pipelines`, `plugins`, `registry`, etc.) alongside a `pagination` object:
+**Paginated:** list endpoints return their items under a named key (`pipelines`, `plugins`, `registry`, etc.) alongside a `pagination` object, both inside `data`. `total` is omitted when the route doesn't count, and a cursor-paged route adds `nextCursor`:
 ```json
 {
   "success": true,
   "statusCode": 200,
-  "pipelines": [ ... ],
-  "pagination": {
-    "total": 42,
-    "limit": 10,
-    "offset": 0,
-    "hasMore": true
+  "data": {
+    "pipelines": [ ... ],
+    "pagination": {
+      "total": 42,
+      "limit": 10,
+      "offset": 0,
+      "hasMore": true
+    }
   }
 }
 ```
@@ -975,6 +978,8 @@ All API responses follow a consistent format:
   "message": "Pipeline not found"
 }
 ```
+
+An unexpected failure answers `500 INTERNAL_ERROR` with `details.requestId` to quote when reporting it; the underlying message is never returned. See [Error Handling](error-handling.md) for how codes map to statuses.
 
 ---
 
@@ -990,7 +995,7 @@ Pipeline execution and plugin build analytics. Time ranges default to the last 3
 | `GET` | `/reports/execution/stage-failures` | Stage failure heatmap — failures over terminal stage outcomes (lifecycle rows such as STARTED / IN_PROGRESS are not attempts) |
 | `GET` | `/reports/execution/stage-bottlenecks` | Slowest stages per pipeline |
 | `GET` | `/reports/execution/errors` | Error categorization (top N) across **every** org — the platform operator's view. Cross-org error TEXT, so the system-org-only `orgs:read` (plus aal2) rather than `reports:read`; no `includeDescendants`, and the retention floor does not apply |
-| `GET` | `/reports/execution/dora` | **Per-environment** DORA metrics (headline `production`) with performance-level bands: deploy-basis frequency, **measured** lead time (commit→deploy; `unknown` when unresolved — no proxy), two-class change-failure rate, production **median** time to restore (`meanTimeToRestore`), coverage; a band on fewer than 5 observations is `insufficient` with its `n` (`reports:read` **+ `advanced_reporting` feature** — Enterprise, or the Advanced Reporting add-on; `from`, `to`, `includeDescendants` needs `reports:rollup`; optional `pipelineId`, `environment`). See [DORA Metrics](dora-metrics.md) |
+| `GET` | `/reports/execution/dora` | **Per-environment** DORA metrics (headline `production`) with performance-level bands: deploy-basis frequency, **measured** lead time (commit→deploy; `unknown` when unresolved — no proxy), two-class change-failure rate, production **median** time to restore (`meanTimeToRestore`), coverage; a band on fewer than 5 observations is `insufficient` with its `n` (`reports:read` **+ `advanced_reporting` feature** — included in Business and Enterprise, or the Advanced Reporting add-on; `from`, `to`, `includeDescendants` needs `reports:rollup`; optional `pipelineId`, `environment`). See [DORA Metrics](dora-metrics.md) |
 | `GET` | `/reports/execution/dora/trend` | DORA deployment-frequency + two-class change-failure trend (`failed`, `postDeployFailures`, `total` sum to the headline) bucketed by `interval`, optional `tz` / `weekStart` (same gates/scoping as `/dora`) |
 | `GET` | `/reports/execution/build-health` | Per-pipeline **build health** — per-stage success rate + p50/p90/p99 timing (`reports:read`; **not** `advanced_reporting` — standard on every tier; `pipelineId`, `from`, `to`) |
 | `POST` | `/reports/deployments/:executionId/outcome` | Mark a **successful** production deploy as `failed`/`restored` (feeds post-deploy CFR + median time to restore, measured from the `failed` marker); `pipelines:write` **+ `advanced_reporting`** |

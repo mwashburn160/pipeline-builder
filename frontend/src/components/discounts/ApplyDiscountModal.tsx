@@ -22,17 +22,17 @@ function PriceBreakdown({ breakdown }: { breakdown: DiscountPriceBreakdown }) {
       {breakdown.items.map((item, i) => (
         <div key={i} className="flex items-center justify-between gap-3 text-xs">
           <dt className="text-fg-muted">{item.label}</dt>
-          <dd className="font-mono text-fg-muted text-right tabular-nums">{formatCents(item.cents)}</dd>
+          <dd className="font-mono text-fg-muted text-right tabular-nums">{formatCents(item.cents, breakdown.currency)}</dd>
         </div>
       ))}
       <div className="flex items-center justify-between gap-3 text-xs border-t border-default pt-1 mt-1 font-medium">
         <dt className="text-fg-muted">Total ({breakdown.interval})</dt>
-        <dd className="font-mono text-fg text-right tabular-nums">{formatCents(breakdown.totalCents)}</dd>
+        <dd className="font-mono text-fg text-right tabular-nums">{formatCents(breakdown.totalCents, breakdown.currency)}</dd>
       </div>
       {breakdown.creditRemainingCents > 0 && (
         <div className="flex items-center justify-between gap-3 text-xs text-fg-muted">
           <dt>Credit remaining</dt>
-          <dd className="font-mono text-right tabular-nums">{formatCents(breakdown.creditRemainingCents)}</dd>
+          <dd className="font-mono text-right tabular-nums">{formatCents(breakdown.creditRemainingCents, breakdown.currency)}</dd>
         </div>
       )}
     </dl>

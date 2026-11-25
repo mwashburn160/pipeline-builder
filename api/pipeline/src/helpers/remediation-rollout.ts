@@ -820,18 +820,31 @@ export function createRolloutEngine(deps: RolloutDeps) {
       }
       admitted.push({ c, pipeline, rootOrgId: await rootFor(pipeline.orgId, async () => c.rootOrgId) });
     }
+    // Every candidate is planned before any row is written, and the rows go in
+    // one transaction: a start that fails part-way writes nothing, so its retry
+    // is a fresh start over every candidate (a repeat start that finds rows only
+    // re-targets them and would never add a pipeline a partial start left out).
+    // A change request issued before the failure is a no-op when the retry
+    // issues it again (it is written only while the install has none pending).
+    const placed: Array<{ c: (typeof admitted)[number]['c']; rootOrgId: string | null; placement: Placement }> = [];
     for (const { c, pipeline, rootOrgId } of admitted) {
       const placement = await placeFor(c.orgId, c.pipelineId, rootOrgId, pipeline);
-      if (!placement || placement.state === 'superseded') continue;
-      // Guarded in SQL too: the row is inserted only while the pipeline is live
-      // and still belongs to the row's org.
-      await asSystem((tx) => tx.execute(sql`
-        INSERT INTO pipeline_remediation_upgrades (org_id, root_org_id, remediation_id, pipeline_id, plugin_name, plugin_publisher, from_version, to_version, mode, state, error)
-        SELECT ${c.orgId}, ${rootOrgId}, ${remediationId}::uuid, p.id, ${input.plugin}, ${input.publisher}, ${input.fromVersion}, ${input.toVersion},
-               ${placement.mode}, ${placement.state}, ${placement.error}
-        FROM pipelines p
-        WHERE p.id = ${c.pipelineId}::uuid AND p.deleted_at IS NULL AND lower(p.org_id) = ${c.orgId.toLowerCase()}
-        ON CONFLICT (remediation_id, pipeline_id) DO NOTHING`));
+      if (placement && placement.state !== 'superseded') placed.push({ c, rootOrgId, placement });
+    }
+    if (placed.length > 0) {
+      await asSystem(async (tx) => {
+        for (const { c, rootOrgId, placement } of placed) {
+          // Guarded in SQL too: the row is inserted only while the pipeline is
+          // live and still belongs to the row's org.
+          await tx.execute(sql`
+            INSERT INTO pipeline_remediation_upgrades (org_id, root_org_id, remediation_id, pipeline_id, plugin_name, plugin_publisher, from_version, to_version, mode, state, error)
+            SELECT ${c.orgId}, ${rootOrgId}, ${remediationId}::uuid, p.id, ${input.plugin}, ${input.publisher}, ${input.fromVersion}, ${input.toVersion},
+                   ${placement.mode}, ${placement.state}, ${placement.error}
+            FROM pipelines p
+            WHERE p.id = ${c.pipelineId}::uuid AND p.deleted_at IS NULL AND lower(p.org_id) = ${c.orgId.toLowerCase()}
+            ON CONFLICT (remediation_id, pipeline_id) DO NOTHING`);
+        }
+      });
     }
     const rows = await loadRows(remediationId);
     await report(remediationId, rows, input.toVersion, true).catch((err) => logger.warn('Rollout report failed', { remediationId, error: errorMessage(err) }));

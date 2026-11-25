@@ -224,14 +224,16 @@ describe('organizationService.list — tier filter + derived facets', () => {
     expect(organizations.map((o) => o.ownerId)).toEqual(['u-owner', undefined]);
   });
 
-  it('derives kmsConfigured=true iff kmsConfig.keyId is present', async () => {
+  it('derives kmsConfigured=true iff the org has an ACTIVE config (keyId AND ciphertext)', async () => {
     const rows = [
-      { _id: 'o1', name: 'a', slug: 'a', kmsConfig: { keyId: 'alias/x' } },
+      { _id: 'o1', name: 'a', slug: 'a', kmsConfig: { keyId: 'alias/x', ciphertextBase64: 'AQID' } },
       { _id: 'o2', name: 'b', slug: 'b' },
       { _id: 'o3', name: 'c', slug: 'c', kmsConfig: {} },
+      // A partial config is no config to the providers (and GET kms-config says so).
+      { _id: 'o4', name: 'd', slug: 'd', kmsConfig: { keyId: 'alias/x' } },
     ];
     mockOrgFind.mockReturnValue(makeFindChain(rows));
-    mockOrgCount.mockResolvedValue(3);
+    mockOrgCount.mockResolvedValue(4);
     mockUserOrgCount.mockResolvedValue(0);
 
     const { organizations } = await organizationService.list({ offset: 0, limit: 10 });
@@ -239,6 +241,7 @@ describe('organizationService.list — tier filter + derived facets', () => {
       ['o1', true],
       ['o2', false],
       ['o3', false],
+      ['o4', false],
     ]);
   });
 

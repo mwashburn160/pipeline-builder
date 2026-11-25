@@ -5,8 +5,8 @@
  * Automatic Verified-publisher eligibility (docs/plugin-publishing.md
  * ). An org may apply for the Verified badge only when ALL hold:
  *
- *  - `plan`: its plan includes `verified_publisher` (Team, Enterprise, or the
- *    self-hosted `unlimited` tier);
+ *  - `plan`: its plan includes `verified_publisher` (`TIER_FEATURES`: Team,
+ *    Business, Enterprise, or the self-hosted `unlimited` tier);
  *  - `domain`: its root org has a DNS-VERIFIED domain (platform's domain
  *    verification); a domain named in the application must be one of them;
  *  - `owner_mfa`: every active owner has a second factor (passkey or
@@ -22,7 +22,10 @@
 import {
   ErrorCode,
   getQuotaServiceAuthHeader,
+  PLAN_TIERS,
+  STANDARD_TIERS,
   TIER_FEATURES,
+  type PlanTier,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 
@@ -46,13 +49,29 @@ export interface VerifiedEligibility {
   verifiedDomains: string[];
 }
 
+/** Does `tier`'s feature set include `verified_publisher`? The one eligibility rule. */
+function tierIncludesVerified(tier: PlanTier): boolean {
+  return (TIER_FEATURES[tier] ?? []).includes('verified_publisher');
+}
+
+/**
+ * The refusal text, derived from the same rule the check applies: every
+ * purchasable tier that includes `verified_publisher`, by its display label
+ * ("Team, Business or Enterprise"). `unlimited` is never sold, so not named.
+ */
+function verifiedPlanRequiredDetail(): string {
+  const labels = STANDARD_TIERS.filter(tierIncludesVerified).map((t) => PLAN_TIERS[t].label);
+  const list = labels.length > 1 ? `${labels.slice(0, -1).join(', ')} or ${labels[labels.length - 1]}` : labels[0];
+  return `Verified publishing needs the ${list} plan.`;
+}
+
 /** Whether the org's plan includes `verified_publisher` (null = the quota service didn't answer). */
 export async function planIncludesVerified(orgId: string): Promise<boolean | null> {
   try {
     // Fail-closed read: an outage is "unknown", never the fallback DEFAULT_TIER.
     const tier = await ecosystemDeps().quotaService.getTierStrict(orgId, getQuotaServiceAuthHeader(orgId));
     if (tier === null) return null;
-    return (TIER_FEATURES[tier] ?? []).includes('verified_publisher');
+    return tierIncludesVerified(tier);
   } catch {
     return null;
   }
@@ -81,7 +100,7 @@ export async function checkVerifiedEligibility(
       ok: plan,
       detail: plan === null ? 'The plan could not be checked.'
         : plan ? 'The plan includes Verified publishing.'
-          : 'Verified publishing needs the Team or Enterprise plan.',
+          : verifiedPlanRequiredDetail(),
     },
     {
       id: 'domain',

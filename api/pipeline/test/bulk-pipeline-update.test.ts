@@ -248,6 +248,14 @@ describe('PUT /pipelines/bulk/update — compliance re-check (shared with single
     mockSendSuccess.mockClear();
   });
 
+  it('a rename alone writes each row\'s stored props with the new name, guarded on the row read', async () => {
+    const at = new Date('2026-11-01T00:00:00Z');
+    mockFindByIds.mockReset().mockResolvedValue([{ ...row(ID1), updatedAt: at }]);
+    mockValidatePipeline.mockResolvedValue({ blocked: false, violations: [] });
+    await handler(mockReq({ ids: [ID1], data: { pipelineName: 'renamed' } }), mockRes());
+    expect(mockUpdate).toHaveBeenCalledWith(ID1, expect.objectContaining({ pipelineName: 'renamed', props: { old: true, pipelineName: 'renamed' } }), 'test-org', expect.anything(), { expectedUpdatedAt: at });
+  });
+
   it('does not update a row the new props would make non-compliant, and reports it', async () => {
     mockValidatePipeline.mockImplementation(async (_org: string, _attrs: any, _auth: string, entityId: string) => (
       entityId === ID2
@@ -261,7 +269,8 @@ describe('PUT /pipelines/bulk/update — compliance re-check (shared with single
     expect(mockValidatePipeline).toHaveBeenCalledTimes(2);
     expect(mockValidatePipeline).toHaveBeenCalledWith(
       'test-org',
-      expect.objectContaining({ project: 'p', organization: 'o', props: { new: true }, visibility: 'org' }),
+      // The row's own name rides into the shared props (the synth names the pipeline from props).
+      expect.objectContaining({ project: 'p', organization: 'o', props: { new: true, pipelineName: `n-${ID1}` }, visibility: 'org' }),
       expect.any(String), ID1, `n-${ID1}`, 'update',
     );
     expect(mockUpdate).toHaveBeenCalledTimes(1);

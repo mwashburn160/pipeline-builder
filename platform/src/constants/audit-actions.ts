@@ -387,6 +387,9 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // before the cache eviction reached it). System actor; `details.unreadableSecrets`
   // names the fields only, never values. A clean check writes nothing.
   'admin.org.kms-config.verify',
+  // Retry of a KMS change's failed runner-signing-key re-wrap, with the
+  // outgoing config recorded on the org (`kmsRunnerRewrapFrom`).
+  'admin.org.kms-config.runner-keys.reencrypt',
   // Emitted by the org-delete cascade when the deleted org had a per-org KMS
   // CMK (`kmsConfig`). Auto-deleting a CMK is IRREVERSIBLE, so the cascade
   // does NOT schedule the key for deletion — it records this operator-

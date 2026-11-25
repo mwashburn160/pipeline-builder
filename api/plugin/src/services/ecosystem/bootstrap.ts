@@ -9,10 +9,11 @@
 
 import { envInt, createLogger, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
 import { OFFICIAL_PUBLISHER_HANDLE, type PluginPublishRequest, type Publisher } from '@pipeline-builder/pipeline-data';
+import { sql } from 'drizzle-orm';
 
 import { ecosystemAudit } from './audit.js';
 import { isOfficialLoader, type Caller } from './context.js';
-import { atomically, listings, settings } from './store.js';
+import { atomically, elevated, listings, settings } from './store.js';
 
 const logger = createLogger('ecosystem-bootstrap');
 
@@ -34,6 +35,14 @@ export interface BootstrapState {
 /** How long the bootstrap window stays open once the first Official request rides it. */
 export function bootstrapWindowMs(): number {
   return envInt('ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS', 24, { min: 1 }) * 3_600_000;
+}
+
+/** The advisory lock every first opener takes (the settings row may not exist yet). */
+const BOOTSTRAP_LOCK = 'ecosystem-bootstrap';
+
+/** Whether an opened window has run past {@link bootstrapWindowMs}. */
+function windowElapsed(state: BootstrapState): boolean {
+  return state.openedAt !== null && Date.now() - new Date(state.openedAt).getTime() > bootstrapWindowMs();
 }
 
 /** The bootstrap exception before it was ever opened. */
@@ -75,18 +84,26 @@ export async function bootstrapEligible(r: Req, publisher: Publisher, submitter:
   const state = await bootstrapState();
   if (state.closedAt) return false;
   if (!state.openedAt) {
-    if ((await listings.countAll()) > 0) {
+    // Judged ONLY under the lock. The read above is unlocked: a concurrent
+    // opener may have opened the window (and its publish listed a plugin) since,
+    // and closing on that listing as `listings_exist` shut the exception for
+    // every catalog plugin still building. And the settings row does not exist
+    // before the first open, so `FOR UPDATE` alone locks nothing: two first
+    // openers both inserted it and the loser's request threw after it was
+    // stored, left pending. The advisory lock serializes them.
+    const opened = await atomically(async () => {
+      await elevated((tx) => tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${BOOTSTRAP_LOCK}))`));
+      const cur = (await settings.getForUpdate<BootstrapState>(BOOTSTRAP_KEY)) ?? NO_BOOTSTRAP;
+      if (cur.closedAt) return { eligible: false, openedNow: false, listingsExist: false };
+      if (cur.openedAt) return { eligible: !windowElapsed(cur), openedNow: false, listingsExist: false };
+      if ((await listings.countAll()) > 0) return { eligible: false, openedNow: false, listingsExist: true };
+      await settings.put(BOOTSTRAP_KEY, { ...cur, openedAt: new Date().toISOString() }, SYSTEM_ACTOR_ID);
+      return { eligible: true, openedNow: true, listingsExist: false };
+    });
+    if (opened.listingsExist) {
       await closeBootstrap('listings_exist', SYSTEM_ACTOR_ID);
       return false;
     }
-    // Open it under the row lock: a concurrent opener must not reset a count.
-    const opened = await atomically(async () => {
-      const cur = (await settings.getForUpdate<BootstrapState>(BOOTSTRAP_KEY)) ?? state;
-      if (cur.closedAt) return { eligible: false, openedNow: false };
-      if (cur.openedAt) return { eligible: true, openedNow: false };
-      await settings.put(BOOTSTRAP_KEY, { ...cur, openedAt: new Date().toISOString() }, SYSTEM_ACTOR_ID);
-      return { eligible: true, openedNow: true };
-    });
     // Opening the window switches on automatic approval of Official requests
     // for ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS — audited once, by the opener only.
     if (opened.openedNow) {
@@ -94,7 +111,7 @@ export async function bootstrapEligible(r: Req, publisher: Publisher, submitter:
     }
     return opened.eligible;
   }
-  if (Date.now() - new Date(state.openedAt).getTime() > bootstrapWindowMs()) {
+  if (windowElapsed(state)) {
     await closeBootstrap('window_elapsed', SYSTEM_ACTOR_ID);
     return false;
   }

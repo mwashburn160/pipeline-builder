@@ -71,14 +71,14 @@ export function AddonPreviewModal({
                   <span className="text-fg-muted">
                     {item.label}{item.quantity > 1 ? ` × ${item.quantity}` : ''}
                   </span>
-                  <span className="tabular-nums text-fg">{formatCents(item.cents)}</span>
+                  <span className="tabular-nums text-fg">{formatCents(item.cents, addonPreview.priceBreakdown.currency)}</span>
                 </li>
               ))}
             </ul>
             <div className="flex justify-between border-t border-default mt-1 pt-2 text-sm font-semibold">
               <span className="text-fg">Total</span>
               <span className="tabular-nums text-fg">
-                {formatCents(addonPreview.priceBreakdown.totalCents)}/{addonPreview.priceBreakdown.interval === 'annual' ? 'yr' : 'mo'}
+                {formatCents(addonPreview.priceBreakdown.totalCents, addonPreview.priceBreakdown.currency)}/{addonPreview.priceBreakdown.interval === 'annual' ? 'yr' : 'mo'}
               </span>
             </div>
           </div>
@@ -93,7 +93,7 @@ export function AddonPreviewModal({
             <div className="rounded-md bg-warning-bg px-3 py-2 text-xs text-warning-strong">
               {addonPreview.lostCombos.map((c) => (
                 <p key={c.comboId}>
-                  Ends your {c.name} discount — {formatCents(c.creditCents)}/{addonPreview.priceBreakdown.interval === 'annual' ? 'yr' : 'mo'} off.
+                  Ends your {c.name} discount — {formatCents(c.creditCents, addonPreview.priceBreakdown.currency)}/{addonPreview.priceBreakdown.interval === 'annual' ? 'yr' : 'mo'} off.
                 </p>
               ))}
             </div>

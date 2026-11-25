@@ -33,6 +33,7 @@
 import { BlockList, isIPv4, isIPv6 } from 'net';
 import { createLogger, isoOrNull, TOKEN_SCOPES } from '@pipeline-builder/api-core';
 import type { PlanTier, TokenScope } from '@pipeline-builder/api-core';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Types, type ClientSession } from 'mongoose';
 import { apiKeyService, type AccessKeyView } from './api-key-service.js';
 import { assertActorMayAssignRole, type RoleAssignmentActor } from './role-authority.js';
@@ -62,7 +63,6 @@ export { deleteServiceAccountsForOrg, revokeServiceAccountKeysForOrg } from './s
 // reads; re-exported so the controller finds the whole surface here.
 export { resolveBuiltinRoleId } from './service-account-roles.js';
 import { config } from '../config/index.js';
-import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { ClientInfo } from '../helpers/client-info.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -488,9 +488,15 @@ export function snapshotOf(view: ServiceAccountView): ServiceAccountSnapshot {
  * Delete an account: its Role assignments and every key go with it, so no
  * credential outlives the principal. Idempotent for the caller (a missing
  * account is `SA_NOT_FOUND`).
+ *
+ * Deleting strips every Role the account holds, so `actor` must pass the same
+ * ceiling `setServiceAccountRoles` applies to removing one: a delegate cannot
+ * irreversibly take away a capability they do not hold. (DISABLING stays open
+ * to any `service_accounts:manage` holder — containment is reversible.)
  */
-export async function deleteServiceAccount(orgId: string, id: string): Promise<ServiceAccountView> {
+export async function deleteServiceAccount(orgId: string, id: string, actor: RoleAssignmentActor): Promise<ServiceAccountView> {
   const existing = await requireAccount(orgId, id);
+  await assertActorMayWieldAccount(orgId, String(existing._id), actor);
   const view = await viewOf(existing);
   await apiKeyService.deleteForServiceAccounts([existing._id as Types.ObjectId]);
   await clearServiceAccountRoles(existing._id as Types.ObjectId);

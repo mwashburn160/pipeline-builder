@@ -334,6 +334,34 @@ export async function setSeatLimit(
   return outcome;
 }
 
+/** What {@link setAccountSeats} wrote, and the seat cap it replaced. */
+export interface AccountSeatsResult {
+  rootOrgId: string;
+  seats: number;
+  previous: { seats?: number };
+}
+
+/**
+ * A platform operator's hand override of the account seat cap: writes ONLY
+ * `quotas.seats` on the ROOT. Features, tier and the support caps stay billing's
+ * ({@link setSeatLimit}); a seat cap carries no access reduction, so no token is
+ * invalidated and nothing propagates to teams. Same root-only and system-org
+ * refusals as {@link setSeatLimit}. Null when the org is missing.
+ */
+export async function setAccountSeats(orgId: string, seats: number): Promise<AccountSeatsResult | null> {
+  if (isSystemOrgId(orgId)) throw new Error(SYSTEM_ORG_LIMIT_FORBIDDEN);
+  const { rootOrgId } = await resolveOrgLineage(orgId);
+  if (String(rootOrgId) !== String(orgId)) throw new Error(ORG_SEAT_LIMIT_NOT_ROOT);
+  const before = await Organization.findOneAndUpdate(
+    { _id: toOrgId(rootOrgId) },
+    { $set: { 'quotas.seats': seats } },
+    { new: false, projection: { 'quotas.seats': 1 } },
+  ).lean();
+  if (!before) return null;
+  const previousSeats = (before as { quotas?: { seats?: number } }).quotas?.seats;
+  return { rootOrgId, seats, previous: previousSeats !== undefined ? { seats: previousSeats } : {} };
+}
+
 /**
  * Whether changing `orgId`'s account to `newTier` would drop a COUNT quota's
  * cap below current pooled usage — mirrors the

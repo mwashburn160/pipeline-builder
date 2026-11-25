@@ -40,6 +40,7 @@ const api = {
   listPluginInstalls: jest.fn<AnyFn>(),
   getQueueFailed: jest.fn<AnyFn>(),
   getQueueDlq: jest.fn<AnyFn>(),
+  listPublisherListings: jest.fn<AnyFn>(),
 };
 jest.mock('@/lib/api', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, k: string) => (api as Record<string, unknown>)[k] }) }));
 
@@ -60,6 +61,7 @@ beforeEach(() => {
   api.listPluginInstalls.mockReturnValue(ok({ installs: [], policy: POLICY }));
   api.getQueueFailed.mockReturnValue(ok({ jobs: [], pagination: { limit: 25, offset: 0, hasMore: false } }));
   api.getQueueDlq.mockReturnValue(ok({ jobs: [], pagination: { limit: 25, offset: 0, hasMore: false } }));
+  api.listPublisherListings.mockReturnValue(ok({ listings: [] }));
 });
 
 it('flags an own plugin that shadows an Official listing', async () => {
@@ -106,4 +108,44 @@ it('shows Failed builds only with plugins:write, and a hand-edited ?tab=failed w
   expect(await screen.findByTestId('org-failed-builds')).toHaveTextContent("your organization's");
   await waitFor(() => expect(api.getQueueFailed).toHaveBeenCalled());
   expect(api.getQueueDlq).toHaveBeenCalled();
+});
+
+/** A public own plugin `acr-push` in two versions; the org's publisher lists 1.0.1 of it. */
+function ownPublicPlugins() {
+  api.listPlugins.mockReturnValue(ok({
+    plugins: [
+      { id: 'a1', orgId: 'org-1', name: 'acr-push', version: '1.0.1', visibility: 'public', isActive: true, isDefault: true, createdBy: 'u1' },
+      { id: 'a2', orgId: 'org-1', name: 'acr-push', version: '1.0.2', visibility: 'public', isActive: true, isDefault: false, createdBy: 'u1' },
+    ],
+    pagination: { total: 2, limit: 25, offset: 0, hasMore: false },
+  }));
+  api.getPluginShadowing.mockReturnValue(ok({ shadowing: [] }));
+  api.listPublisherListings.mockReturnValue(ok({ listings: [{
+    id: 'L1', publisherHandle: 'pipeline-builder', name: 'acr-push', state: 'listed', pausedAt: null,
+    versions: [{ id: 'v1', version: '1.0.1', pausedAt: null, yankedAt: null }],
+  }] }));
+  mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => p === 'plugins:read' || p === 'plugins:publish' });
+}
+
+it('a version already listed offers its public page, not "Publish to ecosystem"', async () => {
+  ownPublicPlugins();
+  render(<PluginsPage />);
+  const rows = await screen.findAllByRole('button', { name: 'acr-push' });
+  fireEvent.click(rows[0]);
+  expect(await screen.findByRole('link', { name: /View public page/ })).toHaveAttribute('href', '/plugins/pipeline-builder/acr-push');
+  expect(screen.queryByRole('link', { name: /Publish to ecosystem/ })).toBeNull();
+  expect(api.listPublisherListings).toHaveBeenCalledTimes(1);
+});
+
+it('a version not yet listed offers "Publish to ecosystem"', async () => {
+  ownPublicPlugins();
+  render(<PluginsPage />);
+  const rows = await screen.findAllByRole('button', { name: 'acr-push' });
+  fireEvent.click(rows[1]);
+  expect(await screen.findByRole('link', { name: /Publish to ecosystem/ })).toHaveAttribute('href', '/dashboard/publisher?tab=publish&pluginId=a2');
+  expect(screen.queryByRole('link', { name: /View public page/ })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /close/i }));
+  fireEvent.click(rows[0]);
+  await screen.findByRole('link', { name: /View public page/ });
+  expect(api.listPublisherListings).toHaveBeenCalledTimes(1);
 });

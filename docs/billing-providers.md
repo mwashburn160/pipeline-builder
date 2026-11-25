@@ -62,8 +62,8 @@ This page is the setup walkthrough for the two real providers. For what billing 
 
 Four things a billing system usually carries are **not** in this codebase, each on purpose. They are listed because their absence looks like an omission from the inside, and a reviewer who does not find them tends to file them as gaps.
 
-- **Tax and VAT are the provider's.** There is no tax logic anywhere in `api/billing`, and there should not be: Stripe Tax computes and remits on the Stripe path, and AWS Marketplace is the merchant of record on the Marketplace path, so it handles tax, invoicing and remittance for the buyer. Adding a second calculation here would put the app in disagreement with whichever one is authoritative. Enable Stripe Tax account-side; nothing in the app needs to change.
-- **One currency per deployment.** `BILLING_CURRENCY` must match the Stripe account's currency — Stripe rejects a balance transaction whose currency differs from the customer's, and the credit mechanism every discount depends on *is* a balance transaction. Regional pricing therefore means a separate deployment, not a per-org currency field.
+- **Tax and VAT are the provider's.** There is no tax logic anywhere in `api/billing`, and there should not be: Stripe Tax computes and remits on the Stripe path, and AWS Marketplace is the merchant of record on the Marketplace path, so it handles tax, invoicing and remittance for the buyer. Adding a second calculation here would put the app in disagreement with whichever one is authoritative. To use Stripe Tax, configure it account-side **and** set `BILLING_AUTOMATIC_TAX=true`: the app sets `automatic_tax` on each `subscriptions.create` and Checkout Session call, because the Dashboard toggle reaches neither.
+- **One currency per deployment.** `BILLING_CURRENCY` must match the Stripe account's currency — Stripe rejects a balance transaction whose currency differs from the customer's, and the credit mechanism every discount depends on *is* a balance transaction. Regional pricing therefore means a separate deployment, not a per-org currency field. Responses that carry an authored amount name its currency in a `currency` field (lower-case ISO 4217, e.g. `usd`): plans, bundles and combos, every `priceBreakdown`, discount and promotion records, the subscription, and the plan-change and crossover previews. The usage rollup's `cost.currency` is the same value upper-cased (`USD`).
 - **No trial period.** The `trialing` status is handled wherever Stripe reports it, so a trial configured account-side will not break anything, but the app never requests one. The $0 Developer tier is the on-ramp instead: it is a real tier with real limits rather than a countdown, so nothing expires and no card is needed to start.
 - **No overage billing — the invoice is the price you agreed.** Every cap is a hard refusal at the limit rather than a meter that keeps counting and bills the excess, so a busy period cannot produce a surprise invoice and the monthly figure is the one on the plan card. An account that reaches a ceiling adds the capacity it needs (a pack, a bundle or a tier step) as a deliberate, priced choice. Metered billing remains open as a product decision rather than a missing foundation: `BatchMeterUsage` on the Marketplace path, usage records on the Stripe path, and the quota service's per-period counters are all already in place.
 
@@ -83,7 +83,7 @@ Stripe billing is direct: the app creates a Stripe **Customer** per organization
 ### What you need
 
 - A Stripe account (start in **test mode**).
-- Your plan catalog decided (`developer` / `pro` / `team` / `enterprise`) — the app's plan ids, from [Environment Variables → Billing](environment-variables.md#billing).
+- Your plan catalog decided (`developer` / `pro` / `team` / `business` / `enterprise`) — the app's plan ids, from [Environment Variables → Billing](environment-variables.md#billing).
 
 ### Step 1 — Select the provider
 
@@ -124,7 +124,7 @@ The free `developer` tier needs **no** Price; the hidden `unlimited` tier is nev
 
 #### Add-on prices (from the existing bundles)
 
-Add-ons are charged as extra **subscription line items** on the same subscription, so each sellable bundle also needs a Stripe Price per interval, keyed `<bundleId>_<interval>` in the **same** `STRIPE_PRICE_MAP`. Annual is about 10× monthly, then rounded up to a whole dollar or `.99` like every other price — so it is `$499.99` rather than `$499.90`. Create the Price at the exact figure below:
+Add-ons are charged as extra **subscription line items** on the same subscription, so each sellable bundle also needs a Stripe Price per interval, keyed `<bundleId>_<interval>` in the **same** `STRIPE_PRICE_MAP`. Annual is about 10× monthly, then rounded up to a whole dollar, `.49` or `.99` like every other price — so it is `$499.99` rather than `$499.90`. Create the Price at the exact figure below:
 
 | Bundle id | Monthly | Annual | Map keys |
 |---|---|---|---|
@@ -186,11 +186,11 @@ STRIPE_PRICE_MAP='{
 }'
 ```
 
-That's the full set: 3 paid plans + 14 add-ons, each with a `_monthly` and `_annual` key. Drop any interval you don't sell (e.g. omit the `_annual` keys for monthly-only pricing), and drop any add-on you haven't enabled via `BILLING_BUNDLES_ENABLED` — an unmapped bundle's line item is silently skipped (entitlement granted, never charged), so only omit what you deliberately don't bill.
+That's the full set: 4 paid plans + 18 priced add-ons, each with a `_monthly` and `_annual` key (44 keys). Drop any interval you don't sell (e.g. omit the `_annual` keys for monthly-only pricing), and drop any add-on you haven't enabled via `BILLING_BUNDLES_ENABLED` — an unmapped bundle's line item is silently skipped (entitlement granted, never charged), so only omit what you deliberately don't bill.
 
 #### Combination discounts and volume tiers — **do not** create Stripe Prices for these
 
-Four combos and the per-seat volume ladder are applied by the platform as **credit
+The combos and the volume ladders are applied by the platform as **credit
 lines on the invoice projection**, computed from the add-ons an org holds. They are
 not products, they have no `STRIPE_PRICE_MAP` key, and creating Stripe Prices for
 them would double-count. Defaults:
@@ -203,7 +203,7 @@ them would double-count. Defaults:
 | `insights_bundle` | `team_usage_analytics` + `stakeholder_reports` | $42 | $420 |
 | `throughput_bundle` | `plugin_pack` + `api_pack` + `ai_pack` | $25.99 | $259.99 |
 | `scale_bundle` | `api_pack` + `storage_pack` | $22.99 | $229.99 |
-| `assured_delivery` | `compliance_standard` + `support_standard` | $34.99 | $349.99 |
+| `assured_delivery` | `compliance_standard` + `support_standard` (only with `SUPPORT_ENABLED`) | $34.99 | $349.99 |
 
 The credit is the difference between the members' list basket and the combined price,
 so `compliance_suite` ($29.99 + $99.99 = $129.98 list → $90.99) credits $38.99/mo.
@@ -211,6 +211,8 @@ Override with `BILLING_COMBO_<ID>_MONTHLY` / `_ANNUAL` (cents).
 
 `seat` also carries a **volume ladder** — 10% off from 5 seats, 20% from 15, 30% from
 40 — applied as a separate credit line. Override with `BILLING_BUNDLE_SEAT_VOLUME_TIERS`.
+The other stackable packs and the support levels carry ladders of their own (see
+[Billing Add-on Bundles](billing-bundles.md#the-bundles)), realized the same way.
 
 On Marketplace these credits are realized through metered **drawdown**, which is why
 every sellable dimension needs a price in `AWS_MARKETPLACE_DIMENSION_PRICE_MAP`: an
@@ -218,10 +220,10 @@ unpriced dimension cannot be valued, so it is reported in full and the discount 
 
 ### Step 4 — Register the webhook
 
-The app reconciles all subscription and payment state from Stripe webhooks. The endpoint is:
+The app reconciles all subscription and payment state from Stripe webhooks. Through the nginx gateway (which maps `/api/billing/*` to the billing service's `/billing/*`) the endpoint is:
 
 ```
-POST https://<your-public-host>/billing/stripe/webhook
+POST https://<your-public-host>/api/billing/stripe/webhook
 ```
 
 Stripe Dashboard → **Developers → Webhooks → Add endpoint** → enter that URL, then select the events the app consumes (or **all events**):
@@ -245,7 +247,7 @@ This table is the dispatch map in `api/billing/src/routes/stripe-webhook.ts` (`S
 
 **The service keeps the subscription complete itself.** At startup, and again once a day, billing (one pod, leader-locked) finds the endpoint and adds any handled event its `enabled_events` lacks. An endpoint on **all events** (`*`) is left alone, and the update is **additive**: events other consumers of the same endpoint rely on are kept. That is what makes a newly handled event (for example `charge.dispute.closed`) or a later Dashboard edit that drops one safe. Without it, Stripe would never send that event, and nothing would say so.
 
-- **Which endpoint.** It uses `STRIPE_WEBHOOK_ENDPOINT_ID` (`we_…`) if set. Otherwise it uses the endpoint whose URL is `PLATFORM_BASE_URL` + `/billing/stripe/webhook`, ignoring a trailing slash. Set the id when the endpoint is registered at any other URL, such as a proxy in front of the gateway. Only endpoints in the key's own Stripe world (test vs live) are considered.
+- **Which endpoint.** It uses `STRIPE_WEBHOOK_ENDPOINT_ID` (`we_…`) if set. Otherwise it uses the endpoint whose URL is `PLATFORM_BASE_URL` + `/billing/stripe/webhook`, ignoring a trailing slash. That is the service path, not the gateway's `/api/billing/stripe/webhook`, so with the endpoint registered at the gateway URL above, **set the id**; likewise for any other URL, such as a proxy in front of the gateway. Only endpoints in the key's own Stripe world (test vs live) are considered.
 - **Key permission.** `STRIPE_SECRET_KEY` needs **write** access to **Webhook Endpoints**. A standard secret key has it. A restricted key (`rk_…`) must be granted *Webhook Endpoints: Write*. Without it the check still runs and reports, but cannot fix anything.
 - **When it cannot fix it.** Startup never fails because of this check. If the endpoint cannot be found, read or updated (missing permission, network, wrong id or URL), billing logs the missing event names and sets `billing_stripe_webhook_events_missing` to how many handled events are not confirmed on the endpoint. If the endpoint could not be read at all, that is every handled event. **`BillingStripeWebhookEventsMissing`** fires while the gauge is above 0. Read the `stripe-webhook-reconcile` log line for the event names and the reason. Then grant the permission, set `STRIPE_WEBHOOK_ENDPOINT_ID`, or add the events in the Dashboard. The next daily pass, or a restart, clears it.
 
@@ -262,13 +264,13 @@ The webhook route verifies every delivery against this secret over the **raw** r
 ```bash
 stripe login
 # Forward live test events to your local gateway and print a whsec_ to use as STRIPE_WEBHOOK_SECRET:
-stripe listen --forward-to https://localhost:8443/billing/stripe/webhook
+stripe listen --forward-to https://localhost:8443/api/billing/stripe/webhook
 # In another shell, simulate the lifecycle:
 stripe trigger customer.subscription.created
 stripe trigger invoice.payment_succeeded
 ```
 
-Confirm the subscription appears (`GET /billing/subscription` for the org) and the tier is granted.
+Confirm the subscription appears (`GET /billing/subscriptions` for the org) and the tier is granted.
 
 ### Step 6 — Go live
 
@@ -279,10 +281,10 @@ Swap **test → live** everywhere: `STRIPE_SECRET_KEY=sk_live_…`, a **live-mod
 Unlike AWS Marketplace (where the customer subscribes on AWS and the platform reconciles), **Stripe is driven entirely in-app and is wired end to end** — there is no external redirect and no missing UI piece:
 
 - **Provider selection** — `getPaymentProvider()` constructs the `StripeProvider` when `BILLING_PROVIDER=stripe` and **throws at startup if `STRIPE_SECRET_KEY` is unset** (`STRIPE_SECRET_KEY is required when BILLING_PROVIDER=stripe`), so a misconfigured deployment fails fast rather than silently running stubbed.
-- **Subscribe** — the dashboard Billing page calls `POST /billing/subscriptions` (authenticated, `billing:manage`), which runs `createCustomer` → `createSubscription` on the provider. `createSubscription` looks up the Stripe Price from `STRIPE_PRICE_MAP[<planId>_<interval>]` and fails fast if that key is missing.
+- **Subscribe** — a paid plan goes through hosted Checkout: `POST /billing/subscriptions/checkout` returns a Stripe Checkout `url`, and the local subscription and entitlements are provisioned by the `customer.subscription.created` webhook when it completes. The direct `POST /billing/subscriptions` runs `createCustomer` → `createSubscription` on the provider. Both need `billing:manage`, an MFA-grade admin session and the account root, and look up the Stripe Price from `STRIPE_PRICE_MAP[<planId>_<interval>]`, failing fast if that key is missing.
 - **Add-ons** — purchased bundles call the add-on routes, which invoke `syncAddons`; each bundle's Stripe Price comes from `STRIPE_PRICE_MAP[<bundleId>_<interval>]`, applied as an extra subscription line item (a missing key is skipped — granted but not charged).
 - **Billing periods** — Stripe owns the dates. The app is pinned to one Stripe API version (`STRIPE_API_VERSION` in the provider), and at that version the period lives on the subscription *items*, so that is where it is read from (on create, on every `.updated`, and by the late-webhook reconciler). A paid invoice moves the period to the one its **recurring** line bills for. Proration lines are skipped, and a proration-only or one-off invoice leaves the period alone. Each period carries the UTC day it is anchored on. Only periods no provider keeps (the stub provider, and a Marketplace entitlement with no expiry) are renewed by the app, on that anchor day clamped to the month's length, so an anchor of the 31st runs Jan 31 → Feb 28 → Mar 31.
-- **Reconciliation** — all state changes come back through `POST /billing/stripe/webhook`, which verifies each delivery with `stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET)`, returns **503** if the secret is unset (so Stripe retries rather than the app processing unsigned payloads), and de-dupes redeliveries by `event.id`. The consumed event set is the table in Step 4.
+- **Reconciliation** — all state changes come back through the webhook (service path `POST /billing/stripe/webhook`), which verifies each delivery with `stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET)`, returns **503** if the secret is unset (so Stripe retries rather than the app processing unsigned payloads), and de-dupes redeliveries by `event.id`. The consumed event set is the table in Step 4.
 
 Net: enabling Stripe is **purely configuration** (`BILLING_PROVIDER`, the two secrets, and `STRIPE_PRICE_MAP`) — the subscribe UI, add-on flow, and webhook reconciliation already ship.
 
@@ -292,14 +294,16 @@ Net: enabling Stripe is **purely configuration** (`BILLING_PROVIDER`, the two se
 |---|---|---|
 | `STRIPE_SECRET_KEY` | — | **Secret.** Stripe API secret key (`sk_test_…` / `sk_live_…`). Required when `BILLING_PROVIDER=stripe` |
 | `STRIPE_WEBHOOK_SECRET` | — | **Secret.** Signing secret (`whsec_…`) for the endpoint at `POST /billing/stripe/webhook`; every delivery is signature-verified against it |
-| `STRIPE_WEBHOOK_ENDPOINT_ID` | — | Id (`we_…`) of the webhook endpoint whose events billing keeps complete. Unset = the endpoint registered at `PLATFORM_BASE_URL/billing/stripe/webhook`. See [Step 4](#step-4--register-the-webhook) |
+| `STRIPE_WEBHOOK_ENDPOINT_ID` | — | Id (`we_…`) of the webhook endpoint whose events billing keeps complete. Unset = the endpoint registered at `PLATFORM_BASE_URL/api/billing/stripe/webhook`. See [Step 4](#step-4--register-the-webhook) |
 | `STRIPE_PRICE_MAP` | `{}` | JSON map of `<id>_<interval>` → Stripe Price id, where `<id>` is a **plan id or a bundle id** (e.g. `{"pro_monthly":"price_…","seat_annual":"price_…"}`). A plan/interval absent here cannot be subscribed; a bundle absent here is granted but not charged |
+| `BILLING_CURRENCY` | `usd` | ISO currency every amount is authored and billed in. **Must match the Stripe account's currency** |
+| `BILLING_AUTOMATIC_TAX` | `false` | Hand tax calculation to Stripe Tax on both subscription paths (direct create and Checkout) |
 
 
 #### The whole Stripe block, ready to paste
 
 Every variable Stripe needs, at its code default. Replace the two secrets and the
-34 `price_REPLACE` ids; everything else can ship as-is.
+44 `price_REPLACE` ids; everything else can ship as-is.
 
 ```bash
 BILLING_ENABLED=true
@@ -309,10 +313,13 @@ BILLING_PROVIDER=stripe
 STRIPE_SECRET_KEY=sk_test_REPLACE
 STRIPE_WEBHOOK_SECRET=whsec_REPLACE
 # Optional: the endpoint (we_…) whose events billing keeps complete. Empty = the
-# endpoint at PLATFORM_BASE_URL/billing/stripe/webhook.
+# endpoint at PLATFORM_BASE_URL/api/billing/stripe/webhook.
 STRIPE_WEBHOOK_ENDPOINT_ID=
+# Must match the Stripe account's currency.
+BILLING_CURRENCY=usd
+BILLING_AUTOMATIC_TAX=false
 
-# 3 paid plans + 14 add-ons, monthly and annual = the 34 keys the validator wants.
+# 4 paid plans + 18 priced add-ons, monthly and annual = the 44 keys the validator wants.
 # A missing key means that plan cannot be subscribed, or that add-on is granted
 # and never charged.
 STRIPE_PRICE_MAP='{"pro_monthly":"price_REPLACE","pro_annual":"price_REPLACE","team_monthly":"price_REPLACE","team_annual":"price_REPLACE","business_monthly":"price_REPLACE","business_annual":"price_REPLACE","enterprise_monthly":"price_REPLACE","enterprise_annual":"price_REPLACE","seat_monthly":"price_REPLACE","seat_annual":"price_REPLACE","pipeline_pack_monthly":"price_REPLACE","pipeline_pack_annual":"price_REPLACE","plugin_pack_monthly":"price_REPLACE","plugin_pack_annual":"price_REPLACE","cpu_credits_pack_monthly":"price_REPLACE","cpu_credits_pack_annual":"price_REPLACE","api_pack_monthly":"price_REPLACE","api_pack_annual":"price_REPLACE","automation_pack_monthly":"price_REPLACE","automation_pack_annual":"price_REPLACE","ai_pack_monthly":"price_REPLACE","ai_pack_annual":"price_REPLACE","storage_pack_monthly":"price_REPLACE","storage_pack_annual":"price_REPLACE","retention_pack_monthly":"price_REPLACE","retention_pack_annual":"price_REPLACE","dora_history_pack_monthly":"price_REPLACE","dora_history_pack_annual":"price_REPLACE","advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE","team_usage_analytics_monthly":"price_REPLACE","team_usage_analytics_annual":"price_REPLACE","compliance_standard_monthly":"price_REPLACE","compliance_standard_annual":"price_REPLACE","compliance_advanced_monthly":"price_REPLACE","compliance_advanced_annual":"price_REPLACE","stakeholder_reports_monthly":"price_REPLACE","stakeholder_reports_annual":"price_REPLACE","support_standard_monthly":"price_REPLACE","support_standard_annual":"price_REPLACE","support_priority_monthly":"price_REPLACE","support_priority_annual":"price_REPLACE","support_premium_monthly":"price_REPLACE","support_premium_annual":"price_REPLACE"}'
@@ -343,7 +350,7 @@ Under AWS Marketplace the **customer subscribes on AWS**, not in-app. AWS owns t
 
 In the AWS Marketplace Management Portal, create the **SaaS product** and define its **dimensions**:
 
-- **Tier dimensions** — one per sellable plan (map to `pro` / `team` / `enterprise`).
+- **Tier dimensions** — one per sellable plan (map to `pro` / `team` / `business` / `enterprise`).
 - **Metered add-on dimensions** — one per add-on you meter (seat pack, pipeline pack, retention pack, etc.).
 
 Note the **product code** AWS assigns.
@@ -367,12 +374,12 @@ https://<your-public-host>/marketplace/register
 
 AWS **POSTs** the `x-amzn-marketplace-token` here as a form field after a customer subscribes. Because the AWS purchaser is not yet a Pipeline Builder user at this point, registration is **two-phase**:
 
-1. **Resolve** (public, the AWS redirect target) — `POST /billing/marketplace/resolve` runs **`ResolveCustomer`** on the token → **`GetEntitlements`** to determine the entitled tier (a dimension with no map entry falls back to `developer`) → banks a **short-lived, single-use `registrationRef`** (30 min TTL). It does **not** create a subscription yet — there's no org to bind to. If the customer is already linked, it returns `alreadyRegistered` instead.
+1. **Resolve** (server-side, from the fulfillment page) — the `/marketplace/register` page receives AWS's POST and calls the billing service's `POST /billing/marketplace/resolve` over the cluster network (`BILLING_INTERNAL_URL`); the gateway answers `404` for `/api/billing/marketplace/resolve`, because each call spends a per-account-throttled AWS `ResolveCustomer`. Resolve runs **`ResolveCustomer`** on the token → **`GetEntitlements`** to determine the entitled tier (a dimension with no map entry falls back to `developer`) → banks a **short-lived, single-use `registrationRef`** (30 min TTL). It does **not** create a subscription yet — there's no org to bind to. If the customer is already linked, it returns `alreadyRegistered` instead.
    ```
    POST /billing/marketplace/resolve   Body: { "token": "<x-amzn-marketplace-token>" }
    → { registrationRef, planName }  |  { alreadyRegistered: true }
    ```
-2. **Claim** (authenticated) — once the purchaser signs up / signs in, `POST /billing/marketplace/claim` (`billing:manage`) binds the `registrationRef` to **their organization**, creating the subscription (keyed on the real orgId; the AWS customer key is stored only in metadata, never the AWS account id) and syncing the tier to quota.
+2. **Claim** (authenticated) — once the purchaser signs up / signs in, `POST /billing/marketplace/claim` (`billing:manage`, MFA-grade admin session) binds the `registrationRef` to **their organization**, creating the subscription (keyed on the real orgId; the AWS customer key is stored only in metadata, never the AWS account id) and syncing the tier to quota.
 
    **The customer key is the license ARN.** AWS Concurrent Agreements let one buyer account hold several agreements for the same product, each with its own license, so `ResolveCustomer` returns a `LicenseArn` (and no `CustomerIdentifier`) and the subscription stores it as `metadata.awsLicenseArn`. Entitlements are read with the `LICENSE_ARN` filter, and usage is metered with `LicenseArn` + `CustomerAWSAccountId` and no `ProductCode`, as AWS requires. The buyer's account id is read from the license's entitlement at metering time and never stored. A license ARN embeds AWS License Manager's account, not the buyer's.
    ```
@@ -455,7 +462,7 @@ Three JSON maps connect AWS dimensions to the app's plans, add-ons, and prices:
 | `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | mostly identity — see note | Add-on **bundle id → metered dimension key** | Which dimension each add-on reports under |
 | `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` | `{}` | Metered **dimension → cents per unit per cycle** | Drives credit drawdown; an unpriced dimension is reported in full |
 
-#### Tier dimensions (from the four plans)
+#### Tier dimensions (from the four paid plans)
 
 Create one AWS entitlement dimension per **paid** tier. The free `developer` tier needs no dimension — an entitlement that resolves to nothing falls back to `developer`. If you name the AWS dimensions to match the plan ids, the identity default applies and you can omit `AWS_MARKETPLACE_DIMENSION_MAP` entirely; the explicit map is shown for clarity:
 
@@ -490,10 +497,10 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 | `retention_pack` | `RetentionPack` | $15 (`1500`) | all (max 7) |
 | `dora_history_pack` | `DoraHistoryPack` | $30 (`3000`) | all (max 1) |
 | `advanced_reporting` | `AdvancedReporting` | $30 (`3000`) | developer, pro, team |
-| `team_usage_analytics` | `TeamUsageAnalytics` | $30 (`3000`) | team |
+| `team_usage_analytics` | `TeamUsageAnalytics` | $30 (`3000`) | team, business |
 | `compliance_standard` | `ComplianceStandard` | $29.99 (`2999`) | developer, pro, team, business |
 | `compliance_advanced` | `ComplianceAdvanced` | $99.99 (`9999`) | developer, pro, team, business |
-| `stakeholder_reports` | `StakeholderReports` | $30 (`3000`) | pro, team |
+| `stakeholder_reports` | `StakeholderReports` | $30 (`3000`) | pro, team, business |
 | `support_standard` | `SupportStandard` | $19.99 (`1999`) | all — **per contact** |
 | `support_priority` | `SupportPriority` | $49.99 (`4999`) | all — **per contact** |
 | `support_premium` | `SupportPremium` | $99.99 (`9999`) | all — **per contact** |
@@ -571,7 +578,7 @@ AWS_MARKETPLACE_EVENTS_TOPIC_ARN=
 # Tier dimensions. `developer` is the free fallback and needs none.
 AWS_MARKETPLACE_DIMENSION_MAP='{"pro":"pro","team":"team","business":"business","enterprise":"enterprise"}'
 
-# All 14 sellable add-ons. An add-on missing here is granted and NEVER metered.
+# All 19 add-ons. An add-on missing here is granted and NEVER metered.
 AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","cpu_credits_pack":"CpuCreditsPack","api_pack":"ApiPack","automation_pack":"AutomationPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced","stakeholder_reports":"StakeholderReports","support_standard":"SupportStandard","support_priority":"SupportPriority","support_premium":"SupportPremium"}'
 
 # Cents per metered unit. An unpriced dimension cannot be valued, so its usage is
@@ -594,13 +601,15 @@ RENEWAL_REMINDER_DAYS=7
 
 ## Endpoints reference
 
+Paths are the billing service's; through the gateway each is reached under `/api` (`/api/billing/...`).
+
 | Endpoint | Auth | Provider | Purpose |
 |---|---|---|---|
 | `POST /billing/stripe/webhook` | Signature | Stripe | Receives + verifies Stripe events (raw body) |
-| `POST /billing/marketplace/resolve` | None (AWS redirect) | Marketplace | Exchange a registration token for a single-use `registrationRef` (banks a pending registration; no subscription yet) |
-| `POST /billing/marketplace/claim` | Auth (`billing:manage`) | Marketplace | Bind a `registrationRef` to the caller's org and create the subscription |
+| `POST /billing/marketplace/resolve` | None — cluster-internal only (the gateway 404s it; the fulfillment page calls it server-side) | Marketplace | Exchange a registration token for a single-use `registrationRef` (banks a pending registration; no subscription yet) |
+| `POST /billing/marketplace/claim` | Auth (`billing:manage`, MFA-grade admin) | Marketplace | Bind a `registrationRef` to the caller's org and create the subscription |
 | `POST /billing/marketplace/sns` | SNS signature + topic | Marketplace | License events (EventBridge → SNS): entitlement changes and cancellations |
-| `GET /billing/marketplace/entitlements` | Auth | Marketplace | Current entitlements and plan for the account (`{ entitlements, currentPlanId }`; the license ARN stays server-side) |
+| `GET /billing/marketplace/entitlements` | Auth (`billing:read`) | Marketplace | Current entitlements and plan for the account (`{ entitlements, currentPlanId }`; the license ARN stays server-side) |
 
 The frontend fulfillment page lives at `/marketplace/register` (set this as the AWS Fulfillment URL).
 

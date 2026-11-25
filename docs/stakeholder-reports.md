@@ -44,8 +44,8 @@ Written for team leads who compose reports and for administrators who decide whe
 
 ## Configuration
 
-1. **Get the entitlement.** Included in Enterprise and Unlimited; a $30/month add-on on Pro and Team. See [Plans](#plans). On a billing-disabled install every org runs as the unlimited tier, so it is simply on.
-2. **Grant the permissions deliberately.** `reports:write` to compose, `reports:publish` to publish and mint links, `reports:rollup` to let a report cover descendant teams. The built-in **Team Lead** role carries author and share, and deliberately not rollup.
+1. **Get the entitlement.** Included in Enterprise and Unlimited; a $30/month add-on on Pro, Team and Business. See [Plans](#plans). On a billing-disabled install every org runs as the unlimited tier, so it is simply on.
+2. **Grant the permissions deliberately.** `reports:write` to compose, `reports:publish` to publish and mint links, `reports:rollup` to let a report cover descendant teams. The **Team Lead** role template (an org admin creates a custom role from it) carries `reports:write` and `reports:publish`, and deliberately not rollup.
 3. **Set the organization policy** (needs `org_settings:write`):
    - the **allowed-domain list** for external recipients — an empty list means *members only*, not "anyone";
    - whether an external address **needs administrator approval**;
@@ -88,7 +88,7 @@ Three differences, and each one is the reason a decision in this feature went th
 
 **A rollup needs `reports:rollup`.** Creating a definition with a `rollup` scope, switching an existing one to `rollup`, or running a rollup definition on demand all return **403** `INSUFFICIENT_PERMISSIONS` without `reports:rollup`, the same as any other permission refusal. Like auto-send, the check is made in the handler and does not appear in the route table.
 
-`author` and `share` are split because publishing is a different risk from writing: a lead can be trusted to build reports without being trusted to mail them outside the company. The built-in **Team Lead** role carries both, and deliberately not `reports:rollup` — downward visibility across the org tree is granted, not inherited.
+`reports:write` and `reports:publish` are split because publishing is a different risk from writing: a lead can be trusted to build reports without being trusted to mail them outside the company. The **Team Lead** role template carries both, and deliberately not `reports:rollup` — downward visibility across the org tree is granted, not inherited.
 
 The policy is on `org_settings:write` rather than `reports:write` for the same kind of reason: if a report author could widen the allowed domains or turn on public links, the policy would only be a suggestion.
 
@@ -337,7 +337,7 @@ Every gate is the server's. The CLI checks nothing and prints a refusal as the s
 
 ## Plans
 
-Included in **Enterprise** and **Unlimited**; sold as a $30/month add-on to **Pro** and **Team**. Not offered on Developer — a single developer has nobody to report upward to. It also rides the **Analytics Suite** combo alongside Advanced Reporting and Team Usage Analytics, at ~30% off the three list prices. See [Billing Bundles](billing-bundles.md).
+Included in **Enterprise** and **Unlimited**; sold as a $30/month add-on to **Pro**, **Team** and **Business**. Not offered on Developer — a single developer has nobody to report upward to. It also rides the **Analytics Suite** combo alongside Advanced Reporting and Team Usage Analytics, at ~30% off the three list prices. See [Billing Bundles](billing-bundles.md).
 
 **The add-on carries the DORA sections of a report.** A buyer does not also need Advanced Reporting to get them — the live DORA dashboard stays behind that feature, but the report's own panels do not, because an add-on whose headline numbers are locked behind a second purchase is not what its description promises.
 

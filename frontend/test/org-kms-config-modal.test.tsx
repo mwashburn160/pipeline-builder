@@ -88,4 +88,28 @@ describe('OrgKmsConfigModal: the change result', () => {
     expect(notice.textContent).toMatch(/idpClientSecret/);
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('a failed change re-reads the binding, since the server may have changed it before failing', async () => {
+    putOrgKmsConfig.mockRejectedValue(new Error('KMS config saved but re-encryption failed mid-flight: boom'));
+    const onSaved = jest.fn<AnyFn>();
+    render(<OrgKmsConfigModal org={ORG} onClose={() => {}} onSaved={onSaved} />);
+    expect(await screen.findByText('alias/old')).toBeTruthy();
+    getOrgKmsConfig.mockResolvedValue({ success: true, data: { configured: true, keyId: 'alias/new' } });
+    await save();
+    expect(await screen.findByText(/re-encryption failed mid-flight/)).toBeTruthy();
+    expect(await screen.findByText('alias/new')).toBeTruthy();
+    expect(onSaved).toHaveBeenCalled();
+  });
+
+  it('a new change clears the previous change\'s unreadable list', async () => {
+    putOrgKmsConfig.mockResolvedValueOnce({ success: true, data: { configured: true, keyId: 'alias/new', unreadableConcurrentWrites: ['idpClientSecret'] } });
+    render(<OrgKmsConfigModal org={ORG} onClose={() => {}} />);
+    await screen.findByText('alias/old');
+    await save();
+    await screen.findByRole('alert', { name: /must be re-entered/i });
+    putOrgKmsConfig.mockRejectedValueOnce(new Error('KMS test failed: nope'));
+    await save();
+    expect(await screen.findByText(/KMS test failed: nope/)).toBeTruthy();
+    expect(screen.queryByRole('alert', { name: /must be re-entered/i })).toBeNull();
+  });
 });

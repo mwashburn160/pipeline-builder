@@ -20,7 +20,7 @@ A minimal `{{ path.to.value }}` syntax in both **pipeline configs** (`pipeline.j
 - **One plugin, many environments.** Parameterize namespaces, regions and cluster names through `pipeline.metadata.*`.
 - **A whole-field template produces native types**; mix it with literal text and it stays a string, with the filter ignored.
 - **Plugins can declare a contract.** `requiredMetadata` is checked at pipeline create *and* again at synth, so a missing key fails early rather than mid-build.
-- **Resolution is server-side**, so the CLI and editor previews ask the platform rather than reimplementing the grammar.
+- **One engine everywhere.** The API, the synth, the CLI and the dashboard editor all use pipeline-core's tokenizer, so they accept and reject exactly the same text.
 - **What is deliberately unsupported is listed**, so you can stop looking for loops and conditionals.
 
 ## Overview
@@ -32,15 +32,15 @@ Two uses drive the design: one plugin serving many environments, and one pipelin
 ## How it works
 
 1. **You write `{{ ... }}` tokens** in a pipeline config or plugin spec.
-2. **Metadata is merged** pipeline → plugin reference → step into the scope the tokens resolve against.
-3. **At synth, the server resolves every token once** against that fixed scope. Nothing is evaluated later, and nothing executes.
+2. **The scope is assembled** from the pipeline: `pipeline.metadata` is `global`, then `defaults.metadata`, then `synth.metadata` (last wins), and `pipeline.vars` is `vars`. Step- and plugin-reference `metadata` are not part of the template scope.
+3. **At synth, every plugin-spec token (and the GitHub source token). The pipeline's own self-references (`project`, metadata, `vars`) are expanded first, by the same resolver as `?resolve=true` resolves once** against that fixed scope. Nothing is evaluated later, and nothing executes.
 4. **A declared contract is enforced.** A plugin's `requiredMetadata` is checked when the pipeline is created and again at synth.
 5. **Unresolvable tokens fail with a named error** rather than rendering empty — see the [error catalog](#error-catalog).
 
 ## Configuration
 
 1. **Declare your plugin's contract** so consumers get a clear failure instead of a puzzling one: `requiredMetadata` plus `metadataTypes`. See [Plugin contract](#plugin-contract-declare-your-requirements).
-2. **Set the values** the contract asks for, at whichever [scope](metadata-keys.md#scope-levels) fits — pipeline-wide, per plugin reference, or per step.
+2. **Set the values** the contract asks for in the pipeline's `global`, `defaults.metadata` or `synth.metadata` (the layers `pipeline.metadata` is built from), or in `vars`.
 3. **Preview before deploying** — resolve a pipeline without a CDK deploy, and validate a local spec before upload. See [CLI tools](#cli-tools).
 4. **Use `?resolve=true`** when you want the API to hand back the resolved form; see [API](#api-resolvetrue).
 5. **Read the [error catalog](#error-catalog)** when something fails — each error names the token and the scope it looked in.
@@ -81,7 +81,9 @@ Pipeline templates can only **self-reference** — one metadata key can interpol
 | `metadata.*` | Any other metadata key in the same pipeline |
 | `vars.*` | Any `vars` key in the same pipeline |
 
-Templatable fields in a pipeline config: `project`, `metadata.*` string values, `vars.*` string values. Identity fields (`id`, `orgId`, `stages`, `plugins[]`) are **not** templatable.
+Templatable fields in a pipeline config: `project`, the metadata string values (from `global`, `defaults.metadata` and `synth.metadata`, merged in that order), and `vars.*` string values. Everything else (`organization`, `pipelineName`, `stages`, plugin references) is literal. `synth.source` fields other than `token` are the repository identity: a pipeline must not contain `{{ … }}` there (refused, `TEMPLATE_VALIDATION_FAILED`); a pipeline *template* may parameterize them with `{{ vars.* }}`, and instantiate fills them in.
+
+Self-references are checked at create and update (parse errors, unknown roots, cycles). They are expanded at synth, before plugin templates read the pipeline scope, by the same resolver behind `GET /api/pipelines/{id}?resolve=true` (see [API](#api-resolvetrue)) and `--show-resolved`, so a plugin template sees the expanded values.
 
 **Exception — the GitHub source token.** `synth.source.options.token` is templatable against the **pipeline scope** (`pipeline.*`, the same scope plugin specs see), so a secret reference can be parameterized per org:
 
@@ -99,7 +101,7 @@ Templatable fields in a pipeline config: `project`, `metadata.*` string values, 
 "vars": { "orgId": "<your-org-id>" }
 ```
 
-It resolves at synth time to `secretsmanager:pipeline-builder/<your-org-id>/github-token`, which CodePipeline reads as the OAuth secret reference (only the reference — never the token value — lands in the template). Other source fields (`repo`, `branch`, etc.) stay literal.
+It resolves at synth time to `secretsmanager:pipeline-builder/<your-org-id>/github-token`, which CodePipeline reads as the OAuth secret reference (only the reference — never the token value — lands in the template). Other source fields (`repo`, `branch`, etc.) are not resolved at synth; in a template they are filled in at instantiate (see [Golden pipeline templates](#golden-pipeline-templates)).
 
 ### In a plugin spec (`plugin-spec.yaml`)
 
@@ -107,8 +109,9 @@ Plugin templates see a richer scope assembled per-synth from the pipeline invoki
 
 | Scope root | Available inside |
 |---|---|
-| `pipeline.projectName` | String — the pipeline's project name |
-| `pipeline.orgId` | String — org UUID |
+| `pipeline.projectName` / `pipeline.project` | String — the pipeline's project, sanitized (lowercase, non-alphanumerics → `_`) |
+| `pipeline.orgId` / `pipeline.organization` | String — the pipeline's `organization`, sanitized the same way (not the org UUID) |
+| `pipeline.pipelineName` | String — the CodePipeline name (`pipelineName`, else the default derived from organization and project) |
 | `pipeline.metadata.*` | Any key set on the pipeline's `metadata` object |
 | `pipeline.vars.*` | Any key set on the pipeline's `vars` object |
 | `plugin.name` / `plugin.version` | Plugin record fields |
@@ -183,10 +186,9 @@ plugin: { publisher: pipeline-builder, name: trivy }                        # th
 
 ```json
 {
-  "id": "bb234ff6-8b2e-41e3-9758-fb23b63916cd",
   "project": "{{ vars.service }}-{{ metadata.env }}",
-  "orgId": "acmecorp",
-  "metadata": {
+  "organization": "acmecorp",
+  "global": {
     "env": "prod",
     "region": "us-east-1",
     "clusterName": "acme-eks-{{ metadata.env }}",
@@ -196,19 +198,19 @@ plugin: { publisher: pipeline-builder, name: trivy }                        # th
     "service": "checkout",
     "branch": "main",
     "slackChannel": "#deploys-{{ metadata.env }}"
-  },
-  "stages": [
-    { "name": "deploy", "plugins": ["kubectl-deploy", "slack-notify"] }
-  ]
+  }
 }
 ```
 
-After pass-1 resolution, the pipeline looks like:
+(`synth` and `stages` are omitted; they are not templatable.)
+
+After pass-1 resolution (`?resolve=true`), the pipeline looks like:
 
 ```json
 {
   "project": "checkout-prod",
-  "metadata": {
+  "organization": "acmecorp",
+  "global": {
     "env": "prod",
     "region": "us-east-1",
     "clusterName": "acme-eks-prod",
@@ -358,7 +360,7 @@ Coercion rules:
 
 | Filter | Accepts | Produces |
 |---|---|---|
-| `\| number` | Any string Number() can parse | `number` |
+| `\| number` | Any string `Number()` parses to a finite number | `number` |
 | `\| bool` | `true / false / 1 / 0 / yes / no / ""` (case-insensitive) | `boolean` |
 | `\| json` | Any valid JSON string | `string \| number \| bool \| null \| object \| array` |
 
@@ -377,7 +379,7 @@ Unparseable values (e.g. `"abc" | number`) throw `TEMPLATE_TYPE_MISMATCH` at syn
 ### Preview resolved output
 
 ```bash
-# Print what the pipeline will look like after resolution (no CDK deploy)
+# Print the props as synth sees them (self-references expanded); no CDK run
 pipeline-manager pipeline deploy --id <uuid> --show-resolved
 pipeline-manager pipeline synth  --id <uuid> --show-resolved
 ```
@@ -385,7 +387,7 @@ pipeline-manager pipeline synth  --id <uuid> --show-resolved
 ### Validate templates without uploading
 
 ```bash
-# Validate a local plugin-spec.yaml or pipeline.json before upload
+# Validate a local plugin-spec.yaml, or a pipeline properties JSON (BuilderProps), before upload
 pipeline-manager template validate --file ./plugin-spec.yaml
 
 # Validate a pipeline by ID against the platform
@@ -405,7 +407,7 @@ The dashboard editor understands `{{ ... }}` tokens:
   _"Contains 2 template tokens — resolved at synth time"_
 - **Parse errors** surface inline under the field with the source position:  
   _"Expected '}}' at line 1, col 10"_
-- **`useTemplateValidation(source, scope?)` hook** powers this feedback. It returns `{ valid, tokens, hasTemplates, error, errorPos, resolved, resolveError }`, so any custom editor can parse for diagnostics and (when a scope is supplied) preview the resolved value live.
+- **`useTemplateValidation(source, scope?)` hook** powers this feedback. It returns `{ valid, tokens, hasTemplate, error, errorPos, resolved, resolveError }`, so any custom editor can parse for diagnostics and (when a scope is supplied) preview the resolved value live.
 
 No rich editor, no auto-escape — what you type is saved verbatim. Template resolution is a server-side concern; the client only parses for diagnostics + preview.
 
@@ -424,20 +426,26 @@ GET /api/pipelines/{id}?resolve=true  # resolved form (for preview/inspection)
 
 ## Error catalog
 
-All template errors map to HTTP `400` with one of these codes:
+The template engine classifies each problem with one of these codes (all map to HTTP `400`):
 
 | Code | Meaning |
 |---|---|
-| `TEMPLATE_PARSE_ERROR` | Malformed `{{ ... }}` — bad syntax, missing `}}`, unknown filter |
-| `TEMPLATE_UNKNOWN_PATH` | Path references an unknown scope root (e.g. `{{ foo.bar }}`) |
+| `TEMPLATE_PARSE_ERROR` | Malformed `{{ ... }}` — bad syntax, missing `}}`, unknown filter, a stray `}}` |
+| `TEMPLATE_SIZE_EXCEEDED` | A field over 4 KiB, a path deeper than 5 segments, or an identifier longer than 64 characters |
+| `TEMPLATE_UNKNOWN_PATH` | Path references an unknown scope root (e.g. `{{ foo.bar }}`), or (at resolution) a path that is missing or empty and has no `\| default:` |
 | `TEMPLATE_CYCLE` | Self-referencing pipeline has a cycle across metadata/vars fields |
-| `TEMPLATE_TYPE_MISMATCH` | Path resolved to an object where a scalar was expected |
+| `TEMPLATE_TYPE_MISMATCH` | Path resolved to an object or array where a scalar was expected, or a `\| number` / `\| bool` / `\| json` filter couldn't coerce the value |
 | `TEMPLATE_SECRETS_RESERVED` | Reserved `secrets.*` path — use the plugin's `secrets:` yaml field instead |
 | `TEMPLATE_CONTRACT_VIOLATION` | Pipeline create/update: a plugin step's required `metadata`/`vars` key is missing, or a supplied value doesn't match `metadataTypes`/`varsTypes`. `steps[]` lists each failing step's `missing[]` and `invalid[]` |
-| `TEMPLATE_SIZE_EXCEEDED` | Field exceeded 4 KiB or path depth exceeded 5 |
 | `TEMPLATE_VALIDATION_FAILED` | Batched umbrella — one or more of the above present in a single doc |
 
-Every error includes `field`, `line`, `col` (when applicable), and the exact `path` or `cycle` that triggered it.
+
+Where you see them:
+
+- **Pipeline API** (create, update, bulk, template authoring, instantiate, `?resolve=true`): `400 TEMPLATE_VALIDATION_FAILED`, whose message lists each problem as `[field:line:col] message`; or `400 TEMPLATE_CONTRACT_VIOLATION` with `details.steps`.
+- **Plugin upload**: `400` with the problems grouped as *Template validation failed*, *Plugin spec uses template paths not declared in contract* and *…type mismatches…*.
+- **`pipeline-manager template validate`**: one line per problem, `[field] message (code)`.
+- **Synth**: the first resolution error fails the step, naming the plugin and field.
 
 ---
 
@@ -500,7 +508,7 @@ Five production plugins now show the pattern:
 | [notification/teams-notify](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/notification/teams-notify/plugin-spec.yaml) | `env`, `vars.branch`, `projectName` |
 | [deploy/kubectl-deploy](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/deploy/kubectl-deploy/plugin-spec.yaml) | `context`, `namespace`, `manifestPath`, `rolloutTimeoutSeconds` |
 | [deploy/helm-deploy](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/deploy/helm-deploy/plugin-spec.yaml) | `namespace`, `helmRelease`, `helmChart`, `helmTimeoutSeconds` |
-| [deploy/ecs-deploy](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/deploy/ecs-deploy/plugin-spec.yaml) | `ecsCluster`, `ecsService`, `imageUri`, `ecsTaskFamily` |
+| [deploy/ecs-deploy](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/deploy/ecs-deploy/plugin-spec.yaml) | `ecsCluster`, `ecsService`, `imageUri`, `ecsTaskFamily`, `ecsWait` |
 
 All pipelines continue to work unchanged; when they start supplying metadata keys, the plugin auto-populates the env vars.
 
@@ -524,48 +532,49 @@ All pipelines continue to work unchanged; when they start supplying metadata key
 
 ## Golden pipeline templates
 
-A **golden pipeline template** is a reusable, governed pipeline config — a `BuilderProps` with `{{ vars.* }}` placeholders — plus a set of **declared inputs**. Teams instantiate it (filling the inputs) to spin up a real pipeline in a few fields instead of hand-building one. It's the same `{{ … }}` engine documented above: each declared input becomes a `vars.<name>` value, baked in at instantiate time.
+A **golden pipeline template** is a reusable, governed pipeline config — a `BuilderProps` with `{{ vars.* }}` placeholders — plus a set of **declared inputs**. Teams instantiate it (filling the inputs) to spin up a real pipeline in a few fields instead of hand-building one. It's the same `{{ … }}` engine documented above: each declared input becomes a `vars.<name>` value, set at instantiate time.
 
-**Create one** from an existing pipeline — *Save as template* (a pipeline's detail page) or *Templates → New template* — or **Import** a template JSON on the Templates page. Declare inputs (e.g. `repoUrl`, `branch`) and **parameterize the repository** so one template targets any repo: the authoring form swaps the source pipeline's concrete repo URL for `{{ vars.repoUrl }}` (the "Parameterize repository" button auto-detects it).
+**Create one** from an existing pipeline — *Save as template* (a pipeline's detail page) or *Templates → New template* — or **Import** a template JSON on the Templates page. Declare inputs (e.g. `repo`, `branch`); each input's **Replaces** value is swapped for `{{ vars.<name> }}` everywhere it appears in the source pipeline's props ("Parameterize repository" detects the source's repository — `synth.source.options.repo`, or `repositoryName` for CodeCommit — and adds a `repo` input for it). Saving refuses a `{{ vars.X }}` in `project`, metadata (`global` / `defaults.metadata` / `synth.metadata`), `vars` or the `synth.source` fields that no input, existing `vars` key or `| default:` backs (`400 TEMPLATE_VALIDATION_FAILED`).
 
-### Example — a Node build → test → deploy starter, parameterized on the target repo
+Only the templatable fields resolve: `project`, metadata and `vars` values (at synth), plugin-spec fields that read `{{ pipeline.vars.* }}`, the GitHub source `token`, and the `synth.source` repository fields, which instantiate fills in from the inputs so the new pipeline names a real repository. A placeholder anywhere else (a stage field) is stored and synthesized as literal text.
 
-`project` / `organization` come from the Use-template form; `repoUrl` / `branch` are declared inputs:
+### Example — a Node build → test → deploy starter with a deploy-notification channel
+
+`project` comes from the Use-template form and `organization` from your organization; `slackChannel` / `branch` are declared inputs, which `slack-notify` reads as `{{ pipeline.vars.slackChannel }}` / `{{ pipeline.vars.branch }}`:
 
 ```json
 {
   "name": "node-service",
   "category": "backend",
-  "description": "Golden path: Node build -> tests -> CDK deploy, pointed at any repo.",
+  "description": "Golden path: Node build -> tests -> CDK deploy -> Slack notice.",
   "inputs": [
-    { "name": "repoUrl", "label": "Repository URL", "type": "string", "required": true },
-    { "name": "branch",  "label": "Branch",         "type": "string", "default": "main" }
+    { "name": "slackChannel", "label": "Slack channel", "type": "string", "required": true },
+    { "name": "branch",       "label": "Branch",        "type": "string", "default": "main" }
   ],
   "props": {
     "synth": {
       "plugin": { "name": "cdk-synth" },
-      "source": { "repositoryUrl": "{{ vars.repoUrl }}", "branch": "{{ vars.branch }}" }
+      "source": { "type": "github", "options": { "repo": "acme/checkout", "branch": "main" } }
     },
     "stages": [
       { "stageName": "build",  "steps": [{ "plugin": { "name": "nodejs" } }] },
       { "stageName": "test",   "steps": [{ "plugin": { "name": "jest" } }] },
-      { "stageName": "deploy", "steps": [{ "plugin": { "name": "cdk-deploy" } }] }
+      { "stageName": "deploy", "steps": [{ "plugin": { "name": "cdk-deploy" } }, { "plugin": { "name": "slack-notify" } }] }
     ]
   }
 }
 ```
 
-**Use it** — *Templates → Use template* → enter **Project**, **Target repository (Git URL)** and **Branch** → **Create**. The instantiate call renders the vars into the props, then creates the pipeline (compliance + quota still apply):
+**Use it** — *Templates → Use template* → enter **Project** (and optionally **Pipeline name** and **Pipeline visibility**) plus each declared input → **Create pipeline**. The dashboard makes two calls. Instantiate checks the inputs (required, `options`, type), merges them into `props.vars` and returns the props with every `{{ … }}` left intact, plus any `pluginWarnings`; it creates nothing. The dashboard then submits those props to `POST /api/pipelines`, so compliance, quota and template validation apply as for any create:
 
 ```json
 POST /api/pipeline-templates/<id>/instantiate
 {
   "project": "checkout",
   "organization": "acme",
-  "inputs": { "repoUrl": "https://github.com/acme/checkout", "branch": "main" }
+  "inputs": { "slackChannel": "#deploys" }
 }
-// -> props.synth.source.repositoryUrl == "https://github.com/acme/checkout"
-//    a new pipeline builds github.com/acme/checkout
+// -> props.vars == { "slackChannel": "#deploys", "branch": "main" }
 ```
 
 **Visibility** — templates use the same three-rung ladder every catalog entity uses ([Permissions → the visibility ladder](permissions.md#the-visibility-ladder)); templates differ only in that they default to `private`:

@@ -24,6 +24,7 @@ import {
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
+import { BILLING_CURRENCY } from '../config/currency.js';
 import { createBillingEvent, getBundleCatalog } from '../helpers/billing-helpers.js';
 import { normalizeCampaignId } from '../helpers/campaign.js';
 import { parseAuthoringForm, encodeDiscountCode } from '../helpers/discount-code.js';
@@ -64,6 +65,8 @@ function toDiscountResponse(d: DiscountDocument): Record<string, unknown> {
     id: d._id,
     value: d.value,
     unit: d.unit,
+    /** The currency of a dollar `value` (lower-case ISO 4217). */
+    currency: BILLING_CURRENCY,
     kind: d.kind,
     campaign: d.campaign,
     alias: d.alias,

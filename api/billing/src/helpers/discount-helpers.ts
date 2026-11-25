@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { createLogger, errorMessage, type BillingInterval } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
+import { BILLING_CURRENCY } from '../config/currency.js';
 import { config } from '../config.js';
 import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
 import { campaignWindowRefusal, orgRedeemedCampaign, releaseCampaignBudget, reserveCampaignBudget } from './campaign.js';
@@ -99,6 +100,8 @@ export async function resolveRedeemable(code: string): Promise<DiscountDocument 
 
 export interface DiscountBreakdown {
   interval: BillingInterval;
+  /** The currency of every amount here (lower-case ISO 4217). */
+  currency: string;
   items: { label: string; cents: number }[];
   subtotalCents: number;
   totalCents: number;
@@ -125,7 +128,7 @@ function computeDiscountBreakdown(planName: string, prices: { monthly: number; a
   const balance = sub.creditBalanceCents ?? 0;
   const creditApplied = Math.min(balance, base);
   if (creditApplied > 0) items.push({ label: 'Usage credit', cents: -creditApplied });
-  return { interval, items, subtotalCents: base, totalCents: base - creditApplied, creditRemainingCents: balance - creditApplied };
+  return { interval, currency: BILLING_CURRENCY, items, subtotalCents: base, totalCents: base - creditApplied, creditRemainingCents: balance - creditApplied };
 }
 
 /**

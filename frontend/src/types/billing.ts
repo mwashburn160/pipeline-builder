@@ -18,6 +18,8 @@ export interface Plan {
     monthly: number;
     annual: number;
   };
+  /** The currency of every amount here (lower-case ISO 4217, the server's `BILLING_CURRENCY`). */
+  currency: string;
   features: string[];
   isDefault: boolean;
   sortOrder: number;
@@ -44,6 +46,8 @@ export interface Subscription {
    *  `percent`). `null`/absent when none. One-time/credit discounts aren't stored
    *  here — they apply once and show up in Billing History. */
   recurringDiscount?: { discountId: string; value: number; unit: 'dollar' | 'percent' } | null;
+  /** The currency of a dollar `recurringDiscount.value` (lower-case ISO 4217, the server's `BILLING_CURRENCY`). */
+  currency: string;
   /**
    * Where the subscription stands in dunning — non-null only while `past_due`
    * with a recorded first failure. Status alone cannot say WHEN access ends: it
@@ -73,6 +77,8 @@ export interface Discount {
   id: string;
   value: number;
   unit: 'dollar' | 'percent';
+  /** The currency of every amount here (lower-case ISO 4217, the server's `BILLING_CURRENCY`). */
+  currency: string;
   kind: 'onetime' | 'recurring' | 'credit';
   campaign?: string;
   alias?: string;
@@ -134,6 +140,8 @@ export interface Bundle {
   grants: Record<string, number>;
   features?: string[];
   prices: { monthly: number; annual: number };
+  /** The currency of every amount here (lower-case ISO 4217, the server's `BILLING_CURRENCY`). */
+  currency: string;
   stackable: boolean;
   /** Optional per-unit volume discount tiers (e.g. the per-seat `seat` bundle):
    *  at ≥ minQuantity units, discountPercent comes off the line. Highest wins. */
@@ -159,6 +167,8 @@ export interface ComboDiscount {
   /** Per-member minimum quantity (bundleId → count; absent ⇒ 1). */
   minQuantities?: Record<string, number>;
   savings: { monthly: number; annual: number };
+  /** The currency of every amount here (lower-case ISO 4217, the server's `BILLING_CURRENCY`). */
+  currency: string;
 }
 
 /** A combo discount gained or lost by a proposed add-on change. */
@@ -235,6 +245,8 @@ export interface PlanChangePreview {
   prunedAddons: string[];
   totalCents: number;
   discountName: string | null;
+  /** The currency of every amount here (lower-case ISO 4217, the server's `BILLING_CURRENCY`). */
+  currency: string;
 }
 
 /** The three shapes an expansion offer can take (`OFFER_TYPES` in billing). */
@@ -393,6 +405,9 @@ export interface OfferExclusion {
 
 export interface AddonPriceBreakdown {
   interval: string;
+  /** The currency of every amount here (lower-case ISO 4217, the server's `BILLING_CURRENCY`). */
+  currency: string;
+
   items: Array<{ label: string; quantity: number; cents: number }>;
   totalCents: number;
 }
@@ -466,7 +481,7 @@ export interface UsageRollup {
   seats: SeatUsage | null;
   cost: {
     subscriptionCents: number;
-    /** Upper-case ISO code, from the server's `BILLING_CURRENCY`. NOT the literal
+    /** Lower-case ISO 4217 code, from the server's `BILLING_CURRENCY`, like every billing amount. NOT the literal
      *  'USD' any more: prices are authored in one currency, and a deployment
      *  billing in another was mislabelled on every amount. Kept in step with
      *  api/billing usage-helpers by frontend/test/wire-type-drift.test.ts. */

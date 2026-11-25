@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/postgres-scaling.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 60a299d85280228444783180cc4796952f221a8a16f105202817b3b39e95827a
+// SOURCE-SHA256: 549e19ac0e6b5e6766a684c64f6c3c3a8ab4ca874d349da8d87a4644a922ab97
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -247,7 +247,11 @@ export const runbookPostgresScalingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Alertmanager routes the Postgres CPU/memory alerts to POST /observability/postgres-rung on ops-center, authenticated with the same per-instance relay secret as /pvc-autoexpand, and the controller moves one rung — pod requests/limits and the derived server config in one patch. Off by default: a rung change restarts the container, and on the single primary that is a brief write interruption."
+          "content": "Alertmanager routes the Postgres CPU/memory alerts to POST /observability/postgres-rung on ops-center, authenticated with the same per-instance relay secret as /pvc-autoexpand, and the controller moves one rung — pod requests/limits and the derived server config in one patch. On for the AWS targets (eks and ec2 ship POSTGRES_RUNG_ENABLED=true), off on minikube and docker (and when the variable is unset): a rung change restarts the container, and on the single primary that is a brief write interruption. Docker has no Kubernetes API for the controller to patch."
+        },
+        {
+          "type": "text",
+          "content": "Standbys stop one rung below the top. POSTGRES_RUNG_MAX_REPLICA=1 caps each standby at the middle rung (2000m/4Gi), so at PG_READ_REPLICA_MAX=2 the read tier tops out at 4 CPU. The primary is held to that same ceiling on the way up, so a standby can always match it and stay promotable. With the shipped values the controller therefore takes the primary to the middle rung and no further. The ceiling rung is a by-hand step, or comes after you raise POSTGRES_RUNG_MAX_REPLICA."
         },
         {
           "type": "table",
@@ -297,7 +301,11 @@ export const runbookPostgresScalingTopic: HelpTopic = {
           "rows": [
             [
               "at-ceiling",
-              "At POSTGRES_RUNG_MAX. Raising it means raising the LimitRange first, or the pod cannot be created at all"
+              "At POSTGRES_RUNG_MAX (primary) or POSTGRES_RUNG_MAX_REPLICA (standby). Raising the primary past 2 means raising the LimitRange first, or the pod cannot be created at all"
+            ],
+            [
+              "above-replica-ceiling",
+              "A primary rung-up past the standby ceiling (POSTGRES_RUNG_MAX_REPLICA). A standby could not follow it, so it could no longer be promoted. Raise POSTGRES_RUNG_MAX_REPLICA first"
             ],
             [
               "at-floor",
@@ -316,8 +324,12 @@ export const runbookPostgresScalingTopic: HelpTopic = {
               "Inside POSTGRES_RUNG_COOLDOWN_SECONDS of the last decision"
             ],
             [
+              "disabled",
+              "POSTGRES_RUNG_ENABLED is not true"
+            ],
+            [
               "error + \"Redis unavailable\"",
-              "Fails closed. No Redis means no cooldown and no cross-replica lock, so two platform replicas would both restart the primary"
+              "Fails closed. No Redis means no cooldown and no cross-replica lock, so two ops-center replicas would both restart the primary"
             ]
           ]
         },
@@ -339,7 +351,7 @@ export const runbookPostgresScalingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "For when POSTGRES_RUNG_ENABLED is false, or the controller reported at-ceiling and you have decided to raise the LimitRange. Triggered by PostgresPrimaryCpuSaturated or PostgresPrimaryMemoryPressure, sustained. Both move the whole rung."
+          "content": "For when POSTGRES_RUNG_ENABLED is false, or the controller reported at-ceiling or above-replica-ceiling and you have decided to go further by hand. Triggered by PostgresPrimaryCpuSaturated or PostgresPrimaryMemoryPressure, sustained. Both move the whole rung."
         },
         {
           "type": "list",
@@ -438,58 +450,40 @@ export const runbookPostgresScalingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Triggered by PostgresReadReplicaSaturated, sustained. Not by PostgresReplicationLagHigh — see Lag."
+          "content": "KEDA does this, not you. On eks and ec2 the postgres-replica ScaledObject adds a standby when the standbys pass 75% CPU (80% memory is a backstop), up to PG_READ_REPLICA_MAX (2 on AWS). Scale-up is deliberately slow (a 600s stabilization window, at most one pod per 15 minutes), because a new standby is seeded with pg_basebackup, which takes minutes and loads the primary while it is already under pressure. It is not driven by PostgresReplicationLagHigh; see Lag."
         },
         {
           "type": "text",
-          "content": "Prerequisites, all of them, before going past one standby:"
+          "content": "kubectl scale statefulset postgres-replica does not stick: the StatefulSet declares no replicas and the KEDA-managed HPA owns the count. To change the range, set PG_READ_REPLICA_MIN / PG_READ_REPLICA_MAX and redeploy."
+        },
+        {
+          "type": "text",
+          "content": "Prerequisites for going past one standby, all shipped:"
         },
         {
           "type": "list",
           "items": [
-            "max_slot_wal_keep_size is set on the primary (it is: 4GB on AWS, 256MB"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "local)."
-        },
-        {
-          "type": "list",
-          "items": [
+            "max_slot_wal_keep_size is set on the primary (4GB on AWS, 256MB local).",
             "PostgresReplicationSlotRetainedBytes and PostgresReplicationSlotOrphaned"
           ]
         },
         {
           "type": "text",
-          "content": "are deployed and firing correctly."
+          "content": "are deployed."
         },
         {
           "type": "list",
           "items": [
-            "On ec2 only: the DataVolume has room and a PV exists for the new ordinal."
+            "On ec2, a hostPath PV exists for each ordinal. Two are declared"
           ]
         },
         {
           "type": "text",
-          "content": "Only one standby PV is declared there. In this order — grow DataVolumeSize (and its MinValue) by 20 GiB, add a PV with a distinct hostPath, then raise replicas. Raise replicas first and the pod sits Pending forever with the PVC's description the only clue. eks needs none of this: pb-ebs provisions dynamically."
+          "content": "(postgres-replica-0, postgres-replica-1, each with a distinct path), and the DataVolume floor (MinValue 520 GiB) already counts both claims. Raising PG_READ_REPLICA_MAX past the declared PVs is refused at deploy by pb_read_replica_env; add a PV with a distinct hostPath and grow DataVolumeSize by 20 GiB first. eks needs none of this, because pb-ebs provisions dynamically."
         },
         {
           "type": "text",
-          "content": "Then:"
-        },
-        {
-          "type": "code",
-          "content": "kubectl scale statefulset postgres-replica -n pipeline-builder --replicas=2",
-          "language": "bash"
-        },
-        {
-          "type": "text",
-          "content": "One at a time, and watch the primary. A new standby is seeded with pg_basebackup, which takes minutes and loads the primary while it is already under pressure. This is why scaling is operator-approved rather than a KEDA ScaledObject: automatic scale-up at peak can deepen the incident it is reacting to."
-        },
-        {
-          "type": "text",
-          "content": "Verify it is actually streaming, not merely Ready:"
+          "content": "Verify a new standby is actually streaming, not merely Ready:"
         },
         {
           "type": "code",
@@ -498,7 +492,7 @@ export const runbookPostgresScalingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Scaling down: one at a time on sustained low utilisation, never below 1 — and drop the slot afterwards, or it retains WAL forever (see PostgresReplicationSlotOrphaned)."
+          "content": "Scaling down is KEDA's too: one pod per 30 minutes after a 30-minute stabilization window, never below PG_READ_REPLICA_MIN. Each standby's slot is permanent, so drop the slot of a removed ordinal, or it retains WAL forever (see PostgresReplicationSlotOrphaned)."
         },
         {
           "type": "text",
@@ -869,13 +863,18 @@ export const runbookPostgresScalingTopic: HelpTopic = {
             ],
             [
               "POSTGRES_RUNG_ENABLED",
-              "false",
+              "true eks/ec2, false minikube/docker",
               "Automatic vertical scaling. A rung change restarts the container"
             ],
             [
               "POSTGRES_RUNG_MAX",
               "2",
-              "Top rung index; 2 is the LimitRange's container max exactly"
+              "Top rung index for the primary; 2 is the LimitRange's container max exactly"
+            ],
+            [
+              "POSTGRES_RUNG_MAX_REPLICA",
+              "1",
+              "Top rung index for each standby. The primary is held to it as well, so a standby can always match it"
             ],
             [
               "POSTGRES_RUNG_COOLDOWN_SECONDS",

@@ -102,7 +102,7 @@ jest.mock('@/lib/api', () => {
 });
 
 const subscription = { success: true, data: { subscription: { id: 'sub-1', planId: 'developer', planName: 'Developer', interval: 'monthly', status: 'active' } } };
-const plans = { success: true, data: { plans: [{ id: 'developer', name: 'Developer', prices: { monthly: 0, annual: 0 } }, { id: 'pro', name: 'Pro', prices: { monthly: 10, annual: 100 } }] } };
+const plans = { success: true, data: { plans: [{ id: 'developer', name: 'Developer', prices: { monthly: 0, annual: 0 }, currency: 'usd' }, { id: 'pro', name: 'Pro', prices: { monthly: 10, annual: 100 }, currency: 'usd' }] } };
 
 describe('BillingPage', () => {
   beforeEach(() => {

@@ -53,7 +53,7 @@ Unused plugin versions used to stay forever, costing storage and cluttering the 
 
 ### For operators
 
-`PLUGIN_AUTO_TIDY_ENABLED` (default `true`; only the literal `false` turns it off) stops the daily job for every organization. Failures are counted on `plugin_tidy_failed_total{stage}` and alert as `PluginTidyFailing`. The new `plugins` columns and the `plugin_retention_settings` table are created by postgres-init on a new install. See [Environment Variables](environment-variables.md).
+`PLUGIN_AUTO_TIDY_ENABLED` (default `true`; only `false`, in any case, turns it off) stops the daily job for every organization. Failures are counted on `plugin_tidy_failed_total{stage}` and alert as `PluginTidyFailing`. The new `plugins` columns and the `plugin_retention_settings` table are created by postgres-init on a new install. See [Environment Variables](environment-variables.md).
 
 ## November 2026: nightly plugin CVE remediation
 
@@ -76,7 +76,7 @@ Until now the platform found and reported vulnerable plugin versions every night
 
 ### For operators
 
-`PLUGIN_REMEDIATION_ENABLED` (default `true`; only the literal `false` turns it off) and `PLUGIN_REMEDIATION_SEVERITIES` (default `critical,high`; KEV findings are always targeted) control the feature for the whole instance. The new `plugin-sources` bucket is created by rustfs-init on every target and belongs in your backups. See [Environment Variables](environment-variables.md).
+`PLUGIN_REMEDIATION_ENABLED` (default `true`; only `false`, in any case, turns it off) and `PLUGIN_REMEDIATION_SEVERITIES` (default `critical,high`; KEV findings are always targeted) control the feature for the whole instance. The new `plugin-sources` bucket is created by rustfs-init on every target and belongs in your backups. See [Environment Variables](environment-variables.md).
 
 ## November 2026: reporting accuracy
 

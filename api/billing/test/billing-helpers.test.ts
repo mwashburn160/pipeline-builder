@@ -308,6 +308,8 @@ describe('buildSubscriptionResponse', () => {
       status: 'active',
       interval: 'monthly',
       cancelAtPeriodEnd: false,
+      // The currency of a dollar recurringDiscount and the credit balance.
+      currency: 'usd',
     });
     expect(result.currentPeriodStart).toBeDefined();
     expect(result.currentPeriodEnd).toBeDefined();

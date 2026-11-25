@@ -68,7 +68,7 @@ jest.unstable_mockModule('../src/helpers/root-org-guard.js', () => ({
 
 const { createUsageRoutes } = await import('../src/routes/usage.js');
 
-const ROLLUP = { period: {}, subscription: null, usage: { plugins: {} }, cost: { subscriptionCents: 0, currency: 'USD' } };
+const ROLLUP = { period: {}, subscription: null, usage: { plugins: {} }, cost: { subscriptionCents: 0, currency: 'usd' } };
 
 const router = createUsageRoutes();
 // requireAuth runs at route-construction (module load) time, so capture its

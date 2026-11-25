@@ -16,7 +16,7 @@ The four DevOps Research and Assessment delivery-performance indicators, compute
 ## Highlights
 
 - **Deploy-basis only.** Every metric derives from real **deploy-stage** executions. A pipeline that only builds and tests produces **no** DORA data.
-- **The panel starts empty and fills forward.** Deploy attribution comes from tags pipeline-core writes at synth time, so already-deployed pipelines emit nothing until they **re-synth**. That is expected, not a regression.
+- **The panel starts empty and fills forward.** Deploy attribution comes from tags pipeline-core writes at synth time, so a pipeline contributes only after it is synthesized with an `environment` on its deploy stage and runs.
 - **Lead time is measured, not proxied** — commit → deploy. It reports `unknown` rather than substituting a run-duration guess.
 - **Lead time is off by default.** Commit resolution makes SCM calls in your AWS account, so it needs `setup-events --with-dora`.
 - **Change failure rate is two-class**: deploy-time failures plus post-deploy failures, deduped so a deploy flagged by both an incident and a manual outcome counts once.
@@ -24,13 +24,13 @@ The four DevOps Research and Assessment delivery-performance indicators, compute
 - **Time to restore is a median, measured from the failure.** It is production-only, and **incidents take precedence** over manual outcomes when a deploy has both. (The API field keeps its historical name, `meanTimeToRestore`.)
 - **No band without a sample.** Fewer than 5 deployments (frequency, CFR) or 5 measurements (lead time, time to restore) reads `insufficient` — "Not enough data (n = X)" — rather than elite or low.
 - **Coverage is the honesty check.** A high `withoutDeploys` means DORA is blind to most of your fleet.
-- **Retention is split, tier-aware and bundle-extendable**, and the query window now tracks it — so you can't request a range past your own retention.
+- **Retention is split, tier-aware and bundle-extendable**, and the query window tracks it — so you can't request a range past your own retention.
 
 ## Overview
 
 This page is for platform teams and engineering leaders tracking delivery health. It covers how each metric is defined, the [performance-level](#performance-levels) bands, the [deploy tag standard](#declaring-deployments) that produces them, and the [endpoints](#endpoints).
 
-DORA is an **advanced analytics** feature, gated behind the `advanced_reporting` entitlement — included on Business and Enterprise, or the [Advanced Reporting add-on](billing-bundles.md) on Developer, Pro and Team — and the `reports:read` permission. (Stakeholder Reports, `stakeholder_reports`, is a separate entitlement included only on Enterprise.)
+DORA is an **advanced analytics** feature, gated behind the `advanced_reporting` entitlement — included on Business, Enterprise and Unlimited, or the [Advanced Reporting add-on](billing-bundles.md) on Developer, Pro and Team — and the `reports:read` permission. (Stakeholder Reports, `stakeholder_reports`, is a separate entitlement: included on Enterprise and Unlimited, an add-on on Pro, Team and Business.)
 
 > **These metrics are DEPLOY-BASIS ONLY.** There is no run-based mode: frequency, lead time, CFR and time-to-restore are all computed from deploy rows.
 
@@ -66,9 +66,9 @@ With it off, **standard reporting still works** and DORA lead time reports `unkn
 
 Point PagerDuty, Datadog, Opsgenie or Alertmanager at the incident webhook to get an automated post-deploy CFR signal and a real (median) time to restore, instead of marking deploys by hand. Full setup: [Incident webhook](incidents-webhook.md).
 
-### 5. Tune the correlation window and retention
+### 5. Tune the correlation window, and size retention
 
-Both are per-org, self-serve from **Settings → Incident Reporting** (org-admin), or via `PUT /api/reports/settings/incidents`. See [Retention](#retention) for the two windows and their bounds.
+The correlation window is per-org, self-serve from **Settings → Incident Reporting** (org-admin), or via `PUT /api/reports/settings/incidents`. Retention is set by the plan and any retention packs bought in billing; see [Retention](#retention).
 
 ## Declaring deployments
 
@@ -109,7 +109,7 @@ A post-deploy failure is **anchored to its deploy**: it counts in the window its
 
 **MEASURED**: `median(deploy_completed − oldest_commit_time)` over successful deploys that carry a `commit_timestamp`, resolved in-account by the forwarder.
 
-`medianSeconds` is **`null`, meaning unknown**, when no successful deploy in the environment carried a commit time. The median-run-duration proxy is **removed**.
+`medianSeconds` is **`null`, meaning unknown**, when no successful deploy in the environment carried a commit time. There is no run-duration fallback.
 
 #### Why lead time is unknown
 
@@ -203,7 +203,7 @@ Requires the `reports:read` permission **and** the `advanced_reporting` feature.
 | `environment` | environment name | — | Restrict to a single deploy environment. |
 | `compare` | `previous` | — | Also return the same figures for the equal-length window just before the range — see [Period-over-period comparison](#period-over-period-comparison). |
 
-The window is capped at the org's effective **DORA retention** (`min(730, doraRetentionDays)`, absolute ceiling **730 days**) — a wider range returns **HTTP 400**. See [Retention](#retention).
+The window is capped at the org's effective **DORA retention** (`min(730, doraRetentionDays)`, absolute ceiling **730 days**) — a wider range returns **HTTP 400** — and `from` is floored at the retention horizon (the returned `window` shows the clamp). See [Retention](#retention).
 
 ### DORA trend
 
@@ -225,6 +225,14 @@ Returns `data.trend` — deploy frequency plus the **same two-class** change-fai
 | `weekStart` | `monday`, `sunday` | `monday` | Where a `week` bucket starts. Anything else is **HTTP 400**. |
 
 The dashboard sends the org's stakeholder-report default timezone and week start when the org has set them, otherwise the browser's timezone — so its buckets match the stakeholder report's.
+
+### Deploy environments
+
+```
+GET /api/reports/execution/environments?from=<iso>&to=<iso>&includeDescendants=<bool>
+```
+
+The distinct deploy environments seen in the window (`data.environments`), behind the dashboard's environment filter. Same gates, retention cap and rollup as `/dora`.
 
 ### Post-deploy outcomes
 
@@ -270,12 +278,12 @@ Body: `{ "incidentId", "environment", "openedAt", "resolvedAt"?, "severity" }`. 
 
 **Idempotent** on `(org, incidentId)`: a later resolve re-post updates `resolvedAt`. Each incident is **correlated** to the most recent successful deploy to its `environment` with `completed_at ≤ openedAt` within `DORA_INCIDENT_WINDOW_HOURS` (default 24, **overridable per-org**), producing an **automated** post-deploy CFR signal and a **real** recovery time for the median time to restore.
 
-Companion routes, all `advanced_reporting`-gated:
+Companion routes. The Alertmanager adapter is a machine write like `POST /incidents` (only the `reporting:ingest` scope, no feature gate); the others are org-user routes needing `reports:read` and `advanced_reporting`:
 
 | Route | Purpose |
 |---|---|
 | `POST /api/reports/incidents/alertmanager` | Native Alertmanager adapter — reshapes the batched webhook payload into one incident per alert; same `reporting:ingest` auth |
-| `GET` / `PUT /api/reports/settings/incidents` | Read or set the per-org correlation window **and** the two [retention](#retention) windows. PUT needs org-admin `org_settings:write`; send any subset, omitted fields unchanged |
+| `GET` / `PUT /api/reports/settings/incidents` | Read the per-org correlation window and the two [retention](#retention) windows; set the correlation window (`{ incidentWindowHours }`, 1–720). PUT needs org-admin `org_settings:write`, and its body is strict: a retention field is a `400` |
 | `POST /api/reports/incidents/test` | Non-persisting wiring dry-run — does a synthetic incident correlate now? |
 | `GET /api/reports/incidents` | Recent incidents with correlation and resolved state, paginated |
 
@@ -311,20 +319,20 @@ GET /api/pipelines/scorecard/history?interval=…&periods=…&tz=…&weekStart=�
 
 ## Retention
 
-Reporting rows do not live forever. A leader-locked background sweep in the reporting service hard-deletes expired rows by `created_at` on a **split** schedule, so high-volume standard events expire faster than the low-volume DORA source. Both windows are **per-org overridable**; unset falls back to a global env default.
+Reporting rows do not live forever. A leader-locked background sweep in the reporting service hard-deletes expired rows by `created_at` on a **split** schedule, so high-volume standard events expire faster than the low-volume DORA source. Both windows are **per org**, written by billing; unset falls back to a global env default.
 
-| Window | Covers | Default | Env default | Per-org override |
+| Window | Covers | Default | Env default | Per-org value (billing-synced) |
 |--------|--------|---------|-------------|------------------|
-| **Standard events** | `pipeline_events` with `environment IS NULL` (non-deploy STAGE/ACTION/build activity) | **30 days** | `REPORTING_EVENT_RETENTION_DAYS` | `dora_settings.event_retention_days` |
-| **DORA source** | `pipeline_events` with `environment IS NOT NULL` (deploy stages) + all `deployment_outcomes` + all `incidents` | **180 days** | `REPORTING_DORA_RETENTION_DAYS` | `dora_settings.dora_retention_days` |
+| **Standard events** | `pipeline_events` with `environment IS NULL` and no `commit_timestamp` (non-deploy STAGE/ACTION/build activity) | **30 days** | `REPORTING_EVENT_RETENTION_DAYS` | `dora_settings.event_retention_days` |
+| **DORA source** | `pipeline_events` with `environment IS NOT NULL` (deploy stages) or a `commit_timestamp` (the source events lead time joins on) + all `deployment_outcomes` + all `incidents` | **180 days** | `REPORTING_DORA_RETENTION_DAYS` | `dora_settings.dora_retention_days` |
 
 **Retention is tier-aware and bundle-extendable.** Each tier carries a baseline window that seeds these two values: paid tiers default to 30 days (standard events) and 180 days (DORA source), while the **unlimited** tier is **unlimited retention** (the `-1` sentinel) — the sweep **skips the org entirely** and keeps all history forever.
 
-Effective retention = tier baseline + Σ(add-on pack grant), so the **[Standard Retention Pack](billing-bundles.md)** adds +90 standard-event days and the **DORA History Pack** adds +365 DORA-source days on top of the baseline. Billing computes that effective window and syncs it into `dora_settings`; a manual admin override writes the same columns, last-writer-wins.
+Effective retention = tier baseline + Σ(add-on pack grant), so the **[Standard Retention Pack](billing-bundles.md)** adds +90 standard-event days and the **DORA History Pack** adds +365 DORA-source days on top of the baseline. Billing computes that effective window and syncs it into `dora_settings` (`PUT /reports/internal/retention-sync/:orgId`, billing's service token only); nothing else writes those columns.
 
-**Setting an override.** Self-serve from **Settings → Incident Reporting → Retention** (org-admin, `advanced_reporting`), or via `PUT /api/reports/settings/incidents`. Bounds are **1–730 days**, or the `-1` unlimited sentinel from the unlimited tier.
+**Reading it.** **Settings → Incident Reporting → Retention** shows both windows read-only, with a link to the retention packs. `GET /api/reports/retention` (`reports:read`, no `advanced_reporting`) returns the effective `eventRetentionDays` / `doraRetentionDays` and the widest range each report serves. Values are **1–730 days**, or the `-1` unlimited sentinel from the unlimited tier.
 
-**The report-query window tracks per-org retention.** The old flat 365-day query cap is replaced by a per-org effective cap of `min(730, orgRetentionDays)`: DORA/CFR/MTTR routes cap by the **DORA** window, standard-event routes cap by the **standard-event** window. So a base org can't request a range past its retention — which would be empty anyway — while a **DORA History Pack** org can query the full extended range. The **absolute ceiling stays 730 days**, and an unlimited-tier (`-1`) org queries right up to it. System-admin cross-org report routes keep the flat 730-day ceiling and are not per-org capped.
+**The report-query window tracks per-org retention.** Each org's query cap is `min(730, orgRetentionDays)`: DORA/CFR/MTTR routes cap by the **DORA** window, standard-event routes cap by the **standard-event** window. So a base org can't request a range past its retention — which would be empty anyway — while a **DORA History Pack** org can query the full extended range. The **absolute ceiling stays 730 days**, and an unlimited-tier (`-1`) org queries right up to it. System-admin cross-org report routes keep the flat 730-day ceiling and are not per-org capped.
 
 **Never purged:** `ingest_health` and `dora_settings`, both bounded at one row per org.
 
@@ -381,8 +389,8 @@ Free on every tier (`reports:read`). Read from the run requests the platform sen
 - **What counts.** Start and stop requests in the range, by request time. Discovery probes are not runs and are left out.
 - **Outcomes.** *Started* (the runner accepted it), *failed*, *expired* (not delivered before the request lapsed), *refused* (the runner answered 401/403: bad signature, refused, permission denied) and *pending* (still queued or delivering). The failure rate is failed + expired + refused over everything that finished; pending requests are in neither side.
 - **Time to start.** Median and p90 time to acceptance over accepted start requests, measured two ways:
-  - **Exact**: from the request to its `accepted_at`, the moment the runner accepted it. The pipeline service records it on every start or stop a runner accepts, from this release on.
-  - **Estimated**: requests from before `accepted_at` was recorded are measured from the request to the start of the execution the runner reported. CodePipeline stamps that start while the runner's start call is in flight, so the estimate is the time to acceptance plus at most that one call. An older start whose execution has not reached reporting is not in the sample.
+  - **Exact**: from the request to its `accepted_at`, the moment the runner accepted it. The pipeline service records it on every start or stop a runner accepts.
+  - **Estimated**: a request with no `accepted_at` is measured from the request to the start of the execution the runner reported. CodePipeline stamps that start while the runner's start call is in flight, so the estimate is the time to acceptance plus at most that one call. An older start whose execution has not reached reporting is not in the sample.
 
   `n` is the sample size, and `nExact` and `nEstimated` split it. The card shows the split as, for example, *n = 12 (9 exact, 3 estimated)*, or *(exact)* or *(estimated)* when every sample was measured the same way.
 - **Failure codes.** The top codes from the runner error catalog. A stored code outside the catalog is counted as `OTHER`.
@@ -411,7 +419,7 @@ GET /api/reports/delivery/calendar?from=&to=&tz=&includeDescendants=
 
 ## Flow
 
-**Reports → Flow** shows where pipeline time goes waiting rather than working. Both panels read the raw pipeline events (a median or p90 cannot be rebuilt from daily totals), so they are bounded by event retention. Data is collected for runs after the release that added it: earlier runs are not in the sample, and an empty panel says so.
+**Reports → Flow** shows where pipeline time goes waiting rather than working. Both panels read the raw pipeline events (a median or p90 cannot be rebuilt from daily totals), so they are bounded by event retention. An empty panel says so.
 
 ### Queue and wait time
 

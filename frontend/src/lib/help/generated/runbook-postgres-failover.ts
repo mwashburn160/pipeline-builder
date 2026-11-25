@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/postgres-failover.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: aeaa10273203ab39fde093150ea0c77868ecbb1aa35f4c9336d1ac218cb2255a
+// SOURCE-SHA256: e4e06468942be9a00d0e846e6dd2a1eb92b3cb708bb7ab4ff39f03adf6844543
 // SPDX-License-Identifier: Apache-2.0
 import { Siren } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -122,7 +122,7 @@ export const runbookPostgresFailoverTopic: HelpTopic = {
             ],
             [
               "postgres-replica",
-              "StatefulSet, app: postgres-replica. The standby, seeded by pg_basebackup -R with a permanent per-pod slot. On eks a KEDA ScaledObject owns the count (PG_READ_REPLICA_MIN…MAX, ceiling 2); on ec2/minikube it is a fixed 1."
+              "StatefulSet, app: postgres-replica. The standby, seeded by pg_basebackup -R with a permanent per-pod slot. On eks and ec2 a KEDA ScaledObject owns the count (PG_READ_REPLICA_MIN…MAX, default 1…2); on minikube it is a fixed 1."
             ],
             [
               "postgres-read (Service)",
@@ -324,7 +324,7 @@ export const runbookPostgresFailoverTopic: HelpTopic = {
             ],
             [
               "PG_READ_REPLICA_MIN / MAX",
-              "eks only. KEDA owns the standby count; the StatefulSet declares no replicas. Scaling the StatefulSet by hand is re-applied away."
+              "eks and ec2. KEDA owns the standby count; the StatefulSet declares no replicas. Scaling the StatefulSet by hand is re-applied away."
             ]
           ]
         }

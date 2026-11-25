@@ -224,8 +224,13 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
 // Real codec + real schemas (unmocked) so validation + encode/decode run for real.
 process.env.BILLING_DISCOUNT_KEYS = `v1:${Buffer.alloc(32, 3).toString('base64')}`;
 
+// A dollar discount's value and every breakdown are in the billing currency.
+const priorCurrency = process.env.BILLING_CURRENCY;
+process.env.BILLING_CURRENCY = 'GBP';
 const { createDiscountRoutes } = await import('../src/routes/discounts.js');
 const { reconcileDiscountsOnInvoice, clearDiscountsOnCancel, grantPeriodicCredits, applyDiscountToOrg, previewDiscountForOrg } = await import('../src/helpers/discount-helpers.js');
+// Read once at import; restored so no later suite in this worker inherits it.
+if (priorCurrency === undefined) delete process.env.BILLING_CURRENCY; else process.env.BILLING_CURRENCY = priorCurrency;
 
 // Extract handlers by (method, path) from the router stack.
 const router: any = createDiscountRoutes();
@@ -271,7 +276,7 @@ describe('POST /admin/discounts (mint)', () => {
   it('mints a valid discount and returns the record (201)', async () => {
     await call(handler('post', '/admin/discounts'), adminReq({ body: { code: '50:percent:onetime', targetOrgId: 'org-cust' } }));
     expect(mockSendSuccess).toHaveBeenCalledWith({}, 201, expect.objectContaining({
-      discount: expect.objectContaining({ value: 50, unit: 'percent', kind: 'onetime', targetOrgId: 'org-cust' }),
+      discount: expect.objectContaining({ value: 50, unit: 'percent', kind: 'onetime', targetOrgId: 'org-cust', currency: 'gbp' }),
     }));
     expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.generate' }));
   });
@@ -771,6 +776,7 @@ describe('preview', () => {
     // 20% off $49 is $39.20, which snaps up to $39.49 rather than $39.99 now
     // that `.49` is allowed — 50 cents closer to the discount actually offered.
     expect((body as any).priceBreakdown.totalCents).toBe(3949);
+    expect((body as any).priceBreakdown.currency).toBe('gbp');
     expect(subDoc.creditBalanceCents).toBe(0); // not applied
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
   });

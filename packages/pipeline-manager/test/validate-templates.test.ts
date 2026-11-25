@@ -99,6 +99,25 @@ describe('validate-templates CLI', () => {
     fs.unlinkSync(file);
   });
 
+  it('--file on pipeline props checks the real BuilderProps fields (project, global / defaults.metadata / synth.metadata, vars)', async () => {
+    for (const props of [
+      { project: '{{ nope.x }}' },
+      { project: 'p', global: { a: '{{ nope.x }}' } },
+      { project: 'p', defaults: { metadata: { a: '{{ nope.x }}' } } },
+      { project: 'p', synth: { metadata: { a: '{{ nope.x }}' } } },
+      { project: 'p', global: { a: '{{ metadata.b }}' }, synth: { metadata: { b: '{{ metadata.a }}' } } },
+      { project: 'p', synth: { source: { type: 'github', options: { repo: '{{ vars.repo }}' } } }, vars: { repo: 'a/b' } },
+    ]) {
+      const file = tmpFile(JSON.stringify(props), '.json');
+      await expect(runCli(['--file', file])).rejects.toThrow(/__EXIT_1__/);
+      fs.unlinkSync(file);
+    }
+    // `projectName` / a top-level `metadata` are not pipeline fields — never read.
+    const ok = tmpFile(JSON.stringify({ project: 'p', projectName: '{{ nope.x }}', metadata: { a: '{{ nope.x }}' }, global: { env: '{{ vars.stage }}' }, vars: { stage: 'prod' } }), '.json');
+    await expect(runCli(['--file', ok])).resolves.toBeDefined();
+    fs.unlinkSync(ok);
+  });
+
   it('--pipeline reads the props out of the real { success, data: { pipeline } } envelope', async () => {
     const getMock = jest.fn<AnyFn>().mockResolvedValue({
       success: true,

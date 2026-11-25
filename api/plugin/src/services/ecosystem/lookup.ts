@@ -55,7 +55,10 @@ export async function resolveListedLookup(
 /** Whether an unqualified reference to `name` would reach an Official listing if the org's own plugin didn't shadow it. */
 export async function shadowedListing(scope: ResolutionScope, name: string): Promise<{ publisher: string; name: string } | null> {
   const res = await resolveListingReference(listingSource, { name }, scope).catch(() => null);
-  return res && res.ok ? { publisher: res.publisher.handle, name: res.listing.name } : null;
+  if (!res || !res.ok) return null;
+  // The org's OWN publisher listed it from this very plugin: its source, not a shadow.
+  if (res.publisher.ownerOrgId && res.publisher.ownerOrgId.toLowerCase() === scope.orgId.toLowerCase()) return null;
+  return { publisher: res.publisher.handle, name: res.listing.name };
 }
 
 /**

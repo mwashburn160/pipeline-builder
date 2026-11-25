@@ -52,7 +52,7 @@ flowchart TB
 | Plugin | Platform | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
 | lambda-deploy | AWS Lambda | SMALL | None (AWS IAM) | `LAMBDA_FUNCTION`, `LAMBDA_PACKAGE_TYPE`, `LAMBDA_ALIAS`, `LAMBDA_PUBLISH` |
-| serverless-framework | AWS/Azure/GCP | MEDIUM | None | `SLS_STAGE`, `SLS_REGION`, `SLS_SERVICE_PATH` |
+| serverless-framework | AWS/Azure/GCP | MEDIUM | `SERVERLESS_ACCESS_KEY` (optional; Serverless v4 licence key) | `SLS_STAGE`, `SLS_REGION`, `SLS_SERVICE_PATH` |
 
 ## AWS Services
 

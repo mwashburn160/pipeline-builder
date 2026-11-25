@@ -144,6 +144,7 @@ Run, secure, and observe the platform.
 | [Release Notes](release-notes.md) | Changes that move a number you already watch — the November 2026 reporting-accuracy changes and what you will see |
 | [Incident Webhook](incidents-webhook.md) | Point PagerDuty/Datadog/Alertmanager at the platform (native Alertmanager adapter, self-serve token, per-org window, admin UI) for automated post-deploy CFR + real MTTR |
 | [Notifications](notifications.md) | Email, Slack, webhooks and the in-app inbox — the operator switches (`EMAIL_ENABLED`, SES, `SLACK_*`, the alert relay) and the per-org settings that ride on them |
+| [On-call Paging](oncall-paging.md) | PagerDuty paging for support criticals and alert-delivery meta-alerts — off by default (`ONCALL_ENABLED`) |
 
 ### Reference
 
@@ -173,7 +174,7 @@ The web UI at `https://localhost:8443` provides visual pipeline and plugin manag
 | Identifier | `admin@internal` |
 | Password | `Pipeline-Builder-Dev-2026!` |
 
-`init-platform.sh` is non-interactive: it reads `PLATFORM_IDENTIFIER` and `PLATFORM_PASSWORD` from the environment and falls back to the defaults above when unset — on **every** target. **On any non-local or production target, export real `PLATFORM_IDENTIFIER` / `PLATFORM_PASSWORD` before running** — otherwise the admin is created with this trivial dev password. Change the password from the dashboard immediately after first login on anything reachable beyond your laptop.
+`init-platform.sh` reads `PLATFORM_IDENTIFIER` and `PLATFORM_PASSWORD` (or `PLATFORM_PASSWORD_FILE`) from the environment and falls back to the defaults above when unset. The dev password is accepted only on the local `docker` and `minikube` targets: on `ec2` / `eks` the script **refuses to run** with it, and the scripted EC2/EKS auto-init injects a random password. Change the password from the dashboard immediately after first login on anything reachable beyond your laptop.
 
 ### CLI
 
@@ -213,7 +214,7 @@ curl -X POST https://localhost:8443/api/pipelines \
 curl -X POST https://localhost:8443/api/pipelines/generate \
   -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Build a Node.js app from GitHub, run tests, and deploy with CDK", "provider": "anthropic", "model": "claude-sonnet-5"}'
+  -d '{"prompt": "Build a Node.js app from GitHub, run tests, and deploy with CDK", "provider": "anthropic", "model": "claude-sonnet-5-5"}'
 ```
 
 See the [API Reference](api-reference.md) for the full endpoint list.
@@ -306,11 +307,11 @@ env -u PLATFORM_BASE_URL LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./dep
 PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh docker
 ```
 
-> **The `LOAD_*` gates are not optional on a non-interactive run.** `LOAD_PLUGINS`, `LOAD_TEMPLATES` and `LOAD_COMPLIANCE` each default to **`n`**, and `BUILD_BOOTSTRAP` is skipped when there is no TTY. Without them `init-platform.sh` registers the admin user and the two service accounts and then exits having loaded **nothing** — no plugins, no templates, no compliance rules. On a TTY they prompt (`Load plugins? [y/N]`), and the default is still no. This is what `setup.sh`'s own auto-init passes, so a hand re-run must pass it too.
+> **The `LOAD_*` gates are not optional on a non-interactive run.** `LOAD_PLUGINS`, `LOAD_TEMPLATES` and `LOAD_COMPLIANCE` each default to **`n`**. Without them `init-platform.sh` registers the admin user and the two service accounts (`setup` and the Official catalog loader), installs the managed toolchain release (`pipeline-bootstrap` + `cdk-synth`, which every run builds and sets as the platform default), and then exits having loaded **nothing** else — no catalog plugins, no templates, no compliance rules. On a TTY they prompt (`Load plugins? [y/N]`), and the default is still no. This is what `setup.sh`'s own auto-init passes, so a hand re-run must pass it too.
 
 Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGORY` (comma-separated filter), `PARALLEL_JOBS` (upload concurrency, auto-lowered to 1 for prebuilt), `FORCE_REBUILD` (rebuild existing image.tar files).
 
-Flags: `--cleanup` (remove `plugin.zip`/`image.tar` after upload), `--continue-on-build-failure` (proceed past per-plugin build failures), `--force` (rebuild the base images **and** the CodeBuild bootstrap image from scratch, ignoring the docker-cache / registry-tag skips — use after changing a base `Dockerfile` or the bootstrap image).
+Flags: `--cleanup` (remove `plugin.zip`/`image.tar` after upload), `--continue-on-build-failure` (proceed past per-plugin build failures), `--force` (rebuild the base images and the non-managed plugin images from scratch, ignoring the docker-cache / registry-tag skips — use after changing a base `Dockerfile`; the managed toolchain images are immutable per version and never rebuilt in place), `--accept-initial-vulnerabilities "<reason>"` (set the initial toolchain default despite the fixable-Critical floor; audited).
 
 **Admin credentials** — `init-platform.sh` is non-interactive and reads them from the environment, falling back to defaults when unset:
 
@@ -320,7 +321,7 @@ Flags: `--cleanup` (remove `plugin.zip`/`image.tar` after upload), `--continue-o
 | `PLATFORM_PASSWORD` | `Pipeline-Builder-Dev-2026!` |
 | `PLATFORM_TOTP_CODE` | _unset_ — only needed when re-running init for an admin who has an authenticator app (see [Authentication](authentication.md#setup-automation-uses-one)) |
 
-The defaults apply on **every** target, so **export real values on `minikube`/`ec2`/`eks`** (or any shared/production environment) before running — otherwise the admin is created with the trivial dev password.
+The dev-password default is refused on `ec2` / `eks`; export real values there (and on any shared `minikube`) before running.
 
 > **Fresh-install super-admin bootstrap.** `init-platform.sh` registers the admin into the reserved `system` organization, and that org can **only** be created by an email listed in the platform's `BOOTSTRAP_SUPERADMIN_EMAILS` (the controlled first-super-admin path). So on a fresh install, **`PLATFORM_IDENTIFIER` must be listed in `BOOTSTRAP_SUPERADMIN_EMAILS`.** The stock defaults align (both `admin@internal`); if you set a custom `PLATFORM_IDENTIFIER`, add it to `BOOTSTRAP_SUPERADMIN_EMAILS` and restart the platform before running init — otherwise the `system` registration is rejected (`403`) and no super-admin is bootstrapped.
 
@@ -341,16 +342,18 @@ Register an account, then create one or more organizations. The creator becomes 
 ```bash
 curl -X POST https://localhost:8443/api/organization \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"acme-platform","displayName":"Acme Platform Team"}'
+  -d '{"name":"acme-platform","description":"Acme Platform Team"}'
 ```
 
 ### Roles
 
 | Built-in Role (seeded permission bundle) | What its permissions cover |
 |------|-------------|
-| **Owner** | Full control — manage members, transfer ownership, delete org |
-| **Admin** | Manage plugins, pipelines, compliance rules, quotas, and invite members |
+| **Admin** | Manage plugins, pipelines, compliance rules, quotas, Roles, and invite members |
 | **Member** | Create and manage their own pipelines and plugins |
+| **Pipeline Automation** / **Pipeline Registration** | Machine Roles held by the service accounts `pipeline-manager infra store-token` provisions; they confer no admin over the org |
+
+The org creator is joined as the membership **owner** and holds the Admin and Member Roles.
 
 The coarse `owner`/`admin`/`member` label on a *membership* is for display and ownership transfer only — it grants nothing. Permissions come only from the Roles assigned to a user; see [Permissions](permissions.md).
 
@@ -358,7 +361,7 @@ Invite members via email from the dashboard or API. A user can belong to multipl
 
 ### Permissions
 
-Access is granted through **Roles** — a Role is a named set of fine-grained `resource:action` permissions (e.g. `pipelines:write`, `plugins:publish`, `members:manage`, `roles:manage`, `compliance:write`, `billing:manage`, `reports:rollup`, `org_settings:write`). A user's **effective permissions** are the **union of the Roles assigned to them** — there is no separate role-based baseline. Every org seeds built-in Roles (**Admin**, **Member**; the system org also gets **Super Admin**), and admins with `roles:manage` can add custom Roles (e.g. "Billing Manager"); Super Admins hold all. Endpoints enforce writes via `requirePermission(...)`, and `:read` permissions are enforced too (withholding e.g. `reports:read` blocks that read). `registry:*` are never grantable to a custom Role: `registry:read` and `registry:write` are system-org-only (carried by the Platform Observer/Operator and Registry Operator Roles) and `registry:purge` is Super-Admin-only.
+Access is granted through **Roles** — a Role is a named set of fine-grained `resource:action` permissions (e.g. `pipelines:write`, `plugins:publish`, `members:manage`, `roles:manage`, `compliance:write`, `billing:manage`, `reports:rollup`, `org_settings:write`). A user's **effective permissions** are the **union of the Roles assigned to them** — there is no separate role-based baseline. Every org seeds built-in Roles (**Admin**, **Member**, and the machine Roles **Pipeline Automation** / **Pipeline Registration**; the system org also gets **Super Admin** and its job Roles), and admins with `roles:manage` can add custom Roles (e.g. "Billing Manager"); Super Admins hold all. Endpoints enforce writes via `requirePermission(...)`, and `:read` permissions are enforced too (withholding e.g. `reports:read` blocks that read). `registry:*` are never grantable to a custom Role: `registry:read` and `registry:write` are system-org-only (carried by the Platform Observer/Operator and Registry Operator Roles) and `registry:purge` is Super-Admin-only.
 
 Full catalog, built-in bundles, enforcement, and session-invalidation: see **[Roles & Permissions](permissions.md)**.
 
@@ -367,7 +370,8 @@ Manage Roles from the dashboard, or via the API:
 ```bash
 GET|POST    /api/organization/:id/roles                       # list / create Roles
 PUT|DELETE  /api/organization/:id/roles/:roleId               # update / delete a Role
-POST|DELETE /api/organization/:id/roles/:roleId/members/:uid  # add / remove a Role member
+POST        /api/organization/:id/roles/:roleId/members       # add a Role member ({ userId } or { email })
+DELETE      /api/organization/:id/roles/:roleId/members/:uid  # remove a Role member
 ```
 
 ### Teams (Org → Team Hierarchy)
@@ -391,15 +395,15 @@ A user can belong to several organizations and teams at once and acts within one
 | Feature | Developer | Pro | Team | Business | Enterprise |
 |---------|-----------|-----|------|----------|------------|
 | Pipeline / plugin CRUD | yes | yes | yes | yes | yes |
-| AI pipeline generation | - | yes | yes | yes | yes |
-| AI plugin generation | - | yes | yes | yes | yes |
+| AI pipeline generation | trial (20 AI calls) | yes | yes | yes | yes |
+| AI plugin generation | trial (20 AI calls) | yes | yes | yes | yes |
 | Bulk operations | - | yes | yes | yes | yes |
 | SSO | - | - | yes | yes | yes |
 | Teams (org → team nesting) | - | - | yes | yes | yes |
 | Advanced Reporting (DORA) | add-on | add-on | add-on | yes | yes |
 | Team Usage Analytics | - | - | add-on | add-on | yes |
 | Custom integrations | - | - | - | - | yes |
-| Priority support | - | yes | yes | yes | yes |
+| Support (standard / priority / premium) | add-on | add-on | add-on | add-on | add-on |
 | Plugins | 10 | 25 | 50 | 100 | 150 |
 | Pipelines | 2 | 5 | 10 | 20 | 30 |
 | Seats (members) | 1 | 1 | 3 | 8 | 15 |
@@ -413,13 +417,13 @@ System org users always have access to all features. Base limits are raised by [
 
 This table shows only the caps most people compare. The **full per-tier limit table** — API and AI calls, registry storage, dashboards, alert rules and destinations, IdP configs, and how the quota period relates to the monthly price — is in [Organization Benefits → Billing](organization-benefits.md#billing).
 
-**Add-on bundles** — an account can stack purchasable add-ons on top of its tier to raise pooled caps (extra seats, pipelines, plugins, API/AI calls, storage) or unlock features (Advanced Reporting, Team Usage Analytics, curated compliance libraries — SSO is a Team-tier feature, not an add-on). Effective limits = tier base + add-ons, shared across the account's teams. See [Billing Add-on Bundles](billing-bundles.md).
+**Add-on bundles** — an account can stack purchasable add-ons on top of its tier to raise pooled caps (extra seats, pipelines, plugins, API/AI calls, storage) or unlock features (Advanced Reporting, Team Usage Analytics, Stakeholder Reports, curated compliance libraries, support — SSO is a Team-tier feature, not an add-on). Effective limits = tier base + add-ons, shared across the account's teams. See [Billing Add-on Bundles](billing-bundles.md).
 
 ### What Each Org Controls
 
 - **Plugins** — upload private plugins or use shared public ones; control which versions are available
 - **Compliance rules** — enforce security standards, naming conventions, resource limits
-- **Quotas** — per-org limits on pipelines, plugins, API/AI calls, storage, and more (nine tracked resource types), plus member **seats**; a parent's caps can be pooled across its teams
+- **Quotas** — per-org limits on pipelines, plugins, API/AI calls, storage, and more (twelve tracked resource types), plus member **seats**; a parent's caps can be pooled across its teams
 - **Billing** — per-account subscription tier (Developer / Pro / Team / Business / Enterprise; plus a hidden **Unlimited** tier used as the default when billing is disabled) plus stackable [add-on bundles](billing-bundles.md) that raise pooled caps
 - **Secrets** — stored in AWS Secrets Manager, injected at build time
 
@@ -429,15 +433,18 @@ This table shows only the caps most people compare. The **full per-tier limit ta
 
 ```mermaid
 flowchart TB
-    UI[Dashboard / CLI] --> NGINX[Nginx<br/>TLS + Routing]
-    NGINX --> PIPE[Pipeline Service]
-    NGINX --> PLUG[Plugin Service]
-    NGINX --> PLAT[Platform Service]
-    PIPE --> COMP[Compliance]
-    PLUG --> REP[Reporting]
-    PLAT --> QB[Quota / Billing]
-    COMP & REP & QB --> DB[(PostgreSQL / MongoDB / Redis)]
+    UI[Dashboard / CLI / API] --> NGINX[Nginx<br/>TLS + routing by path]
+    NGINX --> PLAT[Platform<br/>identity, orgs, audit]
+    NGINX --> PIPE[Pipeline]
+    NGINX --> PLUG[Plugin]
+    NGINX --> OTHER[Compliance, Reporting, Quota, Billing,<br/>Message, Ops Center, Image Registry, Ask Agent]
+    PIPE & PLUG -->|validate| COMP[Compliance]
+    PIPE & PLUG -->|reserve slot| QUOTA[Quota]
+    PIPE & PLUG & OTHER -.->|verify JWT via JWKS| PLAT
+    PLAT & PIPE & PLUG & OTHER --> DB[(PostgreSQL / MongoDB / Redis)]
 ```
+
+Nginx routes each `/api/...` prefix straight to its owning service; every service verifies the caller's token against the platform's published JWKS.
 
 | Service | Purpose |
 |---------|---------|
@@ -448,7 +455,10 @@ flowchart TB
 | **Reporting** | Execution analytics via EventBridge ingestion |
 | **Quota** | Resource limits per organization |
 | **Billing** | Subscriptions and usage billing |
-| **Message** | Org announcements and conversations |
+| **Message** | Org announcements, conversations and support cases |
+| **Ops Center** | Dashboards, org alert rules and destinations, the Alertmanager relay, on-call paging |
+| **Image Registry** | Registry bearer tokens, plugin image signing and publication, image GC |
+| **Ask Agent** | The Ask assistant (tool-using chat over the platform APIs) |
 
 For end-to-end request → build → deploy flow diagrams, see [Architecture Flow](architecture-flow.md). For the case for adopting Pipeline Builder org-wide, see [Organization Benefits](organization-benefits.md).
 

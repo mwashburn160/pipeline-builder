@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import { fileURLToPath } from 'node:url';
 import * as os from 'os';
@@ -101,15 +102,23 @@ function roleFor(entry: CatalogEntry): SeedBundleId | undefined {
   return AUTOMATION_ACCOUNT_BUNDLES[entry.account] ?? undefined;
 }
 
+/** IAM role, Lambda function and EventBridge rule names are capped at 64 characters. */
+const RENEW_RESOURCE_NAME_MAX = 64;
+
 /**
  * The rotation stack's name suffix for `secretName`: its trailing path segment
- * (`-platform`, `-reporting-ingest`, …). Per-secret, so each credential's stack
+ * plus a short hash of the WHOLE name (`-platform-<hash>`,
+ * `-reporting-ingest-<hash>`, …). Per-secret, so each credential's stack
  * coexists with the others instead of colliding on the (account-global) IAM
- * role / Lambda / rule names.
+ * role / Lambda / rule names — including another org's secret with the same
+ * leaf (`…/<org>/platform`) rotated from the same account. The leaf is
+ * truncated so the resource names fit {@link RENEW_RESOURCE_NAME_MAX}.
  */
 export function renewNameSuffix(secretName: string): string {
-  const leaf = secretName.replace(/.*\//, '');
-  return `-${leaf.replace(/[^a-z0-9]+/gi, '-')}`;
+  const hash = createHash('sha256').update(secretName).digest('hex').slice(0, 8);
+  const room = RENEW_RESOURCE_NAME_MAX - RENEW_LAMBDA_NAME.length - hash.length - 2;
+  const leaf = secretName.replace(/.*\//, '').replace(/[^a-z0-9]+/gi, '-').slice(0, room).replace(/-+$/, '');
+  return `${leaf ? `-${leaf}` : ''}-${hash}`;
 }
 
 /**

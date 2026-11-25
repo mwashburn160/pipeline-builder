@@ -64,7 +64,7 @@ describe('buildUsageRollup', () => {
     const rollup = buildUsageRollup(null, null, null, now);
 
     expect(rollup.subscription).toBeNull();
-    expect(rollup.cost).toEqual({ subscriptionCents: 0, currency: 'USD' });
+    expect(rollup.cost).toEqual({ subscriptionCents: 0, currency: 'usd' });
     expect(rollup.usage).toEqual({});
     // Seats default to null when not supplied (pure helper takes no network).
     expect(rollup.seats).toBeNull();

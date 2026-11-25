@@ -183,6 +183,25 @@ describe('POST / (author)', () => {
     expect(svc.create).not.toHaveBeenCalled();
   });
 
+  it('scans the real metadata layers and the source for undeclared vars — not a top-level `metadata`', async () => {
+    for (const props of [
+      { project: 'app', global: { url: '{{ vars.nope }}' } },
+      { project: 'app', defaults: { metadata: { url: '{{ vars.nope }}' } } },
+      { project: 'app', synth: { metadata: { url: '{{ vars.nope }}' } } },
+      { project: 'app', synth: { source: { type: 'github', options: { repo: '{{ vars.nope }}' } } } },
+    ]) {
+      const r = res();
+      await create(req({ body: { name: 'svc', props, inputs: [] } }), r);
+      expect(r.status).toHaveBeenCalledWith(400);
+      expect(body(r).message).toMatch(/undeclared vars: nope/);
+    }
+    const ignored = res();
+    await create(req({ body: { name: 'svc', props: { project: 'app', metadata: { url: '{{ vars.nope }}' } }, inputs: [] } }), ignored);
+    expect(ignored.status).toHaveBeenCalledWith(201);
+    // The body is validated as a TEMPLATE (its source may carry `{{ vars.* }}`).
+    expect(mockValidateTemplates).toHaveBeenCalledWith({ props: expect.anything() }, { template: true });
+  });
+
   it('refuses invalid tokens, a bad body and a same-org name collision', async () => {
     mockValidateTemplates.mockImplementationOnce(() => { throw new Error('bad token'); });
     const tokens = res();

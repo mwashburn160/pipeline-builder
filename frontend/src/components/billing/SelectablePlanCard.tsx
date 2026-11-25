@@ -26,7 +26,7 @@ interface SelectablePlanCardProps {
 export function SelectablePlanCard({
   plan, selected, onSelect, variant = 'full', popular = false, disabled = false,
 }: SelectablePlanCardProps) {
-  const price = formatPrice(plan.prices.monthly, { suffix: '/mo' });
+  const price = formatPrice(plan.prices.monthly, plan.currency, { suffix: '/mo' });
 
   if (variant === 'compact') {
     return (

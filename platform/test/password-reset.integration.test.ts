@@ -133,6 +133,24 @@ suite('password reset (real Mongo)', () => {
     expect(after.tokenVersion).toBe(6);
   });
 
+  it('bumps tokenVersion with $inc: a concurrent sign-out-everywhere during the reset is not folded away', async () => {
+    const { rawToken } = await svc.requestPasswordReset('forgetful@example.com');
+    // A sign-out-everywhere lands after the reset read the user (0) but before it writes.
+    const proto = m.User.prototype as { comparePassword: (pw: string) => Promise<boolean> };
+    const original = proto.comparePassword;
+    proto.comparePassword = async function (this: unknown, pw: string) {
+      await m.User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 } });
+      return original.call(this, pw);
+    };
+    try {
+      await svc.resetPassword(rawToken, 'New-Passw0rd!secret');
+    } finally {
+      proto.comparePassword = original;
+    }
+    const after = await m.User.findById(userId).select('tokenVersion').lean();
+    expect(after.tokenVersion).toBe(2);
+  });
+
   it('lifts a live failed-password lockout — the guarded password is gone', async () => {
     await m.PasswordLoginLockout.collection.insertOne({
       userId: new mongoose.Types.ObjectId(userId),

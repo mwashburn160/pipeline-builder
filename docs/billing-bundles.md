@@ -31,7 +31,7 @@ Written for org **admins and owners** buying extra capacity, and for operators c
 
 ## How it works
 
-1. **Enable** — an operator sets `BILLING_BUNDLES_ENABLED=true`. Self-service purchase is disabled under AWS Marketplace.
+1. **Enable** — bundles are on by default (`BILLING_BUNDLES_ENABLED`, set `false` to hide the catalog). Self-service purchase is disabled under AWS Marketplace.
 2. **Preview** — an admin lists bundles (`GET /bundles`) and previews a change (`POST /subscriptions/:id/addons/preview`) to confirm the new effective limits before committing.
 3. **Purchase** — add or change an add-on (`POST /subscriptions/:id/addons`). Stackable packs can be bought in quantity.
 4. **Compute** — billing recomputes `effective[quota] = tierBase + Σ(grant × quantity)` and applies any qualifying **combo** as a recurring usage credit, using best-combo packing so nothing is discounted twice.
@@ -41,22 +41,26 @@ Written for org **admins and owners** buying extra capacity, and for operators c
 
 | What | Goes to | Via |
 |---|---|---|
-| The nine tracked quota types | quota service | quota sync |
-| `seats` and purchased features (e.g. `advanced_reporting`) | platform service | `PUT /organization/{orgId}/seat-limit` |
+| Every tracked quota type (`VALID_QUOTA_TYPES`: plugins, pipelines, API / automation / AI calls, storage, CPU credits, dashboards, alert rules, alert destinations, IdP configs, listings) | quota service | quota sync |
+| `seats`, support contacts (standard and premium), the tier and purchased features (e.g. `advanced_reporting`) | platform service | `PUT /organization/{orgId}/seat-limit` |
 | Effective **retention** windows | reporting service | `PUT /reports/internal/retention-sync/{orgId}`, writing `dora_settings` |
+| Compliance content sets (from the effective `compliance_*` features) | compliance service | `PUT /compliance/internal/entitlements/{orgId}` |
+| The stakeholder-reports entitlement | reporting service | `PUT /reports/internal/stakeholder-sync/{orgId}` |
 
-All three target the account root. Retention is not one of the nine flow quotas — it reuses the tier-baseline + bundle-grant math but rides its own reporting sync leg.
+Billing pushes the **full** limits payload to `seat-limit` on every sync — `seats`, `supportContacts`, `supportPremiumContacts`, `features` and `tier` are all required, so a partial push is refused with 400. A platform operator (system org, `orgs:manage`, MFA-grade session, step-up) may override **seats alone** with the body `{ "seats": n }` (`-1` = unlimited; root org only); it writes only the root's seat cap and is audited as `admin.org.seatLimit.update` with `override: true`. An operator body carrying `features`, `tier` or either support cap is refused with 400 — those are billing-synced, and a tier pushed there would skip the over-cap guard.
+
+All five legs target the account root. Retention is not a quota type — it reuses the tier-baseline + bundle-grant math but rides its own reporting sync leg.
 
 ### What stacking does and does not do
 
 - **Stackable bundles** can be purchased in quantity — enter 15 Member Seats for +15 seats, with a volume discount.
 - An **unlimited** baseline (`-1`, e.g. Team and up on `dashboards`) stays unlimited. Bundles never shrink it.
-- **Feature bundles** (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance, Stakeholder Reports) add a capability rather than a number, and are not stackable.
+- **Feature bundles** (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance, Stakeholder Reports) add a capability rather than a number, and are not stackable. The support bundles are the exception: they grant a feature **and** a per-unit contact count, so they stack.
 - Effective limits are **pooled at the account root** — see [pooling](#pooling-across-teams).
 
 ## Configuration
 
-1. **Turn bundles on.** `BILLING_BUNDLES_ENABLED=true`. Bundles are hidden unless set.
+1. **Leave bundles on, or turn them off.** `BILLING_BUNDLES_ENABLED` defaults to `true`; set `false` to hide the catalog.
 2. **Override any economics you need to** with the variables below. Every price, grant and eligible-tier list is env-tunable.
 3. **Confirm the provider.** Under AWS Marketplace, self-service purchase is off and add-on charges are reported as metered usage instead.
 4. **Have admins preview before committing.** `POST /subscriptions/:id/addons/preview` returns the new effective limits, so the caps that change are visible in advance.
@@ -65,7 +69,7 @@ All three target the account root. Retention is not one of the nine flow quotas 
 
 | Variable | Effect |
 |----------|--------|
-| `BILLING_BUNDLES_ENABLED=true` | Master switch — bundles are hidden unless set |
+| `BILLING_BUNDLES_ENABLED` | Master switch (default `true`); `false` hides the catalog |
 | `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` | Override a bundle's price (cents) |
 | `BILLING_BUNDLE_<ID>_GRANT_<DIMENSION>` | Override the grant amount for ONE dimension, e.g. `BILLING_BUNDLE_PLUGIN_PACK_GRANT_CPU_CREDITS=9000`. Applied per key, so a bad value on one dimension leaves the others alone, and a dimension the bundle does not grant is ignored rather than added |
 | `BILLING_BUNDLE_<ID>_TIERS` | JSON array of tiers allowed to buy the bundle |
@@ -85,13 +89,13 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 | Bundle | Grant | Monthly | Annual | Available to | Stackable |
 |--------|-------|--------:|-------:|--------------|:---------:|
 | **Member Seat** | +1 member seat, **+100,000 API calls, +200 AI calls** (volume discounts — see below) | $49.99 | $499.99 | Team, Business, Enterprise | ✅ |
-| **Pipeline Pack** | +5 pipelines **and** +25 plugin builds / period — both, so the 5:1 ratio the tiers hold survives the purchase | $29.99 | $299.99 | Team, Business, Enterprise | ✅ |
-| **Plugin Pack** | +10 plugin builds / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
+| **Pipeline Pack** | +5 pipelines **and** +25 plugin builds / period — both, so the 5:1 ratio the tiers hold survives the purchase — plus +11,250 CPU credits / month to build them | $29.99 | $299.99 | Team, Business, Enterprise | ✅ |
+| **Plugin Pack** | +10 plugin builds / period, plus +4,500 CPU credits / month to build them | $11.99 | $119.99 | paid tiers | ✅ (volume) |
 | **CPU Credits Pack** | +500 CPU credits / month | $2.49 | $24.99 | paid tiers | ✅ (volume, max 22) |
 | **API Pack** | +25,000 API calls / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
 | **Automation Pack** | +25,000 automation calls / period (pipelines, service accounts, access keys) | $11.99 | $119.99 | paid tiers | ✅ (volume) |
 | **AI Pack** | +100 AI calls / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
-| **Storage Pack** | +10 GB registry storage | $19.99 | $199.99 | all tiers | ✅ |
+| **Storage Pack** | +10 GB registry storage | $19.99 | $199.99 | all tiers | ✅ (volume) |
 | **Listing Pack** | +5 public plugin-ecosystem listings (the `listings` count quota) | **free** | **free** | paid tiers | ✅ (unlimited) |
 | **Standard Retention Pack** | +90 days standard pipeline-event retention | $15 | $150 | all tiers | ✅ (max 7) |
 | **DORA History Pack** | +365 days DORA history **and** +365 days on the per-org report-query window | $30 | $300 | all tiers | ✅ (max 1) |
@@ -100,6 +104,13 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 | **Standard Compliance** | unlocks the `compliance_standard` feature — a curated **CI/CD best-practice** rule library (9 rules in 5 policies) | $29.99 | $299.99 | Developer, Pro, Team, Business | ❌ |
 | **Advanced Compliance** | unlocks the `compliance_advanced` feature — curated **SOC2 / PCI-DSS / CIS** framework libraries — **requires Standard Compliance** | $99.99 | $999.99 | Developer, Pro, Team, Business | ❌ |
 | **Stakeholder Reports** | unlocks the `stakeholder_reports` feature — saved, scheduled manager-facing reports: frozen period snapshots, review-and-publish, email / in-app / Slack / Teams delivery and expiring share links | $30 | $300 | Pro, Team, Business | ❌ |
+| **Standard Support** | +1 support contact (business hours) | $19.99 | $199.99 | all tiers | ✅ (volume) |
+| **Priority Support** | +1 support contact (faster business-hours response) | $49.99 | $499.99 | all tiers | ✅ (volume) |
+| **Premium Support (upgrade)** | upgrades one contact to 24×7 — **requires Standard or Priority Support** | $99.99 | $999.99 | all tiers | ✅ (volume) |
+
+The three support bundles exist only when `SUPPORT_ENABLED` is on (Premium also needs `SUPPORT_PREMIUM_ENABLED`); response targets and how contacts are designated are in [Support](support.md).
+
+**Volume tiers.** Member Seat and CPU Credits Pack: 10% from 5 units, 20% from 15, 30% from 40. Plugin, API, Automation, AI and Storage Packs: 10% from 4, 20% from 10, 30% from 25. Support: Standard 10% / 20% / 30% from 3 / 8 / 20 contacts, Priority 10% / 20% from 3 / 8, Premium 10% from 3.
 
 ### Why the capacity packs are tier-restricted
 
@@ -114,7 +125,7 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 
 `BILLING_BUNDLE_<ID>_GRANT_<DIMENSION>` retunes one dimension of a pack's grant — `<DIMENSION>` is the quota field upper-snake-cased (`PLUGINS`, `CPU_CREDITS`, `API_CALLS`, `STORAGE_BYTES`).
 
-This replaced a single `BILLING_BUNDLE_<ID>_GRANT`, which could only address a one-dimension pack and silently did nothing for the rest. That was tolerable while every stackable pack granted exactly one dimension, and stopped being tolerable when `cpuCredits` arrived: credits are **derived** from plugin-build volume, so every pack granting builds has to grant the minutes to run them, and an operator retuning the build grant must be able to retune the minutes with it — otherwise the 45-credits-per-build invariant breaks the first time the knob is used. Multi-dimension packs are now tunable per key; the ratio is held by a test rather than by refusing the override.
+It is per key because several packs grant more than one dimension: CPU credits are **derived** from plugin-build volume (45 credits per build), so every pack granting builds also grants the credits to run them, and an operator retuning the build grant must be able to retune the credits with it. The ratio is held by a test rather than by refusing the override.
 
 The throughput packs (plugin, API, automation, AI, listing) begin at **Pro**. Developer is the free tier, sized for one person building and evaluating, and the step up to Pro raises every dimension at once — which is the natural move when a free account has outgrown it rather than one limit at a time. Developer includes AI generation as a **trial**: the `ai_generation` feature with the tier's 20 `aiCalls` per period as its cap (the plan card says "(trial)"); outgrowing it is an upgrade, not an AI Pack.
 
@@ -128,7 +139,7 @@ The throughput packs (plugin, API, automation, AI, listing) begin at **Pro**. De
 
 ### Every price is a whole dollar or `.99`
 
-One rule covers the whole catalog: any amount a customer is **charged** ends on `.00` or `.99`, and rounding always goes **up**.
+One rule covers the whole catalog: any amount a customer is **charged** ends on `.00`, `.49` or `.99`, and rounding always goes **up** to the nearest of those (1–49 cents → `.49`, 50–98 → `.99`).
 
 It exists because none of the odd cents were authored. Three mechanisms derived them:
 
@@ -138,11 +149,11 @@ It exists because none of the odd cents were authored. Three mechanisms derived 
 
 Each is reasonable on its own, and together they put arbitrary cents on an invoice, which reads as a rounding error rather than a price.
 
-**Rounding up is deliberate in both directions.** Rounding a charge *down* gives away revenue nobody decided to give away; rounding a reduction *up* gives away the same money from the other side. So a **reduction is never rounded on its own** — the amount still charged is snapped up and the credit is taken as the remainder. A 50% coupon on a $49.00 plan therefore charges **$24.99** against a credit of **$24.01**, which reconciles exactly against the line above it. The step is at most 98 cents, so the rule can never move a price materially; what it removes is the appearance of imprecision.
+**Rounding up is deliberate in both directions.** Rounding a charge *down* gives away revenue nobody decided to give away; rounding a reduction *up* gives away the same money from the other side. So a **reduction is never rounded on its own** — the amount still charged is snapped up and the credit is taken as the remainder. A 50% coupon on a $49.00 plan therefore charges **$24.99** against a credit of **$24.01**, which reconciles exactly against the line above it. The step is at most 50 cents, so the rule can never move a price materially; what it removes is the appearance of imprecision.
 
 Two deliberate exceptions:
 
-- **An exact dollar is left alone.** Lifting $30.00 to $30.99 would be a price rise, not a rounding.
+- **An exact dollar is left alone.** Lifting $30.00 to $30.49 would be a price rise, not a rounding. So is zero: the free Listing Pack stays $0.
 - **A total is not snapped.** $29.99 + $19.99 stays $49.98. Snapping the total would make it disagree with the sum of its own lines — an invoice whose arithmetic does not add up, which is exactly the failure the support size floor was restructured to avoid (it bills a visible top-up **line** rather than a silent minimum on the subtotal). Prices are price-shaped; their sum is just a sum.
 
 Operator overrides pass through the same rule, so `BILLING_BUNDLE_SEAT_MONTHLY=4950` resolves to $49.99 rather than putting $49.50 on an invoice.
@@ -193,7 +204,7 @@ Each tier carries a baseline reporting-retention window — paid tiers default t
 
 The two retention packs stack like every other pack: effective retention = tier baseline + Σ(pack grant × quantity). Buy **Standard Retention Pack ×2** for +180 days of standard-event history. Billing computes that effective window and syncs it to the reporting service (`dora_settings.event_retention_days` / `dora_retention_days`).
 
-The **DORA History Pack** also widens the per-org report-query window, which now tracks retention and is capped at an absolute 730 days — so a pack holder can actually query the extended range, not just retain the raw rows. It only does anything useful alongside **Advanced Reporting (DORA)**.
+The **DORA History Pack** also widens the per-org report-query window, which tracks retention and is capped at an absolute 730 days — so a pack holder can actually query the extended range, not just retain the raw rows. It **requires** the `advanced_reporting` feature — included in the tier or bought as **Advanced Reporting (DORA)** — and the purchase is refused without it.
 
 ### Stakeholder Reports
 
@@ -232,6 +243,9 @@ Some add-ons are cheaper bought together. When an account holds **every** member
 | **Insights Bundle** | Team Usage Analytics + Stakeholder Reports | $60 / mo · $600 / yr | **$42 / mo · $420 / yr** | **$18 / mo · $180 / yr** |
 | **Throughput Bundle** | Plugin Pack + API Pack + AI Pack | $35.97 / mo · $359.97 / yr | **$25.99 / mo · $259.99 / yr** | **$9.98 / mo · $99.98 / yr** |
 | **Scale Bundle** | API Pack + Storage Pack | $31.98 / mo · $319.98 / yr | **$22.99 / mo · $229.99 / yr** | **$8.99 / mo · $89.99 / yr** |
+| **Assured Delivery** | Standard Compliance + ≥ 1 Standard Support contact | $49.98 / mo · $499.98 / yr | **$34.99 / mo · $349.99 / yr** | **$14.99 / mo · $149.99 / yr** |
+
+Assured Delivery exists only when `SUPPORT_ENABLED` is on. Its credit is anchored at one contact: further Standard Support contacts bill at their own (volume) price.
 
 How it works:
 
@@ -239,7 +253,7 @@ How it works:
 - **Minimum-quantity members.** A member can require a minimum quantity: Team Growth needs **≥ 5 Member Seats**. It counts the purchased Seat **add-on**, not the account's total tier seats, and the credit is **flat** — extra seats beyond the minimum don't increase it.
 - **Combo and volume discounts don't stack on the same units.** A tiered member's minimum units are priced inside the combo at the volume rate for that minimum (Team Growth's 5 seats at the ≥ 5 rate), and they get exactly that rate — never the deeper tier the account's total holding reaches. Only the units **above** the combo minimum get the held-quantity volume tier. So 20 seats + Team Usage Analytics bills the combo at its combined price plus 15 seats at the ≥ 15 rate; at exactly 5 seats nothing changes. The combo credit is computed from what the invoice actually charges those minimum units after their volume credit (rounded once over the line, the same way the volume credit itself is), so members held at the minimum net exactly the combined price — not a few cents over it.
 - The saving is shown up front: the add-on **preview** and the add/remove responses include a negative combo line (e.g. `Team Growth Bundle discount −$83.96`), so `totalCents` already reflects the net.
-- It is **realized** as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants `Σ member price × minQty − combined price` (clamped ≥ 0) per period, idempotent per invoice. Existing qualifying accounts begin receiving the credit at their **next invoice**, retroactive by design.
+- It is **realized** as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants `Σ member price × minQty − combined price` (clamped ≥ 0) per period, idempotent per invoice. An account that comes to qualify starts receiving the credit at its **next invoice**.
 **Why there is both an Analytics Suite and an Insights Bundle.** A combo only applies when the account holds *every* member, and `advanced_reporting` is **included** in Business — so Business cannot buy that member and the three-member Suite can never form there. Without the Insights Bundle a Business account buying the other two paid full list ($60) while a Team account paid $63 for all three. The Insights Bundle is the same pair minus the member the tier already owns, and on Team it simply loses to the Suite's larger credit.
 
 - **Overlap.** Team Usage Analytics belongs to both the Analytics Suite and Team Growth. You always receive the combination of combos giving the **largest total discount**, and no add-on is ever discounted twice — if two combos share a member, only the single best one applies, with ties broken deterministically. So an account with DORA + Team Usage Analytics + seats gets **one** $27 credit (the larger Analytics Suite), not two.
@@ -271,17 +285,23 @@ For an account with [teams](organization-benefits.md#teams), bundle grants raise
 
 ## Buying and managing bundles
 
-Bundles are managed through the billing service — the dashboard **Billing** page or the API. Mutations require an org **admin/owner**.
+Bundles are managed through the billing service (under `/billing`) — the dashboard **Billing** page or the API. Reads need `billing:read`; mutations need `billing:manage`, an MFA-grade admin session and the account **root** (a team cannot change billing). Add-on changes are audited as `billing.addon.add` / `billing.addon.remove` (plus `billing.combo.expired` when a change ends a combo).
 
 | Action | Endpoint |
 |--------|----------|
-| List available bundles | `GET /bundles` |
+| List the bundles offered to the account's tier | `GET /bundles` |
+| The standing bill, itemized (volume, combo and floor adjustments included) | `GET /charges` |
+| Whether current pack spend argues for a tier move | `GET /crossover` |
+| A plan change's cost, discount included | `GET /plan-preview?tier=` |
 | Preview the effect of an add-on change | `POST /subscriptions/:id/addons/preview` |
 | Add / change an add-on | `POST /subscriptions/:id/addons` |
+| Add several add-ons as one atomic change (every gate runs against the final set) | `POST /subscriptions/:id/addons/basket` |
 | Remove an add-on | `DELETE /subscriptions/:id/addons/:bundleId` |
 | Open the billing portal | `POST /portal` |
 
 The **preview** endpoint returns the new effective limits before you commit, so you can confirm exactly which caps change.
+
+Amounts are in cents, and every response names their currency (`BILLING_CURRENCY`, lower-case ISO 4217): each bundle and combo in `GET /bundles`, every `priceBreakdown` (preview, add, basket, remove, `/charges`), `/crossover` and `/plan-preview` carry a `currency` field.
 
 ## Related
 

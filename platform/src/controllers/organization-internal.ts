@@ -87,13 +87,33 @@ function isEntitlementService(req: Parameters<typeof isServicePrincipal>[0]): bo
 }
 
 /**
+ * Defense-in-depth for the seat-limit trust boundary: the caller is
+ * authoritative, so a cap BELOW current pooled usage is not blocked — but it
+ * means members are stranded (or a caller-side gate regressed), so make it
+ * observable (metric + warn). Never throws: the write is already committed.
+ */
+async function warnIfBelowUsage(orgId: string, seats: number): Promise<void> {
+  if (seats < 0) return;
+  try {
+    const { used } = await pooledSeatUsage(orgId);
+    if (used > seats) {
+      logger.warn('Seat-limit set below current pooled usage — members may be stranded', { orgId, seats, used });
+      incCounter('platform_seat_limit_below_usage_total');
+    }
+  } catch (err) {
+    logger.warn('Pooled-seat over-cap check failed', { orgId, err: errorMessage(err) });
+  }
+}
+
+/**
  * PUT /organization/:id/seat-limit — internal: set the account seat limit.
  *
  * `seats` is platform-owned (not a quota-service type), so the billing service
  * syncs the effective seat entitlement (tier base + bundles) here. Two callers:
- * the BILLING service (no step-up — service-to-service), or a platform operator
- * holding `orgs:manage` (route: system org + aal2 + step-up, like
- * `PATCH /:id/tier`). Any other service is refused. `:id` must be the account
+ * the BILLING service (no step-up — service-to-service), pushing the full
+ * limits payload, or a platform operator holding `orgs:manage` (route: system
+ * org + aal2 + step-up, like `PATCH /:id/tier`), overriding `seats` alone. Any
+ * other service is refused. `:id` must be the account
  * ROOT — a team id is refused with 409 (never redirected).
  */
 export const updateOrganizationSeatLimit = withController('Update organization seat limit', async (req, res) => {
@@ -110,32 +130,55 @@ export const updateOrganizationSeatLimit = withController('Update organization s
   if (typeof body.seats !== 'number' || !Number.isInteger(body.seats) || body.seats < -1) {
     return sendError(res, 400, 'seats must be an integer >= -1');
   }
+  const seats = body.seats;
+
+  // A platform operator overrides the SEAT CAP only (the admin Seats card sends
+  // `{ seats }`). Features, tier and the support caps are billing's: a tier
+  // pushed here would skip the over-cap / team-stranding guard that billing (and
+  // `PATCH /:id/tier`) run, so an operator body carrying any of them is refused.
+  if (!isServicePrincipal(req)) {
+    const billingOwned = (['features', 'tier', 'supportContacts', 'supportPremiumContacts'] as const)
+      .filter((f) => body[f] !== undefined);
+    if (billingOwned.length > 0) {
+      return sendError(res, 400, `An operator override sets seats only; ${billingOwned.join(', ')} are synced by billing`);
+    }
+    const override = await organizationService.setAccountSeats(id, seats);
+    if (!override) return sendError(res, 404, 'Organization not found');
+    await warnIfBelowUsage(id, seats);
+    audit(req, 'admin.org.seatLimit.update', {
+      targetType: 'organization',
+      targetId: id,
+      affectedOrgId: override.rootOrgId,
+      details: { seats, previous: override.previous, override: true },
+    });
+    logger.info('Seat limit overridden', { orgId: id, rootOrgId: override.rootOrgId, seats, by: req.user!.sub });
+    return sendSuccess(res, 200, override, 'Seat limit updated');
+  }
+
   // Billing pushes the FULL limits payload every time (seats, both support caps,
   // features, tier): each field is required, so a partial push is refused.
   // Account-level feature entitlements (purchased bundles).
   if (!Array.isArray(body.features) || body.features.some((f) => typeof f !== 'string')) {
     return sendError(res, 400, 'features must be an array of strings');
   }
-  {
-    // Whitelist against the canonical feature-flag registry: these entitlements
-    // are persisted onto the root AND propagated to every descendant team, so an
-    // unknown/junk flag would perpetually trip billing's entitlement-drift
-    // reconciler and pollute `featureEntitlements`. Reject rather than silently
-    // accept arbitrary strings (defense-in-depth against a bogus-flag injection).
-    const unknown = (body.features as string[]).filter((f) => !isValidFeatureFlag(f));
-    if (unknown.length > 0) {
-      return sendError(res, 400, `features contains unknown feature flag(s): ${unknown.join(', ')}`);
-    }
-  }
   const features = body.features as string[];
+  // Whitelist against the canonical feature-flag registry: these entitlements
+  // are persisted onto the root AND propagated to every descendant team, so an
+  // unknown/junk flag would perpetually trip billing's entitlement-drift
+  // reconciler and pollute `featureEntitlements`. Reject rather than silently
+  // accept arbitrary strings (defense-in-depth against a bogus-flag injection).
+  const unknownFlags = features.filter((f) => !isValidFeatureFlag(f));
+  if (unknownFlags.length > 0) {
+    return sendError(res, 400, `features contains unknown feature flag(s): ${unknownFlags.join(', ')}`);
+  }
   // The account tier — billing pushes it so a plan DOWNGRADE invalidates
   // stale tokens (setSeatLimit sets only the tier label, no quota reseed).
   //
   // TRUST BOUNDARY: unlike the sysadmin `PATCH /organization/:id/tier` route, this path runs NO
   // over-cap / team-stranding guard (`checkTierOvercap`). Billing is the sole
   // caller and gates the downgrade via `checkEntitlementOvercap` BEFORE calling
-  // this endpoint, so the guard lives caller-side by design. If another producer
-  // ever writes here, add the structural guard.
+  // this endpoint, so the guard lives caller-side by design (operators cannot
+  // push a tier here — see the override branch above).
   if (typeof body.tier !== 'string' || !VALID_TIERS.includes(body.tier as PlanTier)) {
     return sendError(res, 400, `tier must be one of: ${VALID_TIERS.join(', ')}`);
   }
@@ -155,26 +198,10 @@ export const updateOrganizationSeatLimit = withController('Update organization s
   const supportPremiumContacts = body.supportPremiumContacts;
 
   const result = await organizationService.setSeatLimit(
-    id, body.seats, features, tier, supportContacts, supportPremiumContacts,
+    id, seats, features, tier, supportContacts, supportPremiumContacts,
   );
   if (!result) return sendError(res, 404, 'Organization not found');
-
-  // Defense-in-depth for the trust boundary above: billing is authoritative and
-  // gates the downgrade caller-side, so we don't block — but a pushed cap BELOW
-  // current pooled usage means a caller-side gate regressed and members are
-  // stranded. Make it observable (metric + warn) instead of silent.
-  if (typeof body.seats === 'number' && body.seats >= 0) {
-    try {
-      const { used } = await pooledSeatUsage(id);
-      if (used > body.seats) {
-        logger.warn('Seat-limit pushed below current pooled usage — members may be stranded', { orgId: id, seats: body.seats, used });
-        incCounter('platform_seat_limit_below_usage_total');
-      }
-    } catch (err) {
-      // Observability only — never fail the (already-committed) seat-limit write.
-      logger.warn('Pooled-seat over-cap check failed', { orgId: id, err: errorMessage(err) });
-    }
-  }
+  await warnIfBelowUsage(id, seats);
 
   // Entitlement mutation on the account root (+ its descendants) — leave an audit
   // trail like every other admin org mutation (setTier, member ops, delete).
@@ -188,7 +215,7 @@ export const updateOrganizationSeatLimit = withController('Update organization s
     // `previous` is the root's limits before this write, so a downgrade or a
     // support-contact change reads as a before/after rather than a bare value.
     details: {
-      seats: body.seats,
+      seats,
       supportContacts,
       supportPremiumContacts,
       previous: result.previous,
@@ -200,7 +227,7 @@ export const updateOrganizationSeatLimit = withController('Update organization s
       tier,
     },
   });
-  logger.info('Seat limit synced', { orgId: id, rootOrgId: result.rootOrgId, seats: body.seats, features, tier, by: req.user!.sub });
+  logger.info('Seat limit synced', { orgId: id, rootOrgId: result.rootOrgId, seats, features, tier, by: req.user!.sub });
   sendSuccess(res, 200, result, 'Seat limit updated');
 }, {
   [ORG_SEAT_LIMIT_NOT_ROOT]: {

@@ -68,6 +68,13 @@ describe('validateFormState', () => {
       expect(errors['synth.github.repo']).toBe('Format: owner/repo');
     });
 
+    it('accepts a template placeholder as the github repo (a template body is filled in at instantiate)', () => {
+      const state = validState();
+      state.synth.sourceType = 'github';
+      state.synth.github.repo = '{{ vars.repo }}';
+      expect(validateFormState(state)['synth.github.repo']).toBeUndefined();
+    });
+
     it('should accept valid github repo format', () => {
       const state = validState();
       state.synth.sourceType = 'github';

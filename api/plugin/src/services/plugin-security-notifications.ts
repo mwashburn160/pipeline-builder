@@ -26,7 +26,8 @@
  * mode = the uploader (while still a member) + the members holding
  * `plugins:write`; `users` mode = the org's chosen members (only those still
  * active). The org's VERIFIED external address rides along as an `address`
- * rule (the relay admits one on N30/N31 only). The org's webhook is sent here,
+ * rule (the relay admits one on every notice of this module, N30–N33: each
+ * is marked `allowsAddress` in api-core's catalog). The org's webhook is sent here,
  * through api-core's SSRF-safe webhook channel, HMAC-signed
  * (`X-PB-Signature: sha256=…`) when a secret is set.
  *

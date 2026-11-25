@@ -126,7 +126,11 @@ describe('getAdminSummary', () => {
     await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)(sysadminReq(), mockRes());
 
     expect(mockOrgCount).toHaveBeenNthCalledWith(1, {});
-    expect(mockOrgCount).toHaveBeenNthCalledWith(2, { 'kmsConfig.keyId': { $exists: true, $ne: null } });
+    // Active configs only: a partial config (keyId or ciphertext alone) is none.
+    expect(mockOrgCount).toHaveBeenNthCalledWith(2, {
+      'kmsConfig.keyId': { $nin: [null, ''] },
+      'kmsConfig.ciphertextBase64': { $nin: [null, ''] },
+    });
     expect(mockUserCount).toHaveBeenNthCalledWith(1, { isSuperAdmin: true });
     expect(mockUserCount).toHaveBeenNthCalledWith(2, {});
     expect(mockIdpCount).toHaveBeenCalledWith({ enabled: true });

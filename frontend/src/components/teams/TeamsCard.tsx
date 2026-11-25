@@ -11,7 +11,7 @@ import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { TeamSettingsDrawer } from './TeamSettingsDrawer';
 import api from '@/lib/api';
-import { continueAfterStepUp, stepUpReplayFailed } from '@/lib/api/errors';
+import { ApiError, continueAfterStepUp, stepUpReplayFailed } from '@/lib/api/errors';
 import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import { formatDateMedium } from '@/lib/format';
@@ -20,6 +20,10 @@ import type { DeletedTeam, OrgTeamRef } from '@/lib/api/domains/organizations';
 
 /** Ties the disabled create control to the sentence that says why. */
 const TEAMS_CARD_CREATE_REASON_ID = 'teams-card-create-blocked-reason';
+
+/** The platform's refusal of a tenant restore of a platform takedown. */
+const ORG_RESTORE_PLATFORM_DELETED = 'ORG_RESTORE_PLATFORM_DELETED';
+const PLATFORM_DELETED_REASON = 'Deleted by a platform operator — contact support to restore';
 
 /**
  * The parent org's teams, with everything a parent admin does to one without
@@ -139,6 +143,13 @@ export function TeamsCard({
       invalidate.organizations();
       await onChanged();
     } catch (e) {
+      if (e instanceof ApiError && e.code === ORG_RESTORE_PLATFORM_DELETED) {
+        // The list said restorable but the platform took it down since: say so
+        // and re-read it, so the row shows why Restore is off.
+        toast.error(`${team.orgName} was deleted by a platform operator — contact support to restore it`);
+        await onChanged();
+        return;
+      }
       toast.error(formatError(e, `Failed to restore ${team.orgName}`));
     }
   };
@@ -232,10 +243,18 @@ export function TeamsCard({
                   <span className="block text-xs text-fg-muted">
                     Deleted <RelativeTime value={t.deletedAt} /> · purged permanently on {formatDateMedium(t.purgeAfter)}
                   </span>
+                  {!t.restorable && (
+                    <span id={`restore-reason-${t.orgId}`} className="block text-xs text-warning-strong">
+                      {PLATFORM_DELETED_REASON}
+                    </span>
+                  )}
                 </span>
                 <button
                   onClick={() => setPendingRestore(t)}
-                  className="action-link text-xs inline-flex items-center gap-1 shrink-0"
+                  disabled={!t.restorable}
+                  title={t.restorable ? undefined : PLATFORM_DELETED_REASON}
+                  aria-describedby={t.restorable ? undefined : `restore-reason-${t.orgId}`}
+                  className="action-link text-xs inline-flex items-center gap-1 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label={`Restore ${t.orgName}`}
                 >
                   <RotateCcw className="w-3.5 h-3.5" /> Restore

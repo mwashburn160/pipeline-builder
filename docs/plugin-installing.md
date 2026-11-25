@@ -218,7 +218,7 @@ pipeline-manager pipeline deploy --id <pipelineId> --remediation-upgrades off   
 Precedence, per pipeline:
 
 1. **`--remediation-upgrades`** on the command, when given.
-2. **`remediationUpgrades` in the definition**, when present. Either one is written on every create and deploy, with the same rules as the dashboard: opting out is always allowed, `apply` is refused with `403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED` when the organization forbids it (the CLI exits non-zero and nothing is created or deployed), and a change is audited as `pipeline.remediation-upgrades.update` — re-sending the stored value records nothing.
+2. **`remediationUpgrades` in the definition**, when present, on `pipeline create` (a `pipeline deploy --id` deploys the definition stored on the platform, so only its flag sets the election). Whichever applies is written on every create and deploy, with the same rules as the dashboard: opting out is always allowed, `apply` is refused with `403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED` when the organization forbids it (the CLI exits non-zero and nothing is created or deployed), and a change is audited as `pipeline.remediation-upgrades.update` — re-sending the stored value records nothing.
 3. **Neither → the stored value stands.** A deploy whose definition omits it never resets the pipeline to `inherit`, so a choice made in the dashboard survives redeploys. A new pipeline starts at `inherit`.
 
 The election is a platform setting: it is lifted out of the definition before synth and never changes the synthesized template. Inside the `props` of an API request it is refused — send it at the top level. The election is per pipeline; there is no per-step opt-out.
@@ -227,7 +227,7 @@ The pipeline list filters opted-out pipelines (`GET /api/pipelines?remediationUp
 
 **Waves, in apply mode.**
 
-1. **Canary**: up to 5 pipelines, preferring ones that ran successfully in the last 7 days. The rollout waits for each canary run; if one fails on a step using the new version, the rollout stops.
+1. **Canary**: up to 5 pipelines, preferring ones that ran successfully in the last 7 days. The rollout waits for each canary run; if one fails on a step using the new version, that pipeline is rolled back and the rollout pauses (the remediation is marked **needs review**).
 2. **Batches** of 50, within your organization's run limits, each waiting for the previous batch's runs to start.
 
 Every redeploy goes through your organization's runner. A pipeline whose runner is unhealthy is skipped, retried in a later wave (at most hourly), and counted separately. "Its runner" is the runner the pipeline is linked to or, when it isn't linked yet, every runner it could be routed to (your organization's own, then the ones your parent organizations share). After 7 days of unhealthy-runner skips the pipeline ends as **Move failed** (`runner_unhealthy_expired`).
@@ -237,7 +237,7 @@ A move whose redeploy did not start (a run was already starting in the duplicate
 **Rollback.** A run that fails on a step using the new version within **24 hours** of the move puts that pipeline back on its previous version and notifies its owners (N38). The failed step is mapped to its plugin through the pipeline's stored step-to-plugin mapping; a pipeline with no mapping is rolled back on a failure of the run the move started (its execution), or on any failed run in the window when the move started none.
 
 - **Two rollbacks** in one rollout pause it, and the remediation is marked **needs review**. The version stays published, so owners can still choose it.
-- Rollback only goes to a **live** version. If the previous version has been deleted since, that pipeline's rollout pauses and its owners are told, with the live versions they can choose.
+- Rollback only goes to a **live** version. If the previous version has been deleted since, the pipeline stays on the fix, the rollout pauses (the remediation is marked **needs review**), and that pipeline's owners are told (N38), with the live versions they can choose.
 - Rollback never restores a version with a KEV-listed Critical unless a risk acceptance covers it.
 
 When the rollout finishes or pauses — or never starts and is no longer retried — your plugin security recipients are told (N37).
@@ -378,11 +378,11 @@ Notices go to your organization only. Publishers never learn who installed their
 | N32 | A pipeline is about to run (or runs) a plugin version graded `error` or louder — at synth, at the run-time check, or when a removal was refused because the pipeline holds the version | Your pipeline owners (`notifyPipelineOwners`) | In-app + email + webhook, immediate; once per pipeline and version a day |
 | N33 | A pipeline's risk acceptance lapsed, so its warnings are back at full grade | Your pipeline owners | In-app + email + webhook |
 | N34 | The managed toolchain release your org default names was yanked or deprecated, picked up a KEV-listed or fixable Critical finding, or fell more than three promoted releases behind the platform default; or a release your pipelines **pin** was yanked (the notice names them). Also the Toolchain console's announcements: the platform default moved ("updating to X" if your org follows it, "a newer platform toolchain is available" if it has its own default), your org was added to a canary, or pipelines whose synth failed on a release need `pipeline-manager pipeline deploy --id <id>` to recover (the notice names them) | Your `toolchain:manage` holders (a team without any: its root's, then the owners); for pins and the recovery notice, your pipeline writers | In-app + email, immediate ([Pipeline toolchain default](organization-benefits.md#pipeline-toolchain-default)) |
-| N36 | A fixed version of one of your plugins was published, or is awaiting approval in propose mode | Your plugin security recipients | In-app + email; follows your digest setting |
-| N37 | A remediation rollout finished or paused | Your plugin security recipients, plus the pipeline owners of affected organizations (`notifyPipelineOwners`) | In-app + email |
-| N38 | A pipeline was rolled back off a remediation fix | That pipeline's owners (`notifyPipelineOwners`) | In-app + email |
-| N39 | A remediation left findings it couldn't fix — each with its package, CVE, fixed version, reason and the upgrade level it would need | Your plugin security recipients | In-app + email |
-| N40 | A fix request was sent to a third-party listing's publisher (with the findings and a suggested patch); installers are told it was sent | The publisher's `publishers:manage` members; installers' `plugin_installs:manage` members | In-app + email |
+| N36 | A fixed version of one of your plugins was published, or is awaiting approval in propose mode | Your plugin security recipients | In-app + email + webhook; follows your digest setting |
+| N37 | A remediation rollout finished or paused, or never started and is no longer retried | Your plugin security recipients, plus the pipeline owners of affected organizations (`notifyPipelineOwners`) | In-app + email + webhook; follows the digest setting |
+| N38 | A pipeline was rolled back off a remediation fix, or couldn't be because its previous version is gone | That pipeline's owners (`notifyPipelineOwners`) | In-app + email + webhook, immediate |
+| N39 | A remediation left findings it couldn't fix — each with its package, CVE, fixed version, reason and the upgrade level it would need | Your plugin security recipients | In-app + email + webhook; follows your digest setting |
+| N40 | A fix request was sent to a third-party listing's publisher (with the findings and their fixed versions); installers are told it was sent | The publisher's `publishers:manage` members; installers' `plugin_installs:manage` members | In-app + email |
 
 "Installing orgs" means organizations with an active explicit install, plus, for Official listings, organizations whose pipelines use the listing through the implicit install. The notice goes to each organization's approvers.
 

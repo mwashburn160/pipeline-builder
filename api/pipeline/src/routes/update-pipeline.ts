@@ -6,7 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
-import { auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, pluginWarningsField, validatePipelineWrite } from '../helpers/pipeline-write.js';
+import { alignPipelineUpdateIdentity, auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, pluginWarningsField, validatePipelineWrite } from '../helpers/pipeline-write.js';
 import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
 import { electionRefusal } from '../helpers/remediation-settings.js';
 import { pipelineService } from '../services/pipeline-service.js';
@@ -58,7 +58,13 @@ export function createUpdatePipelineRoutes(): Router {
 
     // isDefault is handled separately below via setDefault() for promotion.
     // The service stamps updatedAt/updatedBy.
-    const updateData: Record<string, unknown> = buildPipelineUpdateData(req, body);
+    // The name and the props agree (the synth names the CodePipeline from
+    // props). A rename alone rewrites the STORED props: guarded on the row read
+    // here unless the caller sent its own token, so a concurrent props edit is a
+    // 412, never silently overwritten.
+    const aligned = alignPipelineUpdateIdentity(buildPipelineUpdateData(req, body), existing);
+    const updateData: Record<string, unknown> = aligned.data;
+    const expectedUpdatedAt = body.expectedUpdatedAt ?? (aligned.fromStored ? existing.updatedAt ?? undefined : undefined);
 
     // The plugin security fixes election (nightly CVE remediation). Opting out
     // is always allowed; `apply` only when the org default is apply or the
@@ -102,7 +108,6 @@ export function createUpdatePipelineRoutes(): Router {
     }
 
     // A stale token makes the service throw ConcurrencyConflictError → 412.
-    const { expectedUpdatedAt } = body;
     let updated;
     if (body.isDefault === true) {
       // With a token, the conditional column write runs FIRST (even with no

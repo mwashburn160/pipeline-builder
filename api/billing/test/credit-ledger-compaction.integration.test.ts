@@ -61,7 +61,8 @@ suite('Stored credit-ledger compaction (real Mongo)', () => {
     await expect(compaction.compactStoredCreditLedger(Subscription.collection, id)).resolves.toBe(true);
     const ledger = await ledgerOf(id);
     expect(ledger).toHaveLength(compaction.DEFAULT_KEEP_RECENT + 2);
-    expect(ledger.find((r: any) => r.dedupeKey === 'compacted:promo:p1')).toMatchObject({ cents: 300, grantCount: 3 });
+    // The carry keeps the rows' campaign, so the campaign spend rollup still counts them.
+    expect(ledger.find((r: any) => r.dedupeKey === 'compacted:promo:p1#spring')).toMatchObject({ discountId: 'promo:p1', campaign: 'spring', cents: 300, grantCount: 3 });
   });
 
   it('misses — and writes nothing — when the ledger changed between the read and the write', async () => {

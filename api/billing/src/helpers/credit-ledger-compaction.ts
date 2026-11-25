@@ -85,6 +85,17 @@ function grantsOf(entry: CreditLedgerEntry): number {
 }
 
 /**
+ * The fold family of a row: its `discountId` AND its `campaign`. The campaign
+ * spend rollup (campaign.aggregateCampaignLedgerSpend) reads the ledger by
+ * `campaign`, so a carry row must keep it — and rows of one discountId stamped
+ * with different campaigns must fold into separate carries, or one campaign's
+ * spend would be reported under the other.
+ */
+function familyOf(entry: CreditLedgerEntry): string {
+  return entry.campaign ? `${entry.discountId}#${entry.campaign}` : entry.discountId;
+}
+
+/**
  * The raw collection calls {@link compactStoredCreditLedger} needs. Structural, so
  * this module stays free of the model layer: callers pass `Subscription.collection`.
  */
@@ -118,10 +129,12 @@ export async function compactStoredCreditLedger(
 }
 
 /**
- * Return a compacted copy of `ledger`: within each `discountId` family, keep the
+ * Return a compacted copy of `ledger`: within each family (`discountId` + `campaign`,
+ * see {@link familyOf}), keep the
  * most-recent `keepRecent` periodic rows (by `appliedAt`) and fold the rest —
  * together with any prior carry row for that family — into a single carry row
- * (`dedupeKey: 'compacted:<discountId>'`) whose `cents`/`grantCount` are the sums.
+ * (`dedupeKey: 'compacted:<family>'`, keeping the family's `campaign`) whose
+ * `cents`/`grantCount` are the sums.
  * Non-periodic rows (one-time grants, existing carry rows for families under the
  * threshold) pass through untouched. Order-preserving for the untouched rows; the
  * carry row is appended at the family's first-seen position. Pure — no mutation of
@@ -140,13 +153,13 @@ export function compactCreditLedger(
   const carryByFamily = new Map<string, CreditLedgerEntry[]>();
   for (const entry of ledger) {
     if (isPeriodic(entry)) {
-      const list = periodicByFamily.get(entry.discountId) ?? [];
+      const list = periodicByFamily.get(familyOf(entry)) ?? [];
       list.push(entry);
-      periodicByFamily.set(entry.discountId, list);
+      periodicByFamily.set(familyOf(entry), list);
     } else if (entry.dedupeKey?.startsWith(COMPACTED_PREFIX)) {
-      const list = carryByFamily.get(entry.discountId) ?? [];
+      const list = carryByFamily.get(familyOf(entry)) ?? [];
       list.push(entry);
-      carryByFamily.set(entry.discountId, list);
+      carryByFamily.set(familyOf(entry), list);
     }
   }
 
@@ -163,7 +176,7 @@ export function compactCreditLedger(
   // Per family, pick the newest `keep` periodic rows to retain; everything else
   // (older periodic rows + prior carry) folds into the new carry totals.
   const retain = new Set<CreditLedgerEntry>();
-  const carryTotals = new Map<string, { cents: number; grantCount: number; appliedAt: Date }>();
+  const carryTotals = new Map<string, { discountId: string; campaign?: string; cents: number; grantCount: number; appliedAt: Date }>();
   for (const family of foldFamilies) {
     const rows = [...(periodicByFamily.get(family) ?? [])]
       .sort((a, b) => new Date(a.appliedAt).getTime() - new Date(b.appliedAt).getTime());
@@ -177,13 +190,13 @@ export function compactCreditLedger(
       const t = new Date(r.appliedAt);
       if (t.getTime() > appliedAt.getTime()) appliedAt = t;
     }
-    if (grantCount > 0) carryTotals.set(family, { cents, grantCount, appliedAt });
+    if (grantCount > 0) carryTotals.set(family, { discountId: rows[0].discountId, campaign: rows[0].campaign, cents, grantCount, appliedAt });
   }
 
   const out: CreditLedgerEntry[] = [];
   const emittedCarry = new Set<string>();
   for (const entry of ledger) {
-    const family = entry.discountId;
+    const family = familyOf(entry);
     if (isPeriodic(entry)) {
       if (retain.has(entry)) { out.push(entry); continue; }
       if (!foldFamilies.has(family)) { out.push(entry); continue; }
@@ -191,7 +204,14 @@ export function compactCreditLedger(
       // folded row, so provenance stays where the history was.
       if (!emittedCarry.has(family)) {
         const totals = carryTotals.get(family)!;
-        out.push({ discountId: family, cents: totals.cents, appliedAt: totals.appliedAt, dedupeKey: `${COMPACTED_PREFIX}${family}`, grantCount: totals.grantCount });
+        out.push({
+          discountId: totals.discountId,
+          cents: totals.cents,
+          appliedAt: totals.appliedAt,
+          dedupeKey: `${COMPACTED_PREFIX}${family}`,
+          grantCount: totals.grantCount,
+          ...(totals.campaign ? { campaign: totals.campaign } : {}),
+        });
         emittedCarry.add(family);
       }
       continue;

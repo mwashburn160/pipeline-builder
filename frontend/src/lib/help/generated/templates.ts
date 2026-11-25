@@ -1,6 +1,6 @@
 // GENERATED FROM docs/templates.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8e45cd446f839a44e6dc2c437dcaa1244b652cb1f6c737b35293ebac0d0f657f
+// SOURCE-SHA256: ca80349c377940cbcf31b5f50aaf8f14889dd69792f639e29a48011d9e72b4ab
 // SPDX-License-Identifier: Apache-2.0
 import { Braces } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -33,7 +33,7 @@ export const templatesTopic: HelpTopic = {
             "One plugin, many environments. Parameterize namespaces, regions and cluster names through pipeline.metadata.*.",
             "A whole-field template produces native types; mix it with literal text and it stays a string, with the filter ignored.",
             "Plugins can declare a contract. requiredMetadata is checked at pipeline create and again at synth, so a missing key fails early rather than mid-build.",
-            "Resolution is server-side, so the CLI and editor previews ask the platform rather than reimplementing the grammar.",
+            "One engine everywhere. The API, the synth, the CLI and the dashboard editor all use pipeline-core's tokenizer, so they accept and reject exactly the same text.",
             "What is deliberately unsupported is listed, so you can stop looking for loops and conditionals."
           ]
         }
@@ -61,8 +61,8 @@ export const templatesTopic: HelpTopic = {
           "type": "list",
           "items": [
             "You write {{ ... }} tokens in a pipeline config or plugin spec.",
-            "Metadata is merged pipeline → plugin reference → step into the scope the tokens resolve against.",
-            "At synth, the server resolves every token once against that fixed scope. Nothing is evaluated later, and nothing executes.",
+            "The scope is assembled from the pipeline: pipeline.metadata is global, then defaults.metadata, then synth.metadata (last wins), and pipeline.vars is vars. Step- and plugin-reference metadata are not part of the template scope.",
+            "At synth, every plugin-spec token (and the GitHub source token). The pipeline's own self-references (project, metadata, vars) are expanded first, by the same resolver as ?resolve=true resolves once against that fixed scope. Nothing is evaluated later, and nothing executes.",
             "A declared contract is enforced. A plugin's requiredMetadata is checked when the pipeline is created and again at synth.",
             "Unresolvable tokens fail with a named error rather than rendering empty — see the error catalog."
           ]
@@ -77,7 +77,7 @@ export const templatesTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Declare your plugin's contract so consumers get a clear failure instead of a puzzling one: requiredMetadata plus metadataTypes. See Plugin contract.",
-            "Set the values the contract asks for, at whichever scope fits — pipeline-wide, per plugin reference, or per step.",
+            "Set the values the contract asks for in the pipeline's global, defaults.metadata or synth.metadata (the layers pipeline.metadata is built from), or in vars.",
             "Preview before deploying — resolve a pipeline without a CDK deploy, and validate a local spec before upload. See CLI tools.",
             "Use ?resolve=true when you want the API to hand back the resolved form; see API.",
             "Read the error catalog when something fails — each error names the token and the scope it looked in.",
@@ -150,7 +150,11 @@ export const templatesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Templatable fields in a pipeline config: project, metadata.* string values, vars.* string values. Identity fields (id, orgId, stages, plugins[]) are not templatable."
+          "content": "Templatable fields in a pipeline config: project, the metadata string values (from global, defaults.metadata and synth.metadata, merged in that order), and vars.* string values. Everything else (organization, pipelineName, stages, plugin references) is literal. synth.source fields other than token are the repository identity: a pipeline must not contain {{ … }} there (refused, TEMPLATE_VALIDATION_FAILED); a pipeline template may parameterize them with {{ vars.* }}, and instantiate fills them in."
+        },
+        {
+          "type": "text",
+          "content": "Self-references are checked at create and update (parse errors, unknown roots, cycles). They are expanded at synth, before plugin templates read the pipeline scope, by the same resolver behind GET /api/pipelines/{id}?resolve=true (see API) and --show-resolved, so a plugin template sees the expanded values."
         },
         {
           "type": "text",
@@ -163,7 +167,7 @@ export const templatesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "It resolves at synth time to secretsmanager:pipeline-builder/<your-org-id>/github-token, which CodePipeline reads as the OAuth secret reference (only the reference — never the token value — lands in the template). Other source fields (repo, branch, etc.) stay literal."
+          "content": "It resolves at synth time to secretsmanager:pipeline-builder/<your-org-id>/github-token, which CodePipeline reads as the OAuth secret reference (only the reference — never the token value — lands in the template). Other source fields (repo, branch, etc.) are not resolved at synth; in a template they are filled in at instantiate (see Golden pipeline templates)."
         },
         {
           "type": "text",
@@ -181,12 +185,16 @@ export const templatesTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "pipeline.projectName",
-              "String — the pipeline's project name"
+              "pipeline.projectName / pipeline.project",
+              "String — the pipeline's project, sanitized (lowercase, non-alphanumerics → _)"
             ],
             [
-              "pipeline.orgId",
-              "String — org UUID"
+              "pipeline.orgId / pipeline.organization",
+              "String — the pipeline's organization, sanitized the same way (not the org UUID)"
+            ],
+            [
+              "pipeline.pipelineName",
+              "String — the CodePipeline name (pipelineName, else the default derived from organization and project)"
             ],
             [
               "pipeline.metadata.*",
@@ -294,16 +302,20 @@ export const templatesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "code",
-          "content": "{\n  \"id\": \"bb234ff6-8b2e-41e3-9758-fb23b63916cd\",\n  \"project\": \"{{ vars.service }}-{{ metadata.env }}\",\n  \"orgId\": \"acmecorp\",\n  \"metadata\": {\n    \"env\": \"prod\",\n    \"region\": \"us-east-1\",\n    \"clusterName\": \"acme-eks-{{ metadata.env }}\",\n    \"namespace\": \"{{ vars.service }}-{{ metadata.env }}\"\n  },\n  \"vars\": {\n    \"service\": \"checkout\",\n    \"branch\": \"main\",\n    \"slackChannel\": \"#deploys-{{ metadata.env }}\"\n  },\n  \"stages\": [\n    { \"name\": \"deploy\", \"plugins\": [\"kubectl-deploy\", \"slack-notify\"] }\n  ]\n}",
+          "content": "{\n  \"project\": \"{{ vars.service }}-{{ metadata.env }}\",\n  \"organization\": \"acmecorp\",\n  \"global\": {\n    \"env\": \"prod\",\n    \"region\": \"us-east-1\",\n    \"clusterName\": \"acme-eks-{{ metadata.env }}\",\n    \"namespace\": \"{{ vars.service }}-{{ metadata.env }}\"\n  },\n  \"vars\": {\n    \"service\": \"checkout\",\n    \"branch\": \"main\",\n    \"slackChannel\": \"#deploys-{{ metadata.env }}\"\n  }\n}",
           "language": "json"
         },
         {
           "type": "text",
-          "content": "After pass-1 resolution, the pipeline looks like:"
+          "content": "(synth and stages are omitted; they are not templatable.)"
+        },
+        {
+          "type": "text",
+          "content": "After pass-1 resolution (?resolve=true), the pipeline looks like:"
         },
         {
           "type": "code",
-          "content": "{\n  \"project\": \"checkout-prod\",\n  \"metadata\": {\n    \"env\": \"prod\",\n    \"region\": \"us-east-1\",\n    \"clusterName\": \"acme-eks-prod\",\n    \"namespace\": \"checkout-prod\"\n  },\n  \"vars\": {\n    \"service\": \"checkout\",\n    \"branch\": \"main\",\n    \"slackChannel\": \"#deploys-prod\"\n  }\n}",
+          "content": "{\n  \"project\": \"checkout-prod\",\n  \"organization\": \"acmecorp\",\n  \"global\": {\n    \"env\": \"prod\",\n    \"region\": \"us-east-1\",\n    \"clusterName\": \"acme-eks-prod\",\n    \"namespace\": \"checkout-prod\"\n  },\n  \"vars\": {\n    \"service\": \"checkout\",\n    \"branch\": \"main\",\n    \"slackChannel\": \"#deploys-prod\"\n  }\n}",
           "language": "json"
         },
         {
@@ -419,7 +431,7 @@ export const templatesTopic: HelpTopic = {
             [
               "`\\",
               "number`",
-              "Any string Number() can parse",
+              "Any string Number() parses to a finite number",
               "number"
             ],
             [
@@ -511,7 +523,7 @@ export const templatesTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "useTemplateValidation(source, scope?) hook powers this feedback. It returns { valid, tokens, hasTemplates, error, errorPos, resolved, resolveError }, so any custom editor can parse for diagnostics and (when a scope is supplied) preview the resolved value live."
+            "useTemplateValidation(source, scope?) hook powers this feedback. It returns { valid, tokens, hasTemplate, error, errorPos, resolved, resolveError }, so any custom editor can parse for diagnostics and (when a scope is supplied) preview the resolved value live."
           ]
         },
         {
@@ -541,7 +553,7 @@ export const templatesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "All template errors map to HTTP 400 with one of these codes:"
+          "content": "The template engine classifies each problem with one of these codes (all map to HTTP 400):"
         },
         {
           "type": "table",
@@ -552,11 +564,16 @@ export const templatesTopic: HelpTopic = {
           "rows": [
             [
               "TEMPLATE_PARSE_ERROR",
-              "Malformed {{ ... }} — bad syntax, missing }}, unknown filter"
+              "Malformed {{ ... }} — bad syntax, missing }}, unknown filter, a stray }}"
+            ],
+            [
+              "TEMPLATE_SIZE_EXCEEDED",
+              "A field over 4 KiB, a path deeper than 5 segments, or an identifier longer than 64 characters"
             ],
             [
               "TEMPLATE_UNKNOWN_PATH",
-              "Path references an unknown scope root (e.g. {{ foo.bar }})"
+              "Path references an unknown scope root (e.g. {{ foo.bar }}), or (at resolution) a path that is missing or empty and has no `\\",
+              "default:`"
             ],
             [
               "TEMPLATE_CYCLE",
@@ -564,7 +581,10 @@ export const templatesTopic: HelpTopic = {
             ],
             [
               "TEMPLATE_TYPE_MISMATCH",
-              "Path resolved to an object where a scalar was expected"
+              "Path resolved to an object or array where a scalar was expected, or a `\\",
+              "number / \\",
+              "bool / \\",
+              "json` filter couldn't coerce the value"
             ],
             [
               "TEMPLATE_SECRETS_RESERVED",
@@ -575,10 +595,6 @@ export const templatesTopic: HelpTopic = {
               "Pipeline create/update: a plugin step's required metadata/vars key is missing, or a supplied value doesn't match metadataTypes/varsTypes. steps[] lists each failing step's missing[] and invalid[]"
             ],
             [
-              "TEMPLATE_SIZE_EXCEEDED",
-              "Field exceeded 4 KiB or path depth exceeded 5"
-            ],
-            [
               "TEMPLATE_VALIDATION_FAILED",
               "Batched umbrella — one or more of the above present in a single doc"
             ]
@@ -586,7 +602,16 @@ export const templatesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every error includes field, line, col (when applicable), and the exact path or cycle that triggered it."
+          "content": "Where you see them:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Pipeline API (create, update, bulk, template authoring, instantiate, ?resolve=true): 400 TEMPLATE_VALIDATION_FAILED, whose message lists each problem as [field:line:col] message; or 400 TEMPLATE_CONTRACT_VIOLATION with details.steps.",
+            "Plugin upload: 400 with the problems grouped as Template validation failed, Plugin spec uses template paths not declared in contract and …type mismatches….",
+            "pipeline-manager template validate: one line per problem, [field] message (code).",
+            "Synth: the first resolution error fails the step, naming the plugin and field."
+          ]
         }
       ]
     },
@@ -688,7 +713,7 @@ export const templatesTopic: HelpTopic = {
             ],
             [
               "deploy/ecs-deploy",
-              "ecsCluster, ecsService, imageUri, ecsTaskFamily"
+              "ecsCluster, ecsService, imageUri, ecsTaskFamily, ecsWait"
             ]
           ]
         },
@@ -726,32 +751,36 @@ export const templatesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "A golden pipeline template is a reusable, governed pipeline config — a BuilderProps with {{ vars.* }} placeholders — plus a set of declared inputs. Teams instantiate it (filling the inputs) to spin up a real pipeline in a few fields instead of hand-building one. It's the same {{ … }} engine documented above: each declared input becomes a vars.<name> value, baked in at instantiate time."
+          "content": "A golden pipeline template is a reusable, governed pipeline config — a BuilderProps with {{ vars.* }} placeholders — plus a set of declared inputs. Teams instantiate it (filling the inputs) to spin up a real pipeline in a few fields instead of hand-building one. It's the same {{ … }} engine documented above: each declared input becomes a vars.<name> value, set at instantiate time."
         },
         {
           "type": "text",
-          "content": "Create one from an existing pipeline — Save as template (a pipeline's detail page) or Templates → New template — or Import a template JSON on the Templates page. Declare inputs (e.g. repoUrl, branch) and parameterize the repository so one template targets any repo: the authoring form swaps the source pipeline's concrete repo URL for {{ vars.repoUrl }} (the \"Parameterize repository\" button auto-detects it)."
+          "content": "Create one from an existing pipeline — Save as template (a pipeline's detail page) or Templates → New template — or Import a template JSON on the Templates page. Declare inputs (e.g. repo, branch); each input's Replaces value is swapped for {{ vars.<name> }} everywhere it appears in the source pipeline's props (\"Parameterize repository\" detects the source's repository — synth.source.options.repo, or repositoryName for CodeCommit — and adds a repo input for it). Saving refuses a {{ vars.X }} in project, metadata (global / defaults.metadata / synth.metadata), vars or the synth.source fields that no input, existing vars key or | default: backs (400 TEMPLATE_VALIDATION_FAILED)."
         },
         {
           "type": "text",
-          "content": "Example — a Node build → test → deploy starter, parameterized on the target repo"
+          "content": "Only the templatable fields resolve: project, metadata and vars values (at synth), plugin-spec fields that read {{ pipeline.vars.* }}, the GitHub source token, and the synth.source repository fields, which instantiate fills in from the inputs so the new pipeline names a real repository. A placeholder anywhere else (a stage field) is stored and synthesized as literal text."
         },
         {
           "type": "text",
-          "content": "project / organization come from the Use-template form; repoUrl / branch are declared inputs:"
+          "content": "Example — a Node build → test → deploy starter with a deploy-notification channel"
+        },
+        {
+          "type": "text",
+          "content": "project comes from the Use-template form and organization from your organization; slackChannel / branch are declared inputs, which slack-notify reads as {{ pipeline.vars.slackChannel }} / {{ pipeline.vars.branch }}:"
         },
         {
           "type": "code",
-          "content": "{\n  \"name\": \"node-service\",\n  \"category\": \"backend\",\n  \"description\": \"Golden path: Node build -> tests -> CDK deploy, pointed at any repo.\",\n  \"inputs\": [\n    { \"name\": \"repoUrl\", \"label\": \"Repository URL\", \"type\": \"string\", \"required\": true },\n    { \"name\": \"branch\",  \"label\": \"Branch\",         \"type\": \"string\", \"default\": \"main\" }\n  ],\n  \"props\": {\n    \"synth\": {\n      \"plugin\": { \"name\": \"cdk-synth\" },\n      \"source\": { \"repositoryUrl\": \"{{ vars.repoUrl }}\", \"branch\": \"{{ vars.branch }}\" }\n    },\n    \"stages\": [\n      { \"stageName\": \"build\",  \"steps\": [{ \"plugin\": { \"name\": \"nodejs\" } }] },\n      { \"stageName\": \"test\",   \"steps\": [{ \"plugin\": { \"name\": \"jest\" } }] },\n      { \"stageName\": \"deploy\", \"steps\": [{ \"plugin\": { \"name\": \"cdk-deploy\" } }] }\n    ]\n  }\n}",
+          "content": "{\n  \"name\": \"node-service\",\n  \"category\": \"backend\",\n  \"description\": \"Golden path: Node build -> tests -> CDK deploy -> Slack notice.\",\n  \"inputs\": [\n    { \"name\": \"slackChannel\", \"label\": \"Slack channel\", \"type\": \"string\", \"required\": true },\n    { \"name\": \"branch\",       \"label\": \"Branch\",        \"type\": \"string\", \"default\": \"main\" }\n  ],\n  \"props\": {\n    \"synth\": {\n      \"plugin\": { \"name\": \"cdk-synth\" },\n      \"source\": { \"type\": \"github\", \"options\": { \"repo\": \"acme/checkout\", \"branch\": \"main\" } }\n    },\n    \"stages\": [\n      { \"stageName\": \"build\",  \"steps\": [{ \"plugin\": { \"name\": \"nodejs\" } }] },\n      { \"stageName\": \"test\",   \"steps\": [{ \"plugin\": { \"name\": \"jest\" } }] },\n      { \"stageName\": \"deploy\", \"steps\": [{ \"plugin\": { \"name\": \"cdk-deploy\" } }, { \"plugin\": { \"name\": \"slack-notify\" } }] }\n    ]\n  }\n}",
           "language": "json"
         },
         {
           "type": "text",
-          "content": "Use it — Templates → Use template → enter Project, Target repository (Git URL) and Branch → Create. The instantiate call renders the vars into the props, then creates the pipeline (compliance + quota still apply):"
+          "content": "Use it — Templates → Use template → enter Project (and optionally Pipeline name and Pipeline visibility) plus each declared input → Create pipeline. The dashboard makes two calls. Instantiate checks the inputs (required, options, type), merges them into props.vars and returns the props with every {{ … }} left intact, plus any pluginWarnings; it creates nothing. The dashboard then submits those props to POST /api/pipelines, so compliance, quota and template validation apply as for any create:"
         },
         {
           "type": "code",
-          "content": "POST /api/pipeline-templates/<id>/instantiate\n{\n  \"project\": \"checkout\",\n  \"organization\": \"acme\",\n  \"inputs\": { \"repoUrl\": \"https://github.com/acme/checkout\", \"branch\": \"main\" }\n}\n// -> props.synth.source.repositoryUrl == \"https://github.com/acme/checkout\"\n//    a new pipeline builds github.com/acme/checkout",
+          "content": "POST /api/pipeline-templates/<id>/instantiate\n{\n  \"project\": \"checkout\",\n  \"organization\": \"acme\",\n  \"inputs\": { \"slackChannel\": \"#deploys\" }\n}\n// -> props.vars == { \"slackChannel\": \"#deploys\", \"branch\": \"main\" }",
           "language": "json"
         },
         {

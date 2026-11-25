@@ -115,6 +115,8 @@ export interface PreparedPipelineCreate {
   organization: string;
   pipelineName: string;
   visibility: ReturnType<typeof resolveVisibility>;
+  /** The props as stored: the body's raw project / organization / pipelineName copied in. */
+  props: PipelineCreateBody['props'];
 }
 
 /**
@@ -134,14 +136,46 @@ export function preparePipelineCreate(req: Request, body: PipelineCreateBody): P
     return { error: 'Project and organization must contain alphanumeric characters' };
   }
 
+  // The synth (pipeline-core PipelineConfiguration) names the stack and the
+  // CodePipeline from the stored PROPS, so the body's identity goes into them
+  // (raw, as the CLI's buildCreatePayload does): a record named differently from
+  // its props would name a pipeline that is never deployed.
+  const props = {
+    ...body.props,
+    project: body.project,
+    organization: body.organization,
+    ...(body.pipelineName !== undefined ? { pipelineName: body.pipelineName } : {}),
+  };
   return {
     project,
     organization,
-    // The CDK side (pipeline-core PipelineConfiguration) derives the same name from
-    // the RAW pair, including the disambiguating hash for a lossy derivation.
-    pipelineName: body.pipelineName ?? defaultPipelineName(body.organization, body.project),
+    // The same name the synth derives from these props (from the RAW pair,
+    // including the disambiguating hash for a lossy derivation).
+    pipelineName: props.pipelineName ?? defaultPipelineName(body.organization, body.project),
     visibility,
+    props,
   };
+}
+
+/**
+ * An update's `pipelineName` and `props` made to agree, as on create: the synth
+ * names the CodePipeline from `props.pipelineName`. The record's name is the
+ * body's, else the new props', else the stored one; it is written into the
+ * props (the new ones, or — a rename alone — the stored ones, `fromStored`:
+ * a read-modify-write the caller must guard on the stored row's `updatedAt`).
+ * An update touching neither is returned as is.
+ */
+export function alignPipelineUpdateIdentity(
+  update: Record<string, unknown>,
+  existing: { pipelineName: string | null; props: unknown },
+): { data: Record<string, unknown>; fromStored: boolean } {
+  const newProps = update.props as Record<string, unknown> | undefined;
+  if (newProps === undefined && update.pipelineName === undefined) return { data: update, fromStored: false };
+  const pipelineName = (update.pipelineName ?? newProps?.pipelineName ?? existing.pipelineName ?? undefined) as string | undefined;
+  // No name anywhere: the synth derives the default, as it did before.
+  if (pipelineName === undefined) return { data: update, fromStored: false };
+  const props = { ...(newProps ?? (existing.props as Record<string, unknown> | null) ?? {}), pipelineName };
+  return { data: { ...update, pipelineName, props }, fromStored: newProps === undefined };
 }
 
 /**
@@ -209,7 +243,7 @@ export async function createOnePipeline(
   ctx: { orgId: string; userId: string; serviceAuth: string; upsert?: boolean; auditDetails?: Record<string, unknown> },
 ): Promise<CreateOnePipelineOutcome> {
   const { orgId, userId, serviceAuth } = ctx;
-  const { project, organization, pipelineName, visibility } = prepared;
+  const { project, organization, pipelineName, visibility, props } = prepared;
 
   try {
     // The pipeline as it will be stored: the creator is always its owner.
@@ -219,7 +253,7 @@ export async function createOnePipeline(
       pipelineName,
       description: body.description ?? '',
       keywords: body.keywords ?? [],
-      props: body.props,
+      props,
       visibility,
       ownerId: actorId({ userId }),
       labels: body.labels,
@@ -256,7 +290,7 @@ export async function createOnePipeline(
       pipelineName,
       description: body.description ?? '',
       keywords: body.keywords ?? [],
-      props: body.props as unknown as PipelineInsert['props'],
+      props: props as unknown as PipelineInsert['props'],
       visibility,
       createdBy: actor,
       ownerId: actor,

@@ -63,6 +63,9 @@ interface MaybeGetDel {
   getdel?(key: string): Promise<string | null>;
 }
 
+/** INCR, starting the key's lifetime on its first increment. */
+const INCREMENT_SCRIPT = "local n = redis.call('INCR', KEYS[1]) if n == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end return n";
+
 export interface PendingStateStore<T> {
   /** Write (or overwrite) an entry. `ttlMsOverride` replaces the store's default
    *  lifetime for this entry — used to rewrite a record with only its REMAINING
@@ -87,6 +90,14 @@ export interface PendingStateStore<T> {
    */
   putIfAbsent(state: string, value: T, ttlMsOverride?: number): Promise<boolean>;
   consume(state: string): Promise<T | null>;
+  /**
+   * Atomically add one to a counter kept under `state` and return the new
+   * count; the first increment starts its `ttlMs` lifetime. One server-side
+   * step on Redis (INCR + PEXPIRE in a script) and one synchronous step in the
+   * local map, so concurrent callers never lose a count — the device flow's
+   * poll ceiling depends on that. Fails closed in production like `put`.
+   */
+  increment(state: string, ttlMs: number): Promise<number>;
   /** Read WITHOUT consuming — for multi-step flows (device authorization) whose
    *  state is polled and mutated before the single-use consume at the end. */
   peek(state: string): Promise<T | null>;
@@ -223,6 +234,28 @@ export function createPendingStateStore<T>(opts: PendingStateStoreOptions): Pend
       if (!entry) return null;
       if (Date.now() > entry.expiresAt) return null;
       return entry.value;
+    },
+
+    async increment(state: string, entryTtlMs: number): Promise<number> {
+      const entryTtl = Math.max(1, Math.floor(entryTtlMs));
+      const redis = await getRedisClient();
+      if (redis) {
+        try {
+          if (typeof redis.eval !== 'function') throw new Error('Redis client has no eval');
+          return Number(await redis.eval(INCREMENT_SCRIPT, 1, key(state), entryTtl));
+        } catch (err) {
+          if (failClosed()) throw new Error(PENDING_STATE_UNAVAILABLE, { cause: err });
+        }
+      } else if (failClosed()) {
+        throw new Error(PENDING_STATE_UNAVAILABLE);
+      }
+      // No `await` between the read and the write: atomic within the process.
+      const now = Date.now();
+      const entry = mem.get(state);
+      const count = entry && now <= entry.expiresAt ? (entry.value as unknown as number) + 1 : 1;
+      if (count === 1) evictOldestIfFull();
+      mem.set(state, { value: count as unknown as T, expiresAt: count === 1 ? now + entryTtl : entry!.expiresAt });
+      return count;
     },
 
     async peek(state: string): Promise<T | null> {

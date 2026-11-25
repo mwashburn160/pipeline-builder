@@ -8,7 +8,7 @@ import type {
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
 import type { ApiCore } from '../core';
-import { withStepUpResume } from '../errors';
+import { mapStepUpResume, withStepUpResume } from '../errors';
 import type { ApiResponse, AskUiMode, MfaChallenge, Passkey, PasswordChangeChallenge, PlanTier, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
 
 /**
@@ -409,12 +409,18 @@ export function authApi(core: ApiCore) {
      *  envelope, so the export itself is `data`; resolves with it as pretty JSON
      *  text, ready to save. */
     exportOwnData: async (stepUpToken?: string): Promise<string> => {
-      const res = await core.request<ApiResponse<Record<string, unknown>>>('/api/user/export', {
-        headers: core.stepUpHeader(stepUpToken),
-        timeoutMs: null,
-        errorMessage: 'Failed to export your data',
-      });
-      return JSON.stringify(res.data ?? {}, null, 2);
+      const toFile = (res: ApiResponse<Record<string, unknown>>) => JSON.stringify(res.data ?? {}, null, 2);
+      try {
+        return toFile(await core.request<ApiResponse<Record<string, unknown>>>('/api/user/export', {
+          headers: core.stepUpHeader(stepUpToken),
+          timeoutMs: null,
+          errorMessage: 'Failed to export your data',
+        }));
+      } catch (err) {
+        // The global dialog replays the raw request: hand the caller the file text.
+        mapStepUpResume(err, toFile);
+        throw err;
+      }
     },
 
     /** DELETE /user/account. An org the caller is the ONLY member of is deleted

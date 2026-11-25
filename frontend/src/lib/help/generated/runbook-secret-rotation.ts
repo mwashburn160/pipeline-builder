@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/secret-rotation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f21c28392c1d51f964108497855f2331fff6cd17a9b56ca1012bce0e3433ee48
+// SOURCE-SHA256: a573a8e703ce6c45d7dc3ec951c43c543afc475ff37636ab71d7bb5337325bdf
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -33,7 +33,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
             "SecretRotationPreviousLingering fires after 24h of a lingering overlap. Finish the rotation or explain the alert; do not silence it.",
             "Empty means \"not rotating\". That is the steady state, and every .env.example ships these keys empty.",
             "Three secrets express overlap differently — the user-token key keeps the retiring kid published in JWKS, the per-service keys keep it in the shared bundle, and image-registry uses a two-certificate trust bundle.",
-            "Three have no overlap at all, by nature: service-account keys, SAML service-provider keys, and the plugin-signing key.",
+            "Four have no overlap window, by nature: service-account keys, SAML service-provider keys, the plugin-signing key, and DB_REPLICATION_PASSWORD.",
             "The user-token overlap must outlive the longest refresh token (REFRESH_TOKEN_EXPIRES_IN, 30 days by default) or devices that have not refreshed get signed out.",
             "Roll a public bundle out BEFORE its private key, never the other way around."
           ]
@@ -188,7 +188,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
             ],
             [
               "SECRET_ENCRYPTION_KEY (+ _PREVIOUS)",
-              "platform only",
+              "platform, and pipeline (per-org runner signing keys)",
               ".env; k8s app-secrets Secret"
             ],
             [
@@ -241,7 +241,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "app-secrets carries the same values for the services that read it via envFrom (pb_split_app_env routes every *_PREVIOUS key to the Secret, never to the ConfigMap), so patch both when a key lives in both."
+          "content": "app-secrets is what the services read via envFrom (pb_split_app_env routes every *_PREVIOUS key to the Secret, never to the app-env ConfigMap). A key can also live in a dedicated Secret — ALERT_WEBHOOK_INSTANCE_TOKEN is in both app-secrets and alertmanager-relay — so patch both when it does."
         },
         {
           "type": "text",
@@ -346,7 +346,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "opaque service-account keys, not JWTs — they carry no signature, are exchanged for a fresh token every few minutes, and are therefore unaffected by a signing-key rotation. (That is one of the things the #12 / #N2 cutover bought: this step used to be mandatory and easy to forget.)"
+          "content": "opaque service-account keys, not JWTs — they carry no signature, are exchanged for a fresh token every few minutes, and are therefore unaffected by a signing-key rotation."
         },
         {
           "type": "list",
@@ -631,7 +631,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The tool covers all five; the fifth through the pipeline service. It did not always: it swept orgs and IdP configs only, and the other two stores are salted per USER (user:<userId>) and per DEPLOYMENT (saml-sp-keys), so no org walk could reach them. A run then reported failures: 0 while leaving them wrapped under the outgoing key, and clearing SECRET_ENCRYPTION_KEY_PREVIOUS bricked every authenticator enrolment and the SAML SP identity at once. If you are rotating on a build from before that fix, treat steps 4 and 5 as mandatory manual work; on a current build the tool reports a count for each store and you verify the counts instead."
+          "content": "The tool covers all five; the fifth through the pipeline service. Two stores are not per-org — UserTotp is salted per USER (user:<userId>) and the SAML SP keys per DEPLOYMENT (saml-sp-keys) — so the tool walks them separately and reports a count for each store; verify those counts (steps 4 and 5) before clearing SECRET_ENCRYPTION_KEY_PREVIOUS."
         },
         {
           "type": "text",
@@ -741,7 +741,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Per-org KMS. Orgs with SECRET_ENCRYPTION_PER_ORG_KMS config are wrapped under their own CMK, not this master, and their blobs carry a kid; the shared previous key is never applied to them. Rotating an org's CMK is a separate flow (PUT /api/admin/orgs/:orgId/kms-config, which re-encrypts that org inline, including its runner signing keys through the pipeline re-encrypt job; a runner-key failure answers 500). Clearing it is the same migration: DELETE /api/admin/orgs/:orgId/kms-config falls the org back to the shared master, and since the org's platform secrets were wrapped under a key derived from its CMK — which the shared provider cannot open — the DELETE re-encrypts them under the shared provider exactly as a PUT does, runner signing keys included. Both mutations behave identically on failure. If a stored platform secret can't be decrypted under the current provider the PUT/DELETE refuses with 409 and changes nothing. Repair that row, or retry with ?reencrypt=false: that skips only the platform (MongoDB) secret re-encrypt, so the org's existing AI provider keys and SSO client secret become unreadable and must be re-entered. The runner signing key re-wrap still runs (it does not depend on the platform pass), and a failure there still answers 500. A failure mid-flight — the config already saved, the re-encrypt partly done — answers 500 and is audited as a failure: the change is NOT rolled back, so re-enter the affected secrets through their admin endpoints (and rerun the runner-key re-encrypt if the message names it)."
+          "content": "Per-org KMS. Orgs with SECRET_ENCRYPTION_PER_ORG_KMS config are wrapped under their own CMK, not this master, and their blobs carry a kid; the shared previous key is never applied to them. Rotating an org's CMK is a separate flow (PUT /api/admin/orgs/:orgId/kms-config, which re-encrypts that org inline, including its runner signing keys through the pipeline re-encrypt job; a runner-key failure answers 500 — see the recovery below). Clearing it is the same migration: DELETE /api/admin/orgs/:orgId/kms-config falls the org back to the shared master, and since the org's platform secrets were wrapped under a key derived from its CMK — which the shared provider cannot open — the DELETE re-encrypts them under the shared provider exactly as a PUT does, runner signing keys included. Both mutations behave identically on failure. If a stored platform secret can't be decrypted under the current provider the PUT/DELETE refuses with 409 and changes nothing. Repair that row, or retry with ?reencrypt=false: that skips only the platform (MongoDB) secret re-encrypt, so the org's existing AI provider keys and SSO client secret become unreadable and must be re-entered. The runner signing key re-wrap still runs (it does not depend on the platform pass), and a failure there still answers 500. A failure mid-flight — the config already saved, the re-encrypt partly done — answers 500 and is audited as a failure: the change is NOT rolled back, so re-enter the affected secrets through their admin endpoints. If the message names the runner signing keys, the outgoing config is recorded on the org: once the cause is fixed (pipeline service reachable, CMK grant restored), call POST /api/admin/orgs/:orgId/kms-config/runner-keys/reencrypt (system admin, MFA session, step-up by passkey or authenticator code). It re-wraps the org's runner keys reading them under the current config, then the recorded outgoing one, then the shared provider; it is safe to repeat, answers 409 when nothing is pending, and clears the record on success. Re-sending the same PUT, or reencrypt-runner-keys --org, cannot do this: neither knows the outgoing config. If a second change also fails while one is pending, the retry covers only the oldest outgoing config."
         },
         {
           "type": "text",
@@ -821,12 +821,16 @@ export const runbookSecretRotationTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Rotate the value with the helper, on every target that has a replica:"
+            "Set the new value, on every target that has a replica. There is no"
           ]
         },
         {
           "type": "text",
-          "content": "bash pb_rotate_env_secret DB_REPLICATION_PASSWORD"
+          "content": "DB_REPLICATION_PASSWORD_PREVIOUS key, so pb_rotate_env_secret refuses this one; write the value directly:"
+        },
+        {
+          "type": "text",
+          "content": "bash . deploy/bin/gen-env-secrets.sh pb_set_env_value deploy/<target>/.env DB_REPLICATION_PASSWORD \"$(openssl rand -base64 32 | tr -d '=+/')\""
         },
         {
           "type": "list",
@@ -970,7 +974,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Proof — the alert-webhook token-rotation and instances suites, which moved from platform/test/ to api/ops-center/test/ with the relay."
+          "content": "Proof — api/ops-center/test/alert-webhook-token-rotation.test.ts and api/ops-center/test/alert-webhook-instances.test.ts."
         }
       ]
     },
@@ -1276,7 +1280,20 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The first key is created active when the first runner is registered under an effective key org that has none (or from the card before that): a root org's own first runner, a team in own mode's first runner, or the first runner of a team that inherits — which creates its root (inherited-from) org's key. That last key is audited as pipeline.runner.key.generate on the root org by the system actor, with details.auto: true and details.onBehalfOfOrgId the team; the team's user is not recorded as its creator. An org with no effective key gets 409 RUNNER_KEY_MISSING; nothing falls back to a shared key."
+          "content": "The first key is created active when the first runner is registered under an effective key org that has none (or from the card, or --generate-key, before that). For a root org that is its own first runner. A team switching to its own key gets its key at the switch (below), so it never has none. When a registration (POST /pipelines/runners) comes from a team that inherits, the API creates the inherited-from org's key, audited as pipeline.runner.key.generate on that org by the system actor, with details.auto: true and details.onBehalfOfOrgId the team; the team's user is not recorded as its creator. setup-runner is stricter: it refuses an inheriting team whose parent has no key before it registers anything, and tells it to ask the parent's admins or switch to its own key. An org with no effective key gets 409 RUNNER_KEY_MISSING; nothing falls back to a shared key."
+        },
+        {
+          "type": "text",
+          "content": "Signing flow at a glance"
+        },
+        {
+          "type": "code",
+          "content": "flowchart TD\n    REG[\"Runner registered<br/>POST /pipelines/runners\"] --> HAS{\"Effective key org<br/>has a key?\"}\n    HAS -- \"no\" --> GEN[\"Generate Ed25519 key, state active<br/>top-level org, or the org an<br/>inheriting team inherits from\"]\n    HAS -- \"yes\" --> DB\n    GEN --> DB[(\"pipeline_runner_signing_keys<br/>private key encrypted per org:<br/>HKDF of SECRET_ENCRYPTION_KEY,<br/>or the org's own KMS key\")]\n    REWRAP[\"SECRET_ENCRYPTION_KEY rotation<br/>or per-org KMS change\"] -- \"re-encrypt job re-wraps\" --> DB\n    DB --> SIGN[\"Each delivery: active key of the<br/>runner OWNER's effective key org<br/>signs a pb-run+jwt, 10 min max\"]\n    PAUSE[\"Operator: Pause all pipeline runs\"] -. \"nothing signed or sent\" .-> SIGN\n    SIGN --> RUNNER[\"Runner Lambda\"]\n    RUNNER --> JWKS[\"GET /api/pipelines/runner/runners/:runnerId/jwks.json<br/>next + active + retiring keys<br/>runner caches 10 min\"]\n    JWKS --> OK{\"kid published, signature,<br/>iss, aud, exp valid?\"}\n    OK -- \"yes\" --> ACT[\"Act on the tagged pipeline\"]\n    OK -- \"no\" --> DENY[\"401 SIGNATURE_INVALID\"]\n    subgraph Lifecycle[\"Key lifecycle, per org\"]\n        ROT[\"Rotate\"] --> NEXT[\"new key: next<br/>published, not signing\"]\n        NEXT -- \"sweep at activates_at, +10 min\" --> PROMO[\"next becomes active,<br/>old active becomes retiring\"]\n        PROMO -- \"sweep at retire_after, +1 h<br/>or Finish now\" --> GONE[\"retired: private key wiped,<br/>off the JWKS\"]\n        REV[\"Revoke: org admin or operator\"] --> NOW[\"active retired now,<br/>next promoted or a new active key\"]\n    end\n    Lifecycle -.-> DB",
+          "language": "mermaid"
+        },
+        {
+          "type": "text",
+          "content": "The key that signs is chosen from the runner row's owning org, never from the request: its effective key org is the org itself in own mode (every top-level org), else its nearest own-mode ancestor. Every replica caches the decrypted signer per owning org and drops it on a runner-keys:invalidate pub/sub message, re-checking the org's key version every 60 seconds in case a message was missed. The runner sweep (every 15 seconds, one replica at a time under a leader lock) promotes and retires keys, so each step lands up to 15 seconds after its time. The pause stops runs, not key changes: key writes and the sweep keep running while it is on."
         },
         {
           "type": "text",
@@ -1299,12 +1316,12 @@ export const runbookSecretRotationTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Promote (automatic). The runner sweep, every 5 minutes under its leader"
+            "Promote (automatic). The runner sweep, every 15 seconds under its"
           ]
         },
         {
           "type": "text",
-          "content": "lock, makes the new key active and the old one retiring with retire_after = now + 1 hour — so 10 to 15 minutes after step 1."
+          "content": "leader lock, makes the new key active and the old one retiring with retire_after = now + 1 hour, at most 15 seconds after activates_at."
         },
         {
           "type": "list",
@@ -1318,7 +1335,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A rotation while another is pending or overlapping answers 409 RUNNER_KEY_TRANSITION_IN_PROGRESS (so does the loser of two concurrent rotations). Each step sends an org notice to the org's admins and to admins of every inheriting team, and writes pipeline.runner.key.rotate, .promote and .retire audit entries carrying key ids only."
+          "content": "A rotation while another is pending or overlapping answers 409 RUNNER_KEY_TRANSITION_IN_PROGRESS (so does the loser of two concurrent rotations). Rotate and promote each send an org notice to the org's admins and to admins of every inheriting team (retire, cancel and finish send none), and the steps write pipeline.runner.key.rotate, .promote and .retire audit entries carrying key ids only."
         },
         {
           "type": "text",
@@ -1382,7 +1399,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "characters of the key id) retires the active key at once and promotes the next key, or creates a new active one. Every replica drops the key within a second through Redis pub/sub (runner-keys:invalidate), with a 60-second version poll as the backstop. In-flight requests signed with it fail and are retried with the new key."
+          "content": "characters of the key id) retires the active key at once and promotes the next key, or creates a new active one. Every replica drops the cached key at once through Redis pub/sub (runner-keys:invalidate), with a 60-second version poll as the backstop, and signs every later delivery with the new key. A runner keeps trusting the revoked key until it next fetches its JWKS: on the first request signed with the new (unknown) key id, or at the latest when its 10-minute cache expires. That refetch happens at most once a minute, so a request reaching a runner within a minute of its previous fetch fails with SIGNATURE_INVALID, which is not retried (and a health ping refused that way marks the runner unhealthy until the next ping succeeds)."
         },
         {
           "type": "list",
@@ -1430,7 +1447,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "material and per-org KMS setting): bash # k8s targets kubectl -n pipeline-builder exec deploy/pipeline -- node lib/scripts/reencrypt-runner-keys.js # docker docker compose exec pipeline node lib/scripts/reencrypt-runner-keys.js # one org, after its per-org KMS config changed docker compose exec pipeline node lib/scripts/reencrypt-runner-keys.js --org <orgId>  Without --org it re-wraps every non-retired row under the current master, decrypting through SECRET_ENCRYPTION_KEY_PREVIOUS where needed. It reports scanned, reencrypted and failures (org id and key id per failed row; a failed row is left untouched), rewrites each row in its own transaction, and audits pipeline.runner.key.reencrypt."
+          "content": "material and per-org KMS setting): bash # k8s targets kubectl -n pipeline-builder exec deploy/pipeline -- node scripts/reencrypt-runner-keys.js # docker docker compose exec pipeline node scripts/reencrypt-runner-keys.js # one org only docker compose exec pipeline node scripts/reencrypt-runner-keys.js --org <orgId>  (The image puts lib/ at /app, so the repo's lib/scripts/ is scripts/ in the container.) Without --org it re-wraps every non-retired row under the current master, decrypting through SECRET_ENCRYPTION_KEY_PREVIOUS where needed. --org reads with the org's current provider, then the shared one. It does not know the org's previous KMS config, so it can't read rows still wrapped under an old CMK; only the org KMS config PUT/DELETE passes that config to the job. It reports scanned, reencrypted and failures (org id and key id per failed row; a failed row is left untouched), rewrites each row in its own transaction, and audits pipeline.runner.key.reencrypt."
         },
         {
           "type": "text",
@@ -1442,7 +1459,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "If an org's effective key can't be decrypted (a master changed without the re-encrypt job, a rotated or disabled per-org KMS key, a lost kms:Decrypt grant), that org's runner writes, deliveries and key writes fail closed with 409 RUNNER_KEY_UNREADABLE and its card tells its admins to contact you. Other orgs are unaffected. pipeline_runner_signing_keys_unreadable goes above zero and RunnerSigningKeyUnreadable (critical) fires."
+          "content": "If an org's effective key can't be decrypted (a master changed without the re-encrypt job, a rotated or disabled per-org KMS key, a lost kms:Decrypt grant), that org's runner registrations, endpoint changes, tests and deliveries fail closed with 409 RUNNER_KEY_UNREADABLE (a delivery fails the run request) and its card tells its admins to contact you. Key writes never read the old key, so a revoke still works (step 3); they fail the same way only when the new key can't be encrypted either. Other orgs are unaffected. pipeline_runner_signing_keys_unreadable goes above zero and RunnerSigningKeyUnreadable (critical) fires."
         },
         {
           "type": "text",
@@ -1475,7 +1492,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A push-mode runner's URL must be https:// with no user-info and no port, and its host must match one of:"
+          "content": "A runner's URL must be https:// with no user-info, no port and no fragment, and its host must match one of:"
         },
         {
           "type": "table",
@@ -1751,7 +1768,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Coupling to SECRET_ENCRYPTION_KEY — the private halves are wrapped under the master key and the fleet re-encryption tool does not cover them, so a master-key rotation must roll these too (step 4 of that section). The cheap order is: roll these during the master-key overlap window, so a mistake is still recoverable from the previous key."
+          "content": "Coupling to SECRET_ENCRYPTION_KEY — the private halves are wrapped under the master key. The fleet re-encryption tool re-wraps them in place (it reports samlSpKeysReencrypted), so a master-key rotation does not oblige a rotation here — see step 4 of that section. Only a key listed under failures has to be regenerated, and doing it during the master-key overlap window keeps a mistake recoverable from the previous key."
         },
         {
           "type": "text",
@@ -1809,7 +1826,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "lastUsedAt advances. In the UI, Settings → Service Accounts lists each account and its keys. Create and revoke are audited as org.service-account.key.create / org.service-account.key.revoke."
+          "content": "lastUsedAt advances. In the UI, Dashboard → Security → Service accounts lists each account and its keys. Create and revoke are audited as org.service-account.key.create / org.service-account.key.revoke."
         },
         {
           "type": "text",
@@ -1971,7 +1988,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
             [
               "SECRET_ENCRYPTION_KEY",
               "SECRET_ENCRYPTION_KEY",
-              "pb_finish_env_rotation, re-push app-secrets, restart platform — only after the re-encryption reports failures: 0 and steps 4–5 are done"
+              "pb_finish_env_rotation, re-push app-secrets, restart platform and pipeline — only after the re-encryption reports failures: 0 and steps 4–5 are done"
             ],
             [
               "ALERT_WEBHOOK_INSTANCE_TOKEN",
@@ -2021,10 +2038,6 @@ export const runbookSecretRotationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "jwks_unknown_kid_refetch_total{service,source} counts the one-per-cooldown refetch a verifier makes when it sees a kid it does not know — a small bump is the expected signature of a rotation; a sustained rate means something is presenting forged kids."
-        },
-        {
-          "type": "text",
-          "content": "shared_secret_user_token_rejected_total{service,alg} counts shared-secret tokens that claimed to be a USER and were refused. It should be flat at zero after the cutover: a non-zero rate means something is still minting the old token shape — a stale client, or a service that should not be trying."
         }
       ]
     }

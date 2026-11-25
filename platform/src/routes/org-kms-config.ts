@@ -16,6 +16,7 @@ import {
   deleteOrgKmsConfig,
   getOrgKmsConfig,
   putOrgKmsConfig,
+  retryRunnerKeyReencrypt,
   testOrgKmsConfig,
 } from '../controllers/org-kms-config.js';
 import { requireAuth } from '../middleware/index.js';
@@ -36,6 +37,9 @@ router.get('/', requireAuth, requirePermission('org_kms:write'), getOrgKmsConfig
 // by re-typing the password the session already holds.
 router.put('/', requireAuth, requirePermission('org_kms:write'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org.kms-config.upsert'), putOrgKmsConfig);
 router.delete('/', requireAuth, requirePermission('org_kms:write'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org.kms-config.delete'), deleteOrgKmsConfig);
+// POST /runner-keys/reencrypt — retry a KMS change's failed runner-key re-wrap
+// with the outgoing config recorded on the org. Same gates as the change itself.
+router.post('/runner-keys/reencrypt', requireAuth, requirePermission('org_kms:write'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org.kms-config.runner-keys.reencrypt'), retryRunnerKeyReencrypt);
 // POST /test — dry-run the proposed config without touching Mongo.
 // Read-only; no step-up needed (and we want operators to be able to
 // validate a CMK without having to re-prompt every time).

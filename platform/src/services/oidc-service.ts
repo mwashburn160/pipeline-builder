@@ -470,7 +470,7 @@ export async function exchangeAndValidate(
   if (!claims.email || !emailVerified) throw new Error('OIDC_NO_EMAIL');
   if (!claims.sub) throw new Error('OIDC_INVALID_ID_TOKEN');
 
-  const email = claims.email.toLowerCase();
+  const email = claims.email.trim().toLowerCase();
 
   // 5. Enforce the org's `allowedEmailDomains` (when configured). The IdP may
   //    authenticate identities OUTSIDE the org's domains — a broad `google`

@@ -15,10 +15,10 @@ Per-organization rule enforcement for plugins and pipelines. Validates entity at
 
 ## Highlights
 
-- **Fail-closed.** If the compliance service is unreachable, plugin uploads and pipeline creates are **rejected** (HTTP 503) rather than waved through.
+- **Fail-closed.** If the compliance service is unreachable, plugin and pipeline writes are **rejected** (HTTP 503 `COMPLIANCE_SERVICE_UNAVAILABLE`) rather than waved through, unless the calling service sets `COMPLIANCE_BYPASS=true`.
 - **Each organization owns its compliance.** The system org does not enforce rules on other orgs — it *publishes* recommendations any org can browse, subscribe to and customize. The one exception is the org → team hierarchy.
 - **The system org is itself exempt**, and scheduled scans always skip it.
-- **Blocking is by severity.** `error` and `critical` block creation with a 403; `warning` logs and allows.
+- **Blocking is by severity.** `error` and `critical` block the write with a 403; `warning` logs and allows.
 - **Curated libraries are a shared reference, not a copy.** Buying an add-on grants *access* — one library of 30 rules serves 10,000 orgs as 30 rules plus pointer rows.
 - **Enforcement is entitlement-unaware** by design: it reads the org's *active* subscriptions, and a separate sync leg keeps that active set in step with billing.
 - **Authoring your own rules is free and ungated on every tier.** The add-ons sell maintained curation, not the ability to write rules.
@@ -32,7 +32,7 @@ Written for platform teams defining policy and for operators running the service
 
 ## How it works
 
-1. **Inline check** — a plugin upload or pipeline create calls `/compliance/validate/...` synchronously. `error` and `critical` violations block the operation with a 403.
+1. **Inline check** — a plugin upload, update or deploy, or a pipeline create or update (single and bulk), calls `/compliance/validate/...` synchronously. `error` and `critical` violations block the operation with a 403.
 2. **Rule merge** — the engine evaluates the org's own rules plus its active subscribed published rules. A parent rule marked `propagateToChildren` also applies to nested teams.
 3. **Async re-check** — plugin and pipeline mutations enqueue a BullMQ event; a background worker re-evaluates the changed entity under its own tenant scope.
 4. **Bulk / scheduled scans** — `POST /compliance/scans`, or a cron scan-schedule, sweeps the org's full inventory through the same engine on demand or on a recurring basis.
@@ -98,6 +98,9 @@ Inline validation on upload or create is synchronous and blocking. Existing enti
 | `POST` | `/compliance/rules` | Create rule — `409 CONFLICT` if a rule with that name exists (live, or deleted: restore it instead) |
 | `PUT` | `/compliance/rules/:id` | Update rule |
 | `DELETE` | `/compliance/rules/:id` | Soft-delete rule |
+| `GET` | `/compliance/rules/deleted` | The org's soft-deleted rules, most recent first |
+| `POST` | `/compliance/rules/:id/restore` | Restore a soft-deleted rule (`compliance:write` + step-up) |
+| `POST` | `/compliance/rules/:id/purge` | Permanently delete a soft-deleted rule (`compliance:write` + step-up) |
 
 ### Published Catalog & Subscriptions
 
@@ -157,7 +160,10 @@ Policies are named groups of rules (e.g. SOC2, Security Baseline) so a team can 
 | `GET` | `/compliance/policies/:id` | Get policy by ID |
 | `POST` | `/compliance/policies` | Create policy |
 | `PUT` | `/compliance/policies/:id` | Update policy |
-| `DELETE` | `/compliance/policies/:id` | Delete policy |
+| `DELETE` | `/compliance/policies/:id` | Soft-delete policy |
+| `GET` | `/compliance/policies/deleted` | The org's soft-deleted policies, most recent first |
+| `POST` | `/compliance/policies/:id/restore` | Restore a soft-deleted policy (`compliance:write` + step-up) |
+| `POST` | `/compliance/policies/:id/purge` | Permanently delete a soft-deleted policy (`compliance:write` + step-up) |
 
 ### Exemptions
 
@@ -217,7 +223,7 @@ The webhook signing secret is never returned — reads expose only a `hasWebhook
 | `gt` / `gte` / `lt` / `lte` | Numeric comparison. A value that isn't a number (absent, `null`, `''`, a boolean) fails |
 | `contains` / `notContains` | String or array contains |
 | `in` / `notIn` | Value in set |
-| `regex` | Pattern match (pattern length capped, default 100 chars; configurable via `COMPLIANCE_MAX_REGEX_LENGTH`) |
+| `regex` | Pattern match (pattern length capped, default 100 chars, `COMPLIANCE_MAX_REGEX_LENGTH`; each match is cut off after `COMPLIANCE_REGEX_TIMEOUT_MS`, default 50 ms). A pattern that is too long, invalid or times out counts as a violation |
 | `exists` / `notExists` | Field presence |
 | `notEmpty` | Field present and not empty (`''`, `0`, `false` count as empty) |
 | `countGt` / `countLt` | Array/object count |
@@ -230,7 +236,7 @@ The webhook signing secret is never returned — reads expose only a `hasWebhook
 | `$count(field)` | `$count(props.stages)` — array length |
 | `$length(field)` | `$length(name)` — string length |
 | `$keys(field)` | `$keys(env)` — object keys as array |
-| `$lines(field)` | `$lines(dockerfile)` — line count |
+| `$lines(field)` | `$lines(description)` — line count |
 
 ### Readable Fields
 
@@ -285,8 +291,8 @@ The published catalog includes two **curated content libraries** sold as billing
 
 | Add-on | Feature flag | Content | Price | Availability |
 |--------|--------------|---------|-------|--------------|
-| **Standard Compliance** | `compliance_standard` | Five policies (security baseline, quality, naming, cost, production readiness) over a curated library of 9 CI/CD guardrails (pinned versions, semver, no privileged builds, no public plugins, naming, stage counts, …) | $29.99 / mo · $299.99 / yr | Buy on **Developer / Pro / Team / Business** · **included** in Enterprise / Unlimited |
-| **Advanced Compliance** | `compliance_advanced` | Three **framework** policies — **SOC2, PCI-DSS, CIS** (51 rules total), each rule tagged with its framework control id — **requires Standard** | $99.99 / mo · $999.99 / yr | Buy on **Developer / Pro / Team / Business** (requires Standard, or buy the Suite) · **included** in Enterprise / Unlimited |
+| **Standard Compliance** | `compliance_standard` | Five policies (security baseline, quality, naming, cost, production readiness) over a curated library of 9 CI/CD guardrails (pinned versions, semver, no privileged builds, no public plugins, naming, stage counts, …) | $29.99 / mo · $299.90 / yr | Buy on **Developer / Pro / Team / Business** · **included** in Enterprise / Unlimited |
+| **Advanced Compliance** | `compliance_advanced` | Three **framework** policies — **SOC2, PCI-DSS, CIS** (51 rules total), each rule tagged with its framework control id — **requires Standard** | $99.99 / mo · $999.90 / yr | Buy on **Developer / Pro / Team / Business** (requires Standard, or buy the Suite) · **included** in Enterprise / Unlimited |
 | **Compliance Suite** (combo) | both | Standard + Advanced together, **30% off** | $90.99 / mo · $909.99 / yr | Buy on **Developer / Pro / Team / Business** (grants both at once) |
 
 **Advanced requires Standard.** Buy Standard, then add Advanced — or buy the **Compliance Suite** combo to get both in one action (also the way to obtain Advanced without a separate Standard line). Cancelling Standard while Advanced is held cascade-cancels Advanced. Enterprise / Unlimited include both, so nothing is purchased there. See [Billing Add-on Bundles](billing-bundles.md#the-bundles) for pricing and the combo mechanics.
@@ -320,21 +326,26 @@ These add-ons gate only the **curated libraries**. Authoring your own rules (`co
 
 | Trigger | Behavior |
 |---------|----------|
-| Plugin upload (`POST /api/plugins/upload`) | Blocked (403) if `error` or `critical` violations |
-| Pipeline create (`POST /api/pipelines`) | Blocked (403) if `error` or `critical` violations |
+| Plugin upload (`POST /api/plugins/upload`), deploy of a generated plugin | Blocked (403) if `error` or `critical` violations. For an image plugin the image facts (`signed`, `scanned`, `vuln*`, `runAsRoot`, `packages`) are deferred and checked after the build; a failure there fails the build with `COMPLIANCE_VIOLATION` |
+| Plugin update (`PUT /api/plugins/:id`, `PUT /api/plugins/bulk/update`) | Blocked (403) if `error` or `critical` violations |
+| Pipeline create (`POST /api/pipelines`, bulk create) | Blocked (403) if `error` or `critical` violations |
+| Pipeline update (`PUT /api/pipelines/:id`, bulk update) | Blocked (403) when the change touches a field rules read |
 
 Warnings are logged and returned but do not block. Blocked responses include violation details:
 
 ```json
 {
   "success": false,
-  "status": 403,
+  "statusCode": 403,
+  "message": "Plugin upload blocked by compliance rules",
   "code": "COMPLIANCE_VIOLATION",
   "details": {
-    "violations": [{ "ruleName": "block-latest-image-tag", "severity": "error", "field": "version" }]
+    "violations": [{ "ruleId": "…", "ruleName": "block-latest-image-tag", "severity": "error", "field": "version", "operator": "neq", "expectedValue": "latest", "actualValue": "latest", "message": "…" }]
   }
 }
 ```
+
+An unreachable compliance service answers `503 COMPLIANCE_SERVICE_UNAVAILABLE` (a create or upload refunds its quota slot). Each validation attempt times out after `COMPLIANCE_VALIDATE_TIMEOUT_MS` (default 4000) and is retried; `COMPLIANCE_BYPASS=true` on the calling service turns an outage into a pass (fail-open).
 
 ---
 
@@ -446,6 +457,7 @@ Add your own by creating `deploy/compliance/standard/rules/<name>/rule.json` + `
 | `compliance_scan_schedules` | Recurring scan schedules |
 | `compliance_notification_preferences` | Per-org notification config |
 | `compliance_notification_log` | Notification delivery history |
+| `compliance_entitlement_watermark` | Per-org timestamp of the last applied billing entitlement sync, so an out-of-order push can't revert a newer one |
 
 ---
 
@@ -459,15 +471,19 @@ Add your own by creating `deploy/compliance/standard/rules/<name>/rule.json` + `
 | `COMPLIANCE_AUDIT_RETENTION_DAYS` | `180` | Retention for the audit log, finished scans and the notification log (one daily prune) |
 | `COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS` | `7` | How far ahead of `expiresAt` the daily expiry sweep warns the org (one in-app notice per exemption); the same sweep moves lapsed approved exemptions to `expired` |
 | `COMPLIANCE_MAX_REGEX_LENGTH` | `100` | Max length of a user-supplied `regex` pattern |
+| `COMPLIANCE_REGEX_TIMEOUT_MS` | `50` | Wall-clock cap on one `regex` match; a match that runs over counts as a violation |
 | `COMPLIANCE_MAX_ATTRIBUTE_DEPTH` | `10` | Max nesting depth of entity attributes evaluated |
 | `COMPLIANCE_MAX_ATTRIBUTE_KEYS` | `100` | Max number of attribute keys evaluated |
 | `COMPLIANCE_SCAN_CONCURRENCY` | `10` | Concurrent entities evaluated per bulk scan |
 | `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE` | `10` | Scan progress flush batch size |
+| `COMPLIANCE_SCAN_ENTITY_PAGE_SIZE` | `1000` | Page size when a scan reads a target's entities (every page is evaluated) |
+| `COMPLIANCE_SCAN_ENTITY_MAX_TOTAL` | `100000` | Most entities one scan reads per target; over it the scan fails rather than truncating |
+| `COMPLIANCE_NOTIFY_TIMEOUT_MS` | `5000` | Per-channel notification delivery timeout |
 | `SCAN_SCHEDULER_INTERVAL_MS` | `60000` | Scan scheduler interval (ms) |
-| `SCAN_LOCK_TTL_MS` | `300000` | Scan scheduler cross-pod leader-lock TTL (ms) |
+| `SCAN_LOCK_TTL_MS` | `120000` | Scan scheduler cross-pod leader-lock TTL (ms) |
 | `COMPLIANCE_SCAN_STALE_TIMEOUT_MS` | `7200000` | A scan still `running` after this long is marked `failed` by the next scheduler sweep (minimum 60000), so a crashed scan can't block rule-change re-scans |
 | `DIGEST_SCHEDULER_INTERVAL_MS` | `3600000` | Notification digest scheduler interval (ms) |
-| `DIGEST_LOCK_TTL_MS` | `300000` | Digest scheduler cross-pod leader-lock TTL (ms) |
+| `DIGEST_LOCK_TTL_MS` | `120000` | Digest scheduler cross-pod leader-lock TTL (ms) |
 | `REDIS_URL` / `REDIS_SENTINELS` | — | Redis for scheduler leader locks (see [environment variables](environment-variables.md#redis)) |
 | `MESSAGE_SERVICE_HOST` | `message` | Message service (in-app notifications) |
 | `PLATFORM_SERVICE_HOST` | `platform` | Platform service (email delivery + recipient resolution) |

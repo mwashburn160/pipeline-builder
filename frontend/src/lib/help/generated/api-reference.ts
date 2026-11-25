@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8238ff89cbdbcd1219891146f6d706d20a421d6d267c9bb3f2c837e7d698acc0
+// SOURCE-SHA256: 8ae15ddb85e8353f551e24cd8e8e68697c2be4d4b8be2b6720ead86831cfdc8d
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -28,7 +28,7 @@ export const apiReferenceTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Two headers on every request: Authorization: Bearer <JWT> and x-org-id.",
+            "One header on every request: Authorization: Bearer <JWT>. The tenant comes from the token's organization, not from a header.",
             "Paths here are service-relative. Every route is served through the gateway under /api, so /pipelines/:id is /api/pipelines/:id over the wire.",
             "The gateway does not validate tokens. Each service does; the gateway only decodes claims for its access log.",
             "Many routes consume quota as well as a permission, and the tables say which.",
@@ -63,7 +63,7 @@ export const apiReferenceTopic: HelpTopic = {
             "A request arrives at the Nginx gateway, which terminates TLS and routes by path prefix under /api.",
             "The gateway decodes the token's claims for its access log only — it does not validate them. See Authentication.",
             "The owning service validates the token and resolves the caller's permissions.",
-            "x-org-id scopes the request to one tenant; a caller cannot reach another org's resources by changing it.",
+            "The token's organization scopes the request to one tenant. The gateway overwrites any client-sent x-org-id with the token's org, and the services re-derive the tenant from the verified token, so a caller cannot reach another org's resources by sending a header. To act in another org you belong to, switch organization and use the new token.",
             "The route's gate runs — permission, feature entitlement, scope or assurance level — and a refused write is audited.",
             "Quota is consumed where the route declares it, against the account root's pooled cap.",
             "The response comes back in the shared envelope, success or error."
@@ -79,7 +79,7 @@ export const apiReferenceTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Get a credential. An access key from pipeline-manager auth pat or the dashboard, exchanged for a short-lived token; or a service-account key for automation. See Authentication.",
-            "Send both headers on every call — the token and x-org-id.",
+            "Send the token on every call as Authorization: Bearer <token>.",
             "Prefix paths with /api when calling over the wire.",
             "Check the permission column before wiring a call, and grant it via a Role rather than a membership label.",
             "Handle the error envelope, not just the status: the machine-readable code is the stable contract. See Error Handling.",
@@ -94,7 +94,7 @@ export const apiReferenceTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "All requests require two headers:"
+          "content": "All requests require one header:"
         },
         {
           "type": "table",
@@ -106,12 +106,12 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "Authorization",
               "Bearer <JWT> -- obtained from the platform login endpoint"
-            ],
-            [
-              "x-org-id",
-              "Organization ID -- scopes the request to a specific tenant"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "The request's organization is the token's. An x-org-id header is not needed: the gateway overwrites it with the token's org, and a service honours it only for a system admin on the few cross-org admin routes that opt in."
         },
         {
           "type": "note",
@@ -1363,7 +1363,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/organization/:id/restore",
-              "Restore a soft-deleted org inside its window (+ step-up). A parent admin may restore its own team; a team restore needs its parent live and still team-capable (409) and room in the account's pooled seats (409), and re-syncs the root's tier + entitlements",
+              "Restore a soft-deleted org inside its window (+ step-up). A parent admin may restore its own team; a team restore needs its parent live and still team-capable (409) and room in the account's pooled seats (409), and re-syncs the root's tier + entitlements. A team deleted by a platform operator (a takedown) can be restored only by the platform (403 ORG_RESTORE_PLATFORM_DELETED)",
               "org_settings:write (own org / managed team)"
             ],
             [
@@ -1421,7 +1421,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/organization/:id/teams/deleted",
-              "Soft-deleted teams of :id still inside their retention window → { teams: [{ orgId, orgName, deletedAt, purgeAfter }] }, newest first. Restore with POST /organization/:teamId/restore",
+              "Soft-deleted teams of :id still inside their retention window → { teams: [{ orgId, orgName, deletedAt, purgeAfter, deletedByPlatform, restorable }] }, newest first. Restore with POST /organization/:teamId/restore. restorable is false for a team a platform operator deleted (a takedown) unless the viewer is a platform admin",
               "org_settings:write (admin of :id)"
             ],
             [
@@ -1467,13 +1467,13 @@ export const apiReferenceTopic: HelpTopic = {
               "PATCH \\",
               "DELETE",
               "/organization/:id/service-accounts[/:accountId]",
-              "Create / update (description, roles, token budget, disabled) / delete a service account. Delete removes every key with it",
+              "Create / update (description, roles, token budget, disabled) / delete a service account. Delete removes every key with it. Re-enabling or deleting an account is refused with 403 (RL_ASSIGN_EXCEEDS_CEILING / RL_REQUIRES_SUPERADMIN) when its Roles exceed the caller's own authority; disabling is not",
               "service_accounts:manage + step-up"
             ],
             [
               "POST",
               "/organization/:id/service-accounts/:accountId/keys",
-              "Issue a pb_sa_… key — returned once ({ key, accessKey }); optional ipAllowlist and scope (one capability instead of the account's Roles: reporting:ingest, registry:push, scim), max 365 days, 5 active keys per account",
+              "Issue a pb_sa_… key — returned once ({ key, accessKey }); optional ipAllowlist and scope (one capability instead of the account's Roles: reporting:ingest, registry:push, scim), max 365 days, 5 active keys per account. Refused with 403 when the account's Roles exceed the caller's own authority",
               "service_accounts:manage + step-up"
             ],
             [
@@ -1592,6 +1592,12 @@ export const apiReferenceTopic: HelpTopic = {
               "DELETE",
               "/admin/orgs/:orgId/kms-config",
               "Set ({ keyId, ciphertextBase64 }) / clear the org's per-org KMS config — DELETE falls the org back to the shared master. Both re-encrypt the org's platform secrets under the incoming provider and re-wrap its runner signing keys → { configured, keyId?, …counts } (DELETE on an org with no config answers 200 { configured: false } and changes nothing). ?reencrypt=false skips only the platform-secret re-encrypt (those secrets become unreadable; the runner keys are still re-wrapped). 409 when a stored secret cannot be decrypted under the current provider — nothing is changed; 500 when the config was saved but the re-encrypt (or the runner-key re-wrap) failed mid-flight — audited as a failure. MFA session (aal2) + step-up by passkey or authenticator code",
+              "org_kms:write + system admin"
+            ],
+            [
+              "POST",
+              "/admin/orgs/:orgId/kms-config/runner-keys/reencrypt",
+              "Retry a KMS change's failed runner-signing-key re-wrap: re-wraps the org's runner keys reading them under the current config, then the outgoing config the failed change recorded, then the shared provider. Safe to repeat; 409 when no re-wrap is pending; 500 (record kept) when it fails again. MFA session (aal2) + step-up by passkey or authenticator code",
               "org_kms:write + system admin"
             ],
             [
@@ -3908,7 +3914,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "curl -X POST https://localhost:8443/api/plugins \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -H \"x-org-id: $ORG_ID\" \\\n  -F \"plugin=@./my-plugin.zip\" \\\n  -F \"visibility=private\"",
+          "content": "curl -X POST https://localhost:8443/api/plugins \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -F \"plugin=@./my-plugin.zip\" \\\n  -F \"visibility=private\"",
           "language": "bash"
         },
         {
@@ -3917,7 +3923,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "curl \"https://localhost:8443/api/plugins?name=node-build&limit=10\" \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\"\n\ncurl \"https://localhost:8443/api/plugins/find?name=node-build&version=1.0.0\" \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\"",
+          "content": "curl \"https://localhost:8443/api/plugins?name=node-build&limit=10\" \\\n  -H \"Authorization: Bearer $TOKEN\"\n\ncurl \"https://localhost:8443/api/plugins/find?name=node-build&version=1.0.0\" \\\n  -H \"Authorization: Bearer $TOKEN\"",
           "language": "bash"
         },
         {
@@ -3926,7 +3932,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "curl -X PUT \"https://localhost:8443/api/plugins/<id>\" \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"summary\": \"Scans images for CVEs.\", \"homepageUrl\": \"https://trivy.dev\", \"isDefault\": true}'",
+          "content": "curl -X PUT \"https://localhost:8443/api/plugins/<id>\" \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"summary\": \"Scans images for CVEs.\", \"homepageUrl\": \"https://trivy.dev\", \"isDefault\": true}'",
           "language": "bash"
         },
         {
@@ -3935,7 +3941,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "curl -X DELETE \"https://localhost:8443/api/plugins/<id>\" \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\"",
+          "content": "curl -X DELETE \"https://localhost:8443/api/plugins/<id>\" \\\n  -H \"Authorization: Bearer $TOKEN\"",
           "language": "bash"
         },
         {
@@ -3948,7 +3954,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "curl -X POST https://localhost:8443/api/pipelines \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"project\": \"my-app\",\n    \"organization\": \"my-org\",\n    \"pipelineName\": \"my-app-pipeline\",\n    \"visibility\": \"private\",\n    \"props\": {\n      \"project\": \"my-app\",\n      \"organization\": \"my-org\",\n      \"synth\": {\n        \"source\": {\n          \"type\": \"github\",\n          \"options\": { \"repo\": \"my-org/my-app\", \"branch\": \"main\" }\n        },\n        \"plugin\": { \"name\": \"cdk-synth\", \"filter\": { \"version\": \"1.0.0\" } }\n      }\n    }\n  }'",
+          "content": "curl -X POST https://localhost:8443/api/pipelines \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"project\": \"my-app\",\n    \"organization\": \"my-org\",\n    \"pipelineName\": \"my-app-pipeline\",\n    \"visibility\": \"private\",\n    \"props\": {\n      \"project\": \"my-app\",\n      \"organization\": \"my-org\",\n      \"synth\": {\n        \"source\": {\n          \"type\": \"github\",\n          \"options\": { \"repo\": \"my-org/my-app\", \"branch\": \"main\" }\n        },\n        \"plugin\": { \"name\": \"cdk-synth\" }\n      }\n    }\n  }'",
           "language": "bash"
         },
         {
@@ -3957,7 +3963,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "curl \"https://localhost:8443/api/pipelines?project=my-app&limit=10\" \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\"\n\ncurl \"https://localhost:8443/api/pipelines/find?project=my-app&organization=my-org\" \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\"",
+          "content": "curl \"https://localhost:8443/api/pipelines?project=my-app&limit=10\" \\\n  -H \"Authorization: Bearer $TOKEN\"\n\ncurl \"https://localhost:8443/api/pipelines/find?project=my-app&organization=my-org\" \\\n  -H \"Authorization: Bearer $TOKEN\"",
           "language": "bash"
         },
         {
@@ -3970,7 +3976,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "curl -X POST https://localhost:8443/api/pipelines/generate \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"prompt\": \"Build a Node.js app from GitHub, run tests, and deploy with CDK\",\n    \"provider\": \"anthropic\",\n    \"model\": \"claude-sonnet-5\"\n  }'",
+          "content": "curl -X POST https://localhost:8443/api/pipelines/generate \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"prompt\": \"Build a Node.js app from GitHub, run tests, and deploy with CDK\",\n    \"provider\": \"anthropic\",\n    \"model\": \"claude-sonnet-5-5\"\n  }'",
           "language": "bash"
         },
         {
@@ -3987,7 +3993,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "curl -X POST https://localhost:8443/api/plugins/generate \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"prompt\": \"A Node.js 20 build plugin that runs npm ci, npm test, and npm run build\",\n    \"provider\": \"anthropic\",\n    \"model\": \"claude-sonnet-5\"\n  }'\n\ncurl -X POST https://localhost:8443/api/plugins/deploy-generated \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"name\": \"nodejs-build\",\n    \"version\": \"1.0.0\",\n    \"commands\": [\"npm run build\"],\n    \"installCommands\": [\"npm ci\"],\n    \"dockerfile\": \"FROM plugin-node-base:1.0\\nWORKDIR /app\\nUSER 1000:1000\\n\"\n  }'",
+          "content": "curl -X POST https://localhost:8443/api/plugins/generate \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"prompt\": \"A Node.js 20 build plugin that runs npm ci, npm test, and npm run build\",\n    \"provider\": \"anthropic\",\n    \"model\": \"claude-sonnet-5-5\"\n  }'\n\ncurl -X POST https://localhost:8443/api/plugins/deploy-generated \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"name\": \"nodejs-build\",\n    \"version\": \"1.0.0\",\n    \"commands\": [\"npm run build\"],\n    \"installCommands\": [\"npm ci\"],\n    \"dockerfile\": \"FROM plugin-node-base:1.0\\nWORKDIR /app\\nUSER 1000:1000\\n\"\n  }'",
           "language": "bash"
         }
       ]
@@ -4011,11 +4017,11 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Paginated: list endpoints return their items under a named key (pipelines, plugins, registry, etc.) alongside a pagination object:"
+          "content": "Paginated: list endpoints return their items under a named key (pipelines, plugins, registry, etc.) alongside a pagination object, both inside data. total is omitted when the route doesn't count, and a cursor-paged route adds nextCursor:"
         },
         {
           "type": "code",
-          "content": "{\n  \"success\": true,\n  \"statusCode\": 200,\n  \"pipelines\": [ ... ],\n  \"pagination\": {\n    \"total\": 42,\n    \"limit\": 10,\n    \"offset\": 0,\n    \"hasMore\": true\n  }\n}",
+          "content": "{\n  \"success\": true,\n  \"statusCode\": 200,\n  \"data\": {\n    \"pipelines\": [ ... ],\n    \"pagination\": {\n      \"total\": 42,\n      \"limit\": 10,\n      \"offset\": 0,\n      \"hasMore\": true\n    }\n  }\n}",
           "language": "json"
         },
         {
@@ -4026,6 +4032,10 @@ export const apiReferenceTopic: HelpTopic = {
           "type": "code",
           "content": "{\n  \"success\": false,\n  \"statusCode\": 404,\n  \"code\": \"NOT_FOUND\",\n  \"message\": \"Pipeline not found\"\n}",
           "language": "json"
+        },
+        {
+          "type": "text",
+          "content": "An unexpected failure answers 500 INTERNAL_ERROR with details.requestId to quote when reporting it; the underlying message is never returned. See Error Handling for how codes map to statuses."
         }
       ]
     },
@@ -4079,7 +4089,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/reports/execution/dora",
-              "Per-environment DORA metrics (headline production) with performance-level bands: deploy-basis frequency, measured lead time (commit→deploy; unknown when unresolved — no proxy), two-class change-failure rate, production median time to restore (meanTimeToRestore), coverage; a band on fewer than 5 observations is insufficient with its n (reports:read + advanced_reporting feature — Enterprise, or the Advanced Reporting add-on; from, to, includeDescendants needs reports:rollup; optional pipelineId, environment). See DORA Metrics"
+              "Per-environment DORA metrics (headline production) with performance-level bands: deploy-basis frequency, measured lead time (commit→deploy; unknown when unresolved — no proxy), two-class change-failure rate, production median time to restore (meanTimeToRestore), coverage; a band on fewer than 5 observations is insufficient with its n (reports:read + advanced_reporting feature — included in Business and Enterprise, or the Advanced Reporting add-on; from, to, includeDescendants needs reports:rollup; optional pipelineId, environment). See DORA Metrics"
             ],
             [
               "GET",

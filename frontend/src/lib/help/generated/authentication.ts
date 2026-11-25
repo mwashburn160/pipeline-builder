@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2b2e1f630b7a07f87269b130042cae0e97bb5c7915cbb7e563665592f8613f5d
+// SOURCE-SHA256: c5c3e191be21251b14140fdff924a8d5e3deef061e24f4ecad72ee9e905048f4
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -512,7 +512,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "authority and defaults to common (any organizational or personal account); set it to a specific tenant id or domain to restrict to one directory. The tenant is interpolated into the authorize/token URLs; userinfo is the tenant-agnostic Microsoft Graph endpoint."
+          "content": "authority and must be pinned to one directory (its tenant id or a verified domain). It defaults to common, and with common, organizations or consumers the button still appears but sign-in is refused with 400 OAUTH_MICROSOFT_TENANT_NOT_PINNED: Graph's email claim is a mutable, unverified directory attribute, so in a shared tenant anyone with their own Azure AD tenant could claim a victim's address (nOAuth). The tenant is interpolated into the authorize/token URLs; userinfo is the tenant-agnostic Microsoft Graph endpoint."
         },
         {
           "type": "list",
@@ -632,9 +632,9 @@ export const authenticationTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Microsoft Entra admin center → App registrations → New registration.",
-            "Supported account types decides who can sign in and maps to OAUTH_MICROSOFT_TENANT: any org + personal → common; single directory → that tenant's ID/domain.",
+            "Supported account types → Accounts in this organizational directory only (single tenant). Multi-tenant and personal-account registrations can't be used: the shared tenants (common, organizations, consumers) are refused.",
             "Redirect URI → platform Web → <base>/auth/callback/microsoft.",
-            "Certificates & secrets → New client secret → copy the Value (not the ID) → OAUTH_MICROSOFT_CLIENT_SECRET. Overview → Application (client) ID → OAUTH_MICROSOFT_CLIENT_ID. Set OAUTH_MICROSOFT_TENANT (common unless you scoped to one directory)."
+            "Certificates & secrets → New client secret → copy the Value (not the ID) → OAUTH_MICROSOFT_CLIENT_SECRET. Overview → Application (client) ID → OAUTH_MICROSOFT_CLIENT_ID; Directory (tenant) ID → OAUTH_MICROSOFT_TENANT."
           ]
         },
         {
@@ -643,7 +643,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "OAUTH_MICROSOFT_CLIENT_ID=your-application-client-id\nOAUTH_MICROSOFT_CLIENT_SECRET=your-client-secret-value\nOAUTH_MICROSOFT_TENANT=common",
+          "content": "OAUTH_MICROSOFT_CLIENT_ID=your-application-client-id\nOAUTH_MICROSOFT_CLIENT_SECRET=your-client-secret-value\nOAUTH_MICROSOFT_TENANT=your-directory-tenant-id",
           "language": "bash"
         },
         {
@@ -805,10 +805,6 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Google, Microsoft Entra, GitLab, GitHub (OAuth Apps, since July 2025) and generic OIDC issuers get PKCE. LinkedIn does not — its PKCE flow must be enabled per app by LinkedIn and uses a different authorization endpoint, and it does not ignore the extra parameters. Facebook does not — Meta documents code_challenge only for its separate OIDC code flow, not the Graph-API flow used here. Those two keep state as their CSRF protection; nothing else about them changes."
-        },
-        {
-          "type": "note",
-          "content": "Cutover: there is no compatibility path. Any sign-in, SSO login or step-up re-auth that is mid-flight when the new build rolls out fails with an invalid-state error; the user retries and gets a PKCE-protected flow. Nothing needs to be configured, and no identity-provider settings change."
         },
         {
           "type": "text",
@@ -1133,7 +1129,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "Multi-replica: the OAuth/SSO CSRF state, the OIDC nonce, the PKCE code_verifier, and SAML's RelayState, request ids, spent assertion ids and sign-in handoff are held in the shared Redis, so the authorize and the callback (or the assertion POST) can land on different replicas. Without Redis they fall back to per-pod memory (single-replica only) — and a SAML replay guard is then only as wide as one pod, so a multi-replica SAML deployment needs Redis."
+          "content": "Multi-replica: the OAuth/SSO CSRF state, the OIDC nonce, the PKCE code_verifier, and SAML's RelayState, request ids, spent assertion ids and sign-in handoff are held in the shared Redis, so the authorize and the callback (or the assertion POST) can land on different replicas. Production refuses to boot without Redis (Redis dependency); only dev and test fall back to per-process memory, where a SAML replay guard is only as wide as one process."
         },
         {
           "type": "text",
@@ -2098,7 +2094,7 @@ export const authenticationTopic: HelpTopic = {
             [
               "Provider re-auth",
               "POST /auth/step-up/reauth → POST /auth/step-up/reauth/callback",
-              "Accounts with a linked social provider or org SSO — including the Google/GitHub/SSO accounts that have no password at all and previously could not pass step-up."
+              "Accounts with a linked social provider or org SSO — including the Google/GitHub/SSO accounts that have no password at all."
             ]
           ]
         },
@@ -2233,7 +2229,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "own, so they no longer depend on a provider round trip."
+          "content": "own, so they don't depend on a provider round trip."
         },
         {
           "type": "text",
@@ -2703,6 +2699,18 @@ export const authenticationTopic: HelpTopic = {
               "403"
             ],
             [
+              "Update, delete, move or re-tier an organization",
+              "PUT/DELETE /organization/:id, POST /organization/:id/move, PATCH /organization/:id/tier",
+              "Always, + step-up",
+              "403"
+            ],
+            [
+              "Operator consoles and fleet reads (sysadmin)",
+              "GET /organizations, GET /admin/summary, GET /admin/cascade, /admin/console-check, POST /admin/console-session; with step-up: POST /admin/cascade/:id/redrive, GET /admin/orgs/:orgId/k8s-namespace.yaml",
+              "Always",
+              "403"
+            ],
+            [
               "Edit / delete / re-entitle another user (sysadmin)",
               "PUT/DELETE /users/:id, PUT /users/:id/features, POST /users/bulk-delete",
               "Always, + step-up",
@@ -2972,12 +2980,12 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Two of those setup routes — creating the setup service account and issuing its"
+            "Three of those setup routes — creating the setup service account, issuing its"
           ]
         },
         {
           "type": "text",
-          "content": "key — are also always aal: 2 routes, which this session can never be: the install has no factor to be MFA-grade with yet. So the assurance gate carries one named exemption, bootstrap-setup, which requires the mfaEnrollmentPending flag, a path the allowlist already admits, AND a live re-read (resolveBootstrapSetupWindow) confirming that the install is still inside BOOTSTRAP_SETUP_WINDOW_MS (default 24 h) and that the exception has not already closed. The live re-read matters because mfaEnrollmentPending is a token claim that outlives what it describes: enrolment clears it from the refresh slots, but an access token already issued keeps it for the rest of its ~15-minute life, and would otherwise still mint a durable superadmin key at aal: 1. It grants no extra reach, step-up still applies (the admin's password earns it), the action is still audited as org.service-account.create / .key.create, every use increments assurance_exempted_total{reason=\"bootstrap-setup\"}, a refusal increments platform_mfa_bootstrap_setup_refused_total{reason}, and the generated route table records it as aal2(except bootstrap-setup). Without it a fresh install could not finish: init would stop at 401 MFA_REQUIRED, and nothing else the bootstrap session can reach would let it proceed."
+          "content": "key, and the one-call provision-key — are also always aal: 2 routes, which this session can never be: the install has no factor to be MFA-grade with yet. So the assurance gate carries one named exemption, bootstrap-setup, which requires the mfaEnrollmentPending flag, a path the allowlist already admits, AND a live re-read (resolveBootstrapSetupWindow) confirming that the install is still inside BOOTSTRAP_SETUP_WINDOW_MS (default 24 h) and that the exception has not already closed. The live re-read matters because mfaEnrollmentPending is a token claim that outlives what it describes: enrolment clears it from the refresh slots, but an access token already issued keeps it for the rest of its ~15-minute life, and would otherwise still mint a durable superadmin key at aal: 1. It grants no extra reach, step-up still applies (the admin's password earns it), the action is still audited as org.service-account.create / .key.create, every use increments assurance_exempted_total{reason=\"bootstrap-setup\"}, a refusal increments platform_mfa_bootstrap_setup_refused_total{reason}, and the generated route table records it as aal2(except bootstrap-setup). Without it a fresh install could not finish: init would stop at 401 MFA_REQUIRED, and nothing else the bootstrap session can reach would let it proceed."
         },
         {
           "type": "list",
@@ -3202,7 +3210,7 @@ export const authenticationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Separate from SSO, an org can let people with a verified company email domain discover and join it — so coworkers land in one org instead of many one-person orgs. Requires the Team or Enterprise tier. The design and threat model are covered in the sections below."
+          "content": "Separate from SSO, an org can let people with a verified company email domain discover and join it — so coworkers land in one org instead of many one-person orgs. Requires a tier that includes sso (Team, Business, Enterprise, or the billing-off unlimited tier), read at the account root."
         },
         {
           "type": "text",
@@ -3338,7 +3346,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Why it matters: before this, all ten services shared one HMAC secret, so any one of them could mint a platform-admin token. Now a service compromise cannot produce a user identity at all."
+          "content": "Why it matters: no other service holds a key that can sign a user token, so a service compromise cannot produce a user identity at all."
         },
         {
           "type": "table",
@@ -3391,7 +3399,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Signing keys are install prerequisites, not a migration step. Platform is the only minter of user tokens and refuses to start without a key, and every service signs its own internal tokens, so a target that skipped these steps comes up dead rather than degraded. There is no shared-secret fallback to land on: no JWT_SECRET, no REFRESH_TOKEN_SECRET, and no target declares either."
+          "content": "Signing keys are install prerequisites. Platform is the only minter of user tokens and refuses to start without a key, and every service signs its own internal tokens, so a target that skipped these steps comes up dead rather than degraded. There is no shared-secret fallback to land on: no JWT_SECRET, no REFRESH_TOKEN_SECRET, and no target declares either."
         },
         {
           "type": "list",
@@ -3421,7 +3429,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "claims for the access log and the x-org-id / x-user-id hints and verifies nothing (ES256 verification needs an async JWKS fetch, which a synchronous njs js_set handler cannot make). Nothing is lost that was enforcing: the gateway never rejected a request, and each service re-derives the request's tenant identity from the token it verified itself. The anti-spoof property also survives — nginx still OVERWRITES those headers on every proxied request, so a client cannot inject an org id of its choosing."
+          "content": "claims for the access log and the x-org-id / x-user-id hints and verifies nothing (ES256 verification needs an async JWKS fetch, which a synchronous njs js_set handler cannot make). The gateway never rejects a request: each service derives the request's tenant identity from the token it verified itself. nginx OVERWRITES those headers on every proxied request, so a client cannot inject an org id of its choosing."
         },
         {
           "type": "list",
@@ -3445,7 +3453,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Each service signs those with its own ES256 key. Before this, all ten shared one JWT_SECRET, which meant any service could mint a token naming any other — \"billing said so\" was unfalsifiable, and one compromised workload spoke for the whole fleet. Now:"
+          "content": "Each service signs those with its own ES256 key, so no service can mint a token naming another and one compromised workload cannot speak for the fleet:"
         },
         {
           "type": "list",
@@ -3639,7 +3647,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "an access key's. \"A sufficiently privileged human\" is not an acceptable caller for a peer-service API; that equivalence is how a browser-reachable path becomes a tenant-boundary bug. (This replaced several || isSystemAdmin(req) escape hatches that had grown around the individual routes.)"
+          "content": "an access key's. \"A sufficiently privileged human\" is not an acceptable caller for a peer-service API; that equivalence is how a browser-reachable path becomes a tenant-boundary bug."
         },
         {
           "type": "list",
@@ -3661,7 +3669,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "On minikube, EC2 and EKS an Istio AuthorizationPolicy per internal route names the same calling service accounts, as a second, independent refusal (deploy/*/k8s/istio-internal-routes.yaml). It is defence in depth, never the enforcement: docker compose runs no mesh at all, so the token check has to hold on its own there — which packages/api-core/test/internal-route-mesh-less.test.ts proves by running the mesh-less configuration against a real HTTP server and real keys."
+          "content": "On minikube, EC2 and EKS an Istio AuthorizationPolicy per internal route names the same calling service accounts, as a second, independent refusal (deploy///k8s/istio-internal-routes.yaml). It is defence in depth, never the enforcement: docker compose runs no mesh at all, so the token check has to hold on its own there — which packages/api-core/test/internal-route-mesh-less.test.ts proves by running the mesh-less configuration against a real HTTP server and real keys."
         }
       ]
     },
@@ -3779,7 +3787,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "it stops working on every service within one token lifetime (5 minutes). The old JWT PAT was only checked at platform and kept working elsewhere for up to 365 days."
+          "content": "it stops working on every service within one token lifetime (5 minutes)."
         },
         {
           "type": "list",
@@ -3789,7 +3797,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "are re-derived from the user and their membership on every exchange, so a demotion reaches the key in the same 5 minutes. A JWT PAT baked them at mint."
+          "content": "are re-derived from the user and their membership on every exchange, so a demotion reaches the key in the same 5 minutes."
         },
         {
           "type": "list",
@@ -3907,7 +3915,7 @@ export const authenticationTopic: HelpTopic = {
             ],
             [
               "Roles, through the same machinery",
-              "It holds the org's Roles via role_assignments, and the assignment ceiling is identical: you can never create an account more powerful than yourself. Only a platform superadmin may grant a superadmin-granting Role."
+              "It holds the org's Roles via role_assignments, and the assignment ceiling is identical: you can never create an account more powerful than yourself. Only a platform superadmin may grant a superadmin-granting Role. Minting a key for, re-enabling or deleting an existing account passes the same ceiling against the Roles it holds (403 otherwise); disabling it and revoking a key do not."
             ],
             [
               "Never impersonated",
@@ -3941,7 +3949,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Creation and key management live at Dashboard → Settings → Service Accounts. Every route — the listing included — requires service_accounts:manage, and every write is step-up gated exactly like creating a personal access key (revoking a key is not, so a compromised credential can be killed immediately). The keys also appear on Dashboard → API Tokens, in the same list as personal keys, labelled with their owning account."
+          "content": "Creation and key management live at Dashboard → Security → Service accounts. Every route — the listing included — requires service_accounts:manage, and every write is step-up gated exactly like creating a personal access key (revoking a key is not, so a compromised credential can be killed immediately). The keys also appear on Dashboard → Security → Access keys, in the same list as personal keys, labelled with their owning account."
         },
         {
           "type": "text",
@@ -4212,7 +4220,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The secret's schema is unchanged in shape — { username, password, platformUrl, … } — and password is still the canonical field. What changed is its VALUE: a pb_sa_… key instead of a JWT. Nothing downstream verifies it, because there is nothing in an opaque key to verify: image-registry and every service exchange it (api-core's cached exchange client), and the events Lambda exchanges it itself. The secret additionally records keyId, serviceAccountId and scope, which is what the rotation Lambda needs to retire the key it replaces."
+          "content": "The secret is { username, password, platformUrl, … }, and password is the canonical field, holding a pb_sa_… key. Nothing downstream verifies it, because there is nothing in an opaque key to verify: image-registry and every service exchange it (api-core's cached exchange client), and the events Lambda exchanges it itself. The secret additionally records keyId, serviceAccountId and scope, which is what the rotation Lambda needs to retire the key it replaces."
         },
         {
           "type": "text",
@@ -4299,7 +4307,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "key is shown once. Errors are the individual routes': 401 STEP_UP_REQUIRED / STEP_UP_INVALID / STEP_UP_REPLAY, 401 MFA_REQUIRED below aal: 2 (with the same bootstrap-administrator exemption), 403 without service_accounts:manage, outside the org, or over the Role / scope ceiling, 400 on the body, 409 SA_LIMIT / SA_KEY_LIMIT (still at the cap after one retirement), and 409 SA_BUILTIN_ROLE_MISSING when the org has no built-in Role for role (restart / upgrade the platform so its startup backfill seeds it)."
+          "content": "key is shown once. Errors are the individual routes': 401 STEP_UP_REQUIRED / STEP_UP_INVALID / STEP_UP_REPLAY, 401 MFA_REQUIRED below aal: 2 (with the same bootstrap-administrator exemption), 403 without service_accounts:manage, outside the org, or over the Role / scope ceiling, 400 on the body, 409 SA_LIMIT / SA_KEY_LIMIT (still at the cap after one retirement), and 409 SA_BUILTIN_ROLE_MISSING when the org has no built-in Role for role (every org is seeded with them at creation, so one was removed outside the API — recreate it, then retry)."
         },
         {
           "type": "text",
@@ -4379,7 +4387,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "auth pat uses the same flow. Creating an access key is step-up gated server-side, which used to force the CLI to hold a password and POST it twice (sign-in, then step-up). Now the CLI sets step_up: true on /auth/device/code, the browser approval supplies the step-up, and the approved poll returns a short-lived step_up_token alongside the session — spent immediately on POST /user/keys. No password is typed into a terminal at any point."
+          "content": "auth pat uses the same flow. Creating an access key is step-up gated server-side, so the CLI sets step_up: true on /auth/device/code, the browser approval supplies the step-up, and the approved poll returns a short-lived step_up_token alongside the session — spent immediately on POST /user/keys. No password is typed into a terminal at any point."
         },
         {
           "type": "text",
@@ -4428,7 +4436,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The browser's access token is held in memory only — there is no localStorage copy of either token. A page reload therefore starts with no access token and silently trades the cookie for a new one (ApiCore.restoreSession()); a non-secret pb.session marker in localStorage records only that a session exists, so an anonymous visitor isn't made to probe the refresh endpoint. An XSS that runs in the page can no longer walk off with a 30-day credential; the worst it can reach is a 15-minute access token."
+          "content": "The browser's access token is held in memory only — there is no localStorage copy of either token. A page reload therefore starts with no access token and silently trades the cookie for a new one (ApiCore.restoreSession()); a non-secret pb.session marker in localStorage records only that a session exists, so an anonymous visitor isn't made to probe the refresh endpoint. An XSS that runs in the page cannot walk off with a 30-day credential; the worst it can reach is a 15-minute access token."
         },
         {
           "type": "text",
@@ -4440,7 +4448,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Cross-tab: tabs can no longer read the refresh token, so they coordinate over a BroadcastChannel (pipeline-builder:auth) plus the existing Web Lock. The tab that wins the lock refreshes and broadcasts the new access token; the others adopt it instead of rotating the shared cookie again. A sign-out in one tab is broadcast too. The Web Lock is load-bearing: it guarantees a sibling's Set-Cookie has landed before the next tab presents the cookie, so two tabs refreshing together can never both send the pre-rotation token (which the server would read as reuse and answer by revoking the slot)."
+          "content": "Cross-tab: tabs cannot read the refresh token, so they coordinate over a BroadcastChannel (pipeline-builder:auth) plus a Web Lock. The tab that wins the lock refreshes and broadcasts the new access token; the others adopt it instead of rotating the shared cookie again. A sign-out in one tab is broadcast too. The Web Lock is load-bearing: it guarantees a sibling's Set-Cookie has landed before the next tab presents the cookie, so two tabs refreshing together can never both send the pre-rotation token (which the server would read as reuse and answer by revoking the slot)."
         },
         {
           "type": "note",
@@ -4454,7 +4462,7 @@ export const authenticationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "note",
-          "content": "Where these live. Everything that can sign in as you — password, passkeys, authenticator app, sessions and access keys — is on Dashboard → Security, in four tabs (Factors · Sessions · Access keys · Service accounts). It replaces Settings → Security, the \"API Tokens\" page (which carried a second, conflicting sessions list) and Settings → Service Accounts. The old addresses forward to the matching tab, so saved links and CLI docs still land; nothing of the old pages runs behind them."
+          "content": "Where these live. Everything that can sign in as you — password, passkeys, authenticator app, sessions and access keys — is on Dashboard → Security, in four tabs (Factors · Sessions · Access keys · Service accounts)."
         },
         {
           "type": "text",
@@ -4486,7 +4494,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "> Not what stored credentials use any more. pipeline-manager infra > store-token, the AWS rotation Lambda and CI all hold > service-account keys now — a machine > session was still a person's credential, and that is the thing #12 / #N2 > removed. A machine session is what remains for a person who deliberately wants > a long-lived token of their own."
+          "content": "> Not what stored credentials use. pipeline-manager infra > store-token, the AWS rotation Lambda and CI all hold > service-account keys — a machine > session is a person's credential. It is for a person who deliberately wants > a long-lived token of their own."
         },
         {
           "type": "text",

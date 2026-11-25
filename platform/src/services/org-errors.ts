@@ -64,6 +64,9 @@ export const ORG_SEAT_LIMIT_NOT_ROOT = 'ORG_SEAT_LIMIT_NOT_ROOT';
 /** Restoring/moving would put the account over its pooled seat cap. → 409 */
 export const ORG_SEAT_LIMIT = 'ORG_SEAT_LIMIT';
 
+/** A platform operator deleted the org (a takedown): only the platform may restore it. → 403 */
+export const ORG_RESTORE_PLATFORM_DELETED = 'ORG_RESTORE_PLATFORM_DELETED';
+
 /** A team can't be restored: its parent is gone or soft-deleted. → 409 */
 export const ORG_RESTORE_PARENT_GONE = 'ORG_RESTORE_PARENT_GONE';
 

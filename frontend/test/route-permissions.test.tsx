@@ -3493,6 +3493,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ...group('platform', ['PUT /admin/orgs/:orgId/kms-config', 'DELETE /admin/orgs/:orgId/kms-config'], {
     category: 'sysadmin-console', why: 'Sysadmin per-org KMS modal; systemAdmin + step-up with a strong factor.',
   }),
+  'platform POST /admin/orgs/:orgId/kms-config/runner-keys/reencrypt': {
+    category: 'no-ui',
+    why: 'Operator recovery API named in the 500 a KMS change returns when its runner-signing-key re-wrap failed (docs/runbooks/secret-rotation.md, Per-org KMS): no button, because the retry is only meaningful once the cause the message names is fixed. systemAdmin + aal2 + strong step-up, the same gates as the PUT.',
+  },
   ...group('platform', ['POST /admin/users/:id/grants', 'DELETE /admin/users/:id/grants'], {
     category: 'sysadmin-console', why: 'Sysadmin superadmin-grant editor; systemAdmin + step-up with a strong factor.',
   }),

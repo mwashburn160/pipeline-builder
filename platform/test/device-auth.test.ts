@@ -225,6 +225,14 @@ describe('POST /auth/device/token — the polling state machine', () => {
     expect(body(await call(deviceToken, { body: { device_code: started.device_code } })).error).toBe('expired_token');
   });
 
+  it('counts CONCURRENT polls toward the ceiling (none lost to a read-modify-write race)', async () => {
+    const started = await start();
+    // 200 polls in flight at once — each one must count, so the next is over the ceiling.
+    await Promise.all(Array.from({ length: 200 }, () => call(deviceToken, { body: { device_code: started.device_code } })));
+    clockOffset += 60_000;
+    expect(body(await call(deviceToken, { body: { device_code: started.device_code } })).error).toBe('expired_token');
+  });
+
   it('hands back access_denied after a denial, then forgets the flow', async () => {
     const started = await start();
     await call(denyDeviceRequest, { user: APPROVER, body: { userCode: started.user_code } });

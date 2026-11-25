@@ -952,7 +952,7 @@ groups:
         # A published TENANT fix whose rollout to pipelines never started and is
         # no longer retried (error rollout_start_failed): the pipeline service
         # refused the start (a 4xx other than 408 / 429 — reason="permanent") or
-        # failed it 5 times on 5 nightly passes (5xx, 408, 429, unreachable —
+        # failed it 5 times in all (the attempt at publish plus 4 nightly passes; 5xx, 408, 429, unreachable —
         # reason="exhausted"). The fix version is published and choosable, but no
         # pipeline is moved or offered it until someone presses Retry. The org's
         # plugin security recipients get N37; this is the operator's view, since a
@@ -964,7 +964,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "{{ $value | humanize }} plugin remediation rollouts did not start ({{ $labels.reason }}) in 6h"
-          description: "Plugins → Remediations: the Published rows reading \"Rollout didn't start\". permanent = the pipeline service refused the start request (check the plugin log 'Remediation rollout not started' for the status, and pipeline's internal route and service-auth config); exhausted = the pipeline service stayed unavailable or overloaded across 5 nightly passes. Once fixed, Retry on each card restarts its rollout."
+          description: "Plugins → Remediations: the Published rows reading \"Rollout didn't start\". permanent = the pipeline service refused the start request (check the plugin log 'Remediation rollout not started' for the status, and pipeline's internal route and service-auth config); exhausted = the pipeline service stayed unavailable or overloaded across 5 attempts (at publish, then 4 nightly passes). Once fixed, Retry on each card restarts its rollout."
 
       - alert: PluginSourceDeleteFailing
         # A purge could not delete a version's RustFS prefix, an org's
@@ -1531,7 +1531,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "{{ $value }} handled Stripe event type(s) are not confirmed on the webhook endpoint"
-          description: "Billing could not make the Stripe webhook endpoint subscribe to every event it handles, so Stripe may never deliver those events (subscription changes, payments, refunds or disputes would silently stop reconciling). The stripe-webhook-reconcile log line on the billing leader names the missing events and the reason. Grant STRIPE_SECRET_KEY Webhook Endpoints write access, set STRIPE_WEBHOOK_ENDPOINT_ID when the endpoint is not at PLATFORM_BASE_URL/billing/stripe/webhook, or add the events in the Stripe Dashboard. See docs/billing-providers.md (Step 4)."
+          description: "Billing could not make the Stripe webhook endpoint subscribe to every event it handles, so Stripe may never deliver those events (subscription changes, payments, refunds or disputes would silently stop reconciling). The stripe-webhook-reconcile log line on the billing leader names the missing events and the reason. Grant STRIPE_SECRET_KEY Webhook Endpoints write access, set STRIPE_WEBHOOK_ENDPOINT_ID when the endpoint is not at PLATFORM_BASE_URL/api/billing/stripe/webhook, or add the events in the Stripe Dashboard. See docs/billing-providers.md (Step 4)."
 
       # ---- Notifications that never reached the organization ----
       # The dropped-after-retries case above is watched; these three are the paths
@@ -2230,7 +2230,7 @@ groups:
         labels:
           severity: critical
           component: quota
-          tenancy: org
+          tenancy: platform
         annotations:
           summary: "Team orgs are refused quota because their root is unresolvable ({{ $labels.quota_type }})"
           description: "{{ $value | humanize }} denials/sec over 5m sustained for 10m on quota_type={{ $labels.quota_type }}. A team org cannot resolve its pooled root cap, and because its own limits are -1 the reservation is refused with QuotaPoolUnavailableError instead of being allowed through unmetered. This is tenant-visible and the tenant has done nothing wrong, so it is a refusal we are causing. Check the platform org-hierarchy read path that resolves the root."
@@ -4592,7 +4592,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "A pipeline runner refused the platform's signature"
-          description: "A runner answered 401 SIGNATURE_INVALID in the last 10 minutes. Its org's signing key, the runner's own JWKS (GET /api/pipelines/runner/runners/<runnerId>/jwks.json, which must be reachable from the runner's account), an emergency revoke that in-flight requests had not yet retried past, or the runner's clock (2 minutes of skew allowed) is wrong. The runner was marked unhealthy at once. Find the org from the failed run requests, then check its Signing key card and docs/runbooks/secret-rotation.md (Runner signing keys)."
+          description: "A runner answered 401 SIGNATURE_INVALID in the last 10 minutes. Its org's signing key, the runner's own JWKS (GET /api/pipelines/runner/runners/<runnerId>/jwks.json, which must be reachable from the runner's account), an emergency revoke (SIGNATURE_INVALID is final and never retried; a runner may still trust a revoked key until it refetches its JWKS, up to 10 minutes), or the runner's clock (2 minutes of skew allowed) is wrong. The runner was marked unhealthy at once. Find the org from the failed run requests, then check its Signing key card and docs/runbooks/secret-rotation.md (Runner signing keys)."
 
       # An org whose runner signing key cannot be decrypted: SECRET_ENCRYPTION_KEY
       # was changed without running the re-encrypt job, the org's KMS key was

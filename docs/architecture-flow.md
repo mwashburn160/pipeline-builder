@@ -25,7 +25,7 @@ How a pipeline gets from a definition in the UI to a running CodePipeline, trace
 
 Pipeline Builder is a multi-team platform for creating AWS CodePipeline CI/CD pipelines out of reusable, containerized plugins. Users define pipelines through the UI, CLI, API or CDK, and the system synthesizes them into CloudFormation templates via AWS CDK.
 
-It ships with 119 ready-to-use plugins spanning build, test, security, quality, monitoring and infrastructure, and can also generate new plugins and pipelines from natural-language prompts via pluggable AI providers — Anthropic, OpenAI, Google, xAI and Amazon Bedrock.
+It ships with 118 ready-to-use plugins spanning build, test, security, quality, monitoring and infrastructure, and can also generate new plugins and pipelines from natural-language prompts via pluggable AI providers — Anthropic, OpenAI, Google, xAI and Amazon Bedrock.
 
 This page is for engineers who need the mechanism rather than the product story. For the latter, see [Organization Benefits](organization-benefits.md).
 
@@ -78,12 +78,13 @@ flowchart TB
         BILLING[Billing]
         MESSAGE[Message]
         REPORTING[Reporting]
-        OPS[Ops Controller<br/>Dashboards / Alerting / On-call]
+        OPS[Ops Center<br/>Dashboards / Alerting / On-call]
         IMGREG[Image Registry<br/>Token / Image API]
+        ASK[Ask Agent]
     end
 
     subgraph Data
-        MONGO[(MongoDB<br/>Users / Orgs)]
+        MONGO[(MongoDB<br/>Users / Orgs / Quota / Billing)]
         PG[(PostgreSQL<br/>Pipelines / Plugins)]
         REDIS[(Redis<br/>BullMQ / Cache)]
     end
@@ -94,12 +95,13 @@ flowchart TB
     end
 
     FE & CLI & API_EXT --> NGINX
-    NGINX -->|route by path| PLATFORM & PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & OPS & IMGREG
-    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & OPS & IMGREG -.->|verify tokens via JWKS| PLATFORM
+    NGINX -->|route by path| PLATFORM & PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & OPS & IMGREG & ASK
+    PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & OPS & IMGREG & ASK -.->|verify tokens via JWKS| PLATFORM
     PLUGIN & PIPELINE -->|validate| COMPLIANCE
-    PLATFORM --> MONGO
-    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & OPS --> PG
-    PLUGIN --> REDIS
+    PLUGIN & PIPELINE -->|reserve slot| QUOTA
+    PLATFORM & QUOTA & BILLING --> MONGO
+    PIPELINE & PLUGIN & COMPLIANCE & MESSAGE & REPORTING & OPS --> PG
+    PLATFORM & PIPELINE & PLUGIN & OPS & IMGREG --> REDIS
     PLUGIN -->|buildctl build_image| BK
     PLUGIN -->|crane push prebuilt| REG
     BK -->|push with scoped Bearer token| REG
@@ -134,10 +136,10 @@ sequenceDiagram
 
     Dev->>API: POST /plugins (multipart: plugin.zip)
     API->>API: Extract ZIP (spec, Dockerfile, config)
-    API->>API: Compliance check (fail-closed)
-    API-->>Dev: 202 Accepted
-
+    API->>API: Reserve plugins quota slot
+    API->>API: Compliance check (fail-closed: 403 blocked, 503 unavailable)
     API->>Queue: Enqueue build job
+    API-->>Dev: 202 Accepted
 
     Queue->>BK: buildctl build --frontend dockerfile.v0<br/>attest:provenance=mode=min
     BK->>Reg: push image index (bearer-token auth)
@@ -222,11 +224,13 @@ sequenceDiagram
   `official-catalog-loader` service account (`publishRequest=true`). The first
   load rides the one-time bootstrap exception; later gate-green patch/minor
   updates ride the seeded Official auto-approval rule.
-- **Resolution until installs ship.** Plugin reads and lookups include another
-  org's plugin only when it is a system-org row that is the source of a live
-  Official listing version (`OFFICIAL_LISTED_PLUGIN_SCOPE` in pipeline-data).
-  W2 switches resolution to installs (implicit for Official) and to the
-  listing's `public/*` image repository.
+- **Resolution through installs.** `/plugins/lookup` resolves a reference to
+  a listing only through the org's install — an explicit `plugin_installs` row
+  (its own or, for a team, its root org's), or the implicit install every org
+  has of Official listings unless its consumption policy sets
+  `officialInstalls: explicit`. The consumption policy is applied on every
+  resolution (`packages/pipeline-data/src/api/plugin-resolution.ts`); see
+  [Installing Plugins](plugin-installing.md).
 - **Re-sign job.** A tier change, suspension, handle change or transfer
   re-signs every published image with the new annotations, then drops the
   lookup verify cache.
@@ -240,18 +244,23 @@ Users compose pipelines from plugins via the UI or API.
 ```mermaid
 sequenceDiagram
     participant User as User (UI/API)
-    participant Plat as Platform API
     participant Pipe as Pipeline API
+    participant Quota as Quota
     participant Comp as Compliance
     participant DB as PostgreSQL
 
-    User->>Plat: Create Pipeline (project, org, props)
-    Plat->>Pipe: POST /pipelines
-    Pipe->>Pipe: Auth + quota check
+    User->>Pipe: POST /api/pipelines (project, org, props) via nginx
+    Pipe->>Pipe: Auth + pipelines:write, validate body
+    Pipe->>Quota: Reserve a pipelines slot (429 over limit)
     Pipe->>Comp: Validate pipeline props
     Comp-->>Pipe: Allowed / Blocked
-    Pipe->>DB: Store pipeline (id, project, org, props JSON)
-    Pipe-->>User: 201 Created
+    alt blocked or compliance unavailable
+        Pipe->>Quota: Refund slot
+        Pipe-->>User: 403 COMPLIANCE_VIOLATION / 503
+    else allowed
+        Pipe->>DB: Store pipeline (id, project, org, props JSON)
+        Pipe-->>User: 201 Created
+    end
 ```
 
 ### BuilderProps Structure (stored as JSON in `props` column)
@@ -300,7 +309,7 @@ The pipeline definition is synthesized into an AWS CloudFormation template using
 sequenceDiagram
     participant CLI as pipeline-manager
     participant CDK as CDK Constructs
-    participant API as Platform API
+    participant API as Plugin API
 
     CLI->>API: POST /api/plugins/lookup (every plugin)
     API-->>CLI: Plugin config (commands, env, computeType, imageDigest)
@@ -336,10 +345,8 @@ flowchart TB
     CFN[CloudFormation Template]
     CFN --> CP[AWS::CodePipeline::Pipeline]
     CFN --> CB1[AWS::CodeBuild::Project x N]
-    CFN --> LF[AWS::Lambda::Function<br/>Plugin Lookup]
-    CFN --> IAM[AWS::IAM::Role<br/>Pipeline Execution]
+    CFN --> IAM[AWS::IAM::Role<br/>Pipeline + CodeBuild]
     CFN --> S3[AWS::S3::Bucket<br/>Artifacts]
-    CFN --> CW[AWS::CloudWatch::LogGroup]
 
     CB1 --> BE[BuildEnvironment]
     BE --> IMG[Image: plugin or AWS default]
@@ -368,7 +375,7 @@ sequenceDiagram
     CB->>CB: Run pipeline-manager pipeline synth
     CB-->>CP: Output: cdk.out/
 
-    CP->>CP: Stage: SelfMutation (update pipeline if changed)
+    CP->>CP: Stage: UpdatePipeline (self-mutation, if changed)
 
     CP->>CB: Stage: Test
     CB->>IMG: Pull jest + eslint images
@@ -430,7 +437,7 @@ flowchart TB
     ROOT[Root Organization: acme-corp<br/>orgId: abc123]
     ROOT --> PLUG[Plugins<br/>scoped by orgId + visibility]
     ROOT --> PIPE[Pipelines<br/>scoped by project, org, orgId]
-    ROOT --> SEC[Secrets<br/>AWS SM: /prefix/abc123/secretName]
+    ROOT --> SEC[Secrets<br/>AWS SM: pipeline-builder/abc123/secretName]
     ROOT --> QUO[Quotas + seats<br/>pooled at the root org]
     ROOT --> COMP[Compliance<br/>per-org policy rules]
     ROOT --> TEAM[Team: acme-mobile<br/>orgId: def456, parentOrgId: abc123]

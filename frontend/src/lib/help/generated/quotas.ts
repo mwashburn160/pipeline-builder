@@ -1,6 +1,6 @@
 // GENERATED FROM docs/quotas.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ca85c5fb132cb3eae71d71d490edd447ac42559ab8a9fb689af2ca273addb7f0
+// SOURCE-SHA256: e3026fbbc3b67f3dbc55c1bdfbcd2ff258d9d92c8e00db4032f5895ce8f62402
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -112,7 +112,7 @@ export const quotasTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Service principals — internal service-to-service calls.",
-            "On-behalf hops. A service that forwards the user's own token to a peer (the Ask agent's tools; pipeline's confirm-placeholder-plugins → plugin) adds an X-PB-On-Behalf header: a token signed with the calling service's key, typed so it can never be used as a bearer, bound to that user and org, valid 120 s, and honoured only from ask and pipeline. The peer skips the apiCalls meter and check for that request; tenancy, permissions and reservation quotas (a delegated generation still reserves its aiCalls) apply unchanged. A user who sets the header themselves gains nothing — it fails signature verification, is counted on quota_on_behalf_rejected_total, and the request is billed as usual. One Ask turn is therefore one apiCalls (plus its aiCalls), not one per tool call.",
+            "On-behalf hops. A service that forwards the user's own token to a peer (the Ask agent's tools; pipeline's confirm-placeholder-plugins → plugin) adds an X-PB-On-Behalf header: a token signed with the calling service's key, typed so it can never be used as a bearer, bound to that user and org, valid 120 s, and honoured only from ask-agent and pipeline. The peer skips the apiCalls meter and check for that request; tenancy, permissions and reservation quotas (a delegated generation still reserves its aiCalls) apply unchanged. A user who sets the header themselves gains nothing — it fails signature verification, is counted on quota_on_behalf_rejected_total, and the request is billed as usual. One Ask turn is therefore one apiCalls (plus its aiCalls), not one per tool call.",
             "Impersonation sessions. Vendor staff impersonating a user neither spend the tenant's call budget nor get refused by it — diagnosing an exhausted org must not be blocked by the exhaustion. The session is audited on its own trail.",
             "Not-modified and unfinished responses. A 304 from an ETag match is not a 2xx and is free. A response that never finishes — a client that aborts a stream, a dropped socket — never emits finish and is not counted.",
             "Idempotent retries. A retry of a completed Idempotency-Key mutation is answered from the replay cache: not metered, and not checked either (the check looks the key up first), so a client re-reading its own result is never 429'd."
@@ -175,7 +175,7 @@ export const quotasTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The cap is soft: at 100% the account gets the \"reached\" notice and automation keeps running up to QUOTA_AUTOMATION_GRACE_PCT (10%) over the limit; the 429 starts beyond that band. A self-mutating pipeline that hard-stopped at exactly 100% stayed stopped until the period reset — up to three days — so the band buys time to add an Automation Pack. Every other quota stays hard."
+          "content": "The cap is soft: at 100% the account gets the \"reached\" notice and automation keeps running up to QUOTA_AUTOMATION_GRACE_PCT (10%) over the limit; the 429 starts beyond that band. A self-mutating pipeline that hard-stopped at exactly 100% would stay stopped until the period reset — up to three days — so the band buys time to add an Automation Pack. The only other banded quota is registry storage (QUOTA_STORAGE_GRACE_PCT); every other quota stays hard."
         },
         {
           "type": "table",
@@ -187,6 +187,10 @@ export const quotasTopic: HelpTopic = {
             [
               "platform",
               "/user, /users, /organization (incl. support contacts), /invitation, /audit"
+            ],
+            [
+              "ask-agent",
+              "/ask-agent (the draft-outcome ping is mounted outside it — see AI assistant usage report)"
             ],
             [
               "ops-center",
@@ -210,17 +214,17 @@ export const quotasTopic: HelpTopic = {
             ],
             [
               "reporting",
-              "/reports/* user surfaces (settings, retention, deployments, stakeholder reports, executions, plugin reports, ingest health / incident admin reads)"
+              "/reports/* user surfaces (settings, retention, deployments, stakeholder, stakeholder-preview, execution, plugins, security, insights, flow, benchmark, delivery, plus the ingest-health / incident admin reads)"
             ],
             [
               "image-registry",
-              "/api/images"
+              "/api/images, /api/admin (the registry superadmin surface is an authenticated call under an org, so it is metered)"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "Not metered: platform's /auth* (sign-in, refresh, MFA, OAuth, SSO, device flow — a locked-out org must still be able to sign in), /scim/v2 (directory sync has its own per-org bucket), /config, every /internal/* route, the system-org and vendor /admin surfaces, unauthenticated public routes, the quota service itself (reading your quota is always free) and billing."
+          "content": "Not metered: platform's /auth* (sign-in, refresh, MFA, OAuth, SSO, device flow — a locked-out org must still be able to sign in), /scim/v2 (directory sync has its own per-org bucket), /config, every /internal/* route, platform's system-org /organizations listing and vendor /admin surfaces, the registry's /token handshake (its quota is the storage push gate), unauthenticated public routes, the quota service itself (reading your quota is always free) and billing."
         },
         {
           "type": "text",
@@ -657,7 +661,7 @@ export const quotasTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Usage (from the usage ledger's aiCalls buckets): calls (one per after-the-call usage report, i.e. per call that reached the provider, charged or not), units charged (counted − refunded, the same net What used this shows for AI calls) and tokens, per time bucket, per caller type (user sessions, service_accounts, system: internal services and scheduled work), per feature and, for a rollup, per team. Features fold onto a bounded catalog: ask, agent, agent-tool (every agent-tool:<name>), pipeline-generate, plugin-generate, report-summary, other.",
-            "Acceptance: what users did with each AI-generated draft: accepted, edited_accepted (changed, then created) or discarded (closed, dismissed or replaced unused), for the draft-producing features agent, pipeline-generate and plugin-generate. The rate is (accepted + edited) / all outcomes, per bucket and per feature; it is blank with no outcomes. The dashboard's AI generation tabs (pipeline prompt and Git URL tabs, the plugin AI Builder) and the Ask panel's proposals (feature agent: Apply is accepted; Dismiss, a newer proposal, clearing the conversation or closing the panel with one pending is discarded) send one POST /ask-agent/draft-outcome per draft, carrying the draftId the generation issued with it (pipeline / plugin generate responses and done events, and each agent proposal event). A draft id is single use, lives about an hour and is bound to the org, the user and the producing feature (api-core AiDraftStore, in the shared Redis): a reused id is refused with 409, an unknown, forged or expired one, or one issued to another user, org or feature, with 400, and 503 when the store can't answer. Without Redis the store is in-process, so only ask-agent issues ids (its own agent drafts): pipeline / plugin generate then return drafts with no draftId, and the dashboard reports no outcome for them. ask-agent forwards an accepted outcome on its own service identity to the quota service's internal increment route (draftOutcome), which counts it into hourly ai_draft_outcome_buckets. Acceptance data starts with the release that added it: older ranges show usage only, and the response's acceptanceSince says when the first outcome was recorded.",
+            "Acceptance: what users did with each AI-generated draft: accepted, edited_accepted (changed, then created) or discarded (closed, dismissed or replaced unused), for the draft-producing features agent, pipeline-generate and plugin-generate. The rate is (accepted + edited) / all outcomes, per bucket and per feature; it is blank with no outcomes. The dashboard's AI generation tabs (pipeline prompt and Git URL tabs, the plugin AI Builder) and the Ask panel's proposals (feature agent: Apply is accepted; Dismiss, a newer proposal, clearing the conversation or closing the panel with one pending is discarded) send one POST /ask-agent/draft-outcome per draft, carrying the draftId the generation issued with it (pipeline / plugin generate responses and done events, and each agent proposal event). A draft id is single use, lives about an hour and is bound to the org, the user and the producing feature (api-core AiDraftStore, in the shared Redis): a reused id is refused with 409, an unknown, forged or expired one, or one issued to another user, org or feature, with 400, and 503 when the store can't answer. Without Redis the store is in-process, so only ask-agent issues ids (its own agent drafts): pipeline / plugin generate then return drafts with no draftId, and the dashboard reports no outcome for them. ask-agent forwards a verified outcome on its own service identity to the quota service's internal increment route (draftOutcome), which counts it into hourly ai_draft_outcome_buckets. The response's acceptanceSince says when the org's first outcome was recorded (null when none has been), so a range before it shows usage only.",
             "Never per person. Usage is grouped by caller type and team, never by principal; no response or CSV row carries a user id, name or email. The draft-outcome store holds org, feature, outcome, hour and a count, and nothing else: no user id, no prompt, no draft content. That is also why the outcome is not an audit action (every audit row carries its actor) and why it lives beside the ledger in Mongo rather than in a Postgres reporting table: the report divides one by the other per bucket, under the same scope, granularity and retention.",
             "Scope. By default the org's own usage. includeDescendants=true rolls up over the account (the org and its teams), with a per-team breakdown by team name, and is honoured only for a reports:rollup holder (the reporting rule). Anyone else silently gets their own org.",
             "Calendar. Buckets honour tz / weekStart with the same parsers the reporting dashboards use. The panel sends the org's report timezone and week start (or the browser's zone). The ledger is hourly in UTC, so in a zone whose offset is not a whole hour (e.g. Asia/Kolkata) a boundary hour falls wholly on one side.",

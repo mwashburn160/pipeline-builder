@@ -119,7 +119,8 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
   await registerPipeline({
     client: input.platformClient,
     pipelineUrl: input.platformPipelineUrl,
-    pipeline,
+    // The props the synth was handed name the deployed pipeline and stack.
+    pipeline: { ...pipeline, props: propsWithIds },
     region,
     output,
     queueOnFailure: true,
@@ -130,7 +131,7 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
 export interface RegisterPipelineInput {
   client: RegistryClient;
   pipelineUrl: string;
-  pipeline: Pick<Pipeline, 'id' | 'orgId' | 'pipelineName' | 'project' | 'organization'>;
+  pipeline: Pick<Pipeline, 'id' | 'orgId' | 'pipelineName' | 'project' | 'organization'> & Partial<Pick<Pipeline, 'props'>>;
   region?: string;
   /** Cloud assembly dir holding the synth's step manifest. */
   output: string;
@@ -169,6 +170,7 @@ export async function registerPipeline(input: RegisterPipelineInput): Promise<bo
         pipelineName: pipeline.pipelineName,
         project: pipeline.project,
         organization: pipeline.organization,
+        props: pipeline.props,
       },
       region,
     );

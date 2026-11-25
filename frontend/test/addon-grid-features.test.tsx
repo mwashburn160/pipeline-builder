@@ -25,7 +25,7 @@ const doraBundle = {
   description: 'DORA delivery analytics for your org.',
   grants: {},
   features: ['advanced_reporting'],
-  prices: { monthly: 2900, annual: 29000 },
+  prices: { monthly: 2900, annual: 29000 }, currency: 'usd',
   stackable: false,
   availableForTiers: [],
 } as unknown as Bundle;
@@ -35,7 +35,7 @@ const seatBundle = {
   name: 'Seat Pack',
   description: 'Extra seats.',
   grants: { seats: 5 },
-  prices: { monthly: 1000, annual: 10000 },
+  prices: { monthly: 1000, annual: 10000 }, currency: 'usd',
   stackable: true,
   availableForTiers: [],
 } as unknown as Bundle;
@@ -73,7 +73,7 @@ describe('AddonGrid — feature discoverability', () => {
     // deep-link on the id, not a feature.
     const historyPack = {
       id: 'dora_history_pack', name: 'DORA History Pack', description: 'Longer DORA retention.',
-      grants: { doraRetentionDays: 365 }, prices: { monthly: 1900, annual: 19000 },
+      grants: { doraRetentionDays: 365 }, prices: { monthly: 1900, annual: 19000 }, currency: 'usd',
       stackable: false, availableForTiers: [],
     } as unknown as Bundle;
     render(<AddonGrid {...baseProps} bundles={[seatBundle, historyPack]} highlightFeature="dora_history_pack" />);
@@ -84,7 +84,7 @@ describe('AddonGrid — feature discoverability', () => {
 describe('AddonGrid — SeatEntry (typed per-seat entry with volume tiers)', () => {
   const seat = {
     id: 'seat', name: 'Member Seat', description: 'One seat.',
-    grants: { seats: 1 }, prices: { monthly: 1999, annual: 19990 }, stackable: true,
+    grants: { seats: 1 }, prices: { monthly: 1999, annual: 19990 }, currency: 'usd', stackable: true,
     availableForTiers: [],
     volumeTiers: [{ minQuantity: 5, discountPercent: 10 }, { minQuantity: 15, discountPercent: 20 }],
   } as unknown as Bundle;
@@ -137,7 +137,7 @@ describe('AddonGrid — unsubscribed preview', () => {
   // lists the whole catalog — including packs a given plan doesn't sell.
   const teamOnly = {
     id: 'seat', name: 'Member Seat', description: '1 additional member seat.',
-    grants: { seats: 1 }, prices: { monthly: 1999, annual: 19990 }, stackable: true,
+    grants: { seats: 1 }, prices: { monthly: 1999, annual: 19990 }, currency: 'usd', stackable: true,
     availableForTiers: ['team', 'enterprise'],
   } as unknown as Bundle;
   // DERIVED from TIER_KEYS, not a hand-written list: the "On every plan" label
@@ -146,7 +146,7 @@ describe('AddonGrid — unsubscribed preview', () => {
   // a fifth tier existed — and failed as if the LABEL had regressed.
   const anyPlan = {
     id: 'plugin_pack', name: 'Plugin Pack (+25)', description: '25 additional plugins.',
-    grants: { plugins: 25 }, prices: { monthly: 1000, annual: 10000 }, stackable: true,
+    grants: { plugins: 25 }, prices: { monthly: 1000, annual: 10000 }, currency: 'usd', stackable: true,
     availableForTiers: [...TIER_KEYS],
   } as unknown as Bundle;
   // A pack sold on Pro alone. Every bundle's tier list is env-overridable
@@ -155,7 +155,7 @@ describe('AddonGrid — unsubscribed preview', () => {
   // developer/pro/team.
   const proOnly = {
     id: 'advanced_reporting', name: 'Advanced Reporting (DORA)', description: 'DORA delivery metrics.',
-    grants: {}, prices: { monthly: 3000, annual: 30000 }, stackable: false,
+    grants: {}, prices: { monthly: 3000, annual: 30000 }, currency: 'usd', stackable: false,
     availableForTiers: ['pro'],
   } as unknown as Bundle;
 
@@ -210,7 +210,7 @@ describe('AddonGrid — storage is typed in GB, not in packs', () => {
   const GB = 1024 ** 3;
   const storagePack = {
     id: 'storage_pack', name: 'Storage Pack (+10 GB)', description: '10 GB additional registry storage.',
-    grants: { storageBytes: 10 * GB }, prices: { monthly: 1999, annual: 19990 }, stackable: true,
+    grants: { storageBytes: 10 * GB }, prices: { monthly: 1999, annual: 19990 }, currency: 'usd', stackable: true,
     availableForTiers: [],
   } as unknown as Bundle;
 
@@ -270,7 +270,7 @@ describe('AddonGrid — storage is typed in GB, not in packs', () => {
     // unit entry must keep the plain count field, labelled as a count.
     const pluginPack = {
       id: 'plugin_pack', name: 'Plugin Pack (+10)', description: '10 plugin builds.',
-      grants: { plugins: 10 }, prices: { monthly: 1199, annual: 11990 }, stackable: true,
+      grants: { plugins: 10 }, prices: { monthly: 1199, annual: 11990 }, currency: 'usd', stackable: true,
       availableForTiers: [],
     } as unknown as Bundle;
     render(<AddonGrid {...baseProps} bundles={[pluginPack]} addonQty={() => 2} />);
@@ -285,7 +285,7 @@ describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
   // resulting total and the pack's cap, not a bare ±1.
   const pluginPack = {
     id: 'plugin_pack', name: 'Plugin Pack (+25)', description: '25 additional plugins.',
-    grants: { plugins: 25 }, prices: { monthly: 1000, annual: 10000 }, stackable: true,
+    grants: { plugins: 25 }, prices: { monthly: 1000, annual: 10000 }, currency: 'usd', stackable: true,
     availableForTiers: [],
   } as unknown as Bundle;
   // Retention packs are capped server-side (`maxQuantity`), which the ±1 stepper
@@ -387,12 +387,12 @@ describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
 describe('AddonGrid — combo "pair to save" nudge', () => {
   const tuaBundle = {
     id: 'bundle-tua', name: 'Team usage analytics', description: 'Per-team usage.',
-    grants: {}, features: ['team_usage_analytics'], prices: { monthly: 3000, annual: 30000 },
+    grants: {}, features: ['team_usage_analytics'], prices: { monthly: 3000, annual: 30000 }, currency: 'usd',
     stackable: false, availableForTiers: [],
   } as unknown as Bundle;
   const combo = {
     id: 'analytics_suite', name: 'Analytics Suite',
-    bundleIds: ['bundle-dora', 'bundle-tua'], savings: { monthly: 2000, annual: 20000 },
+    bundleIds: ['bundle-dora', 'bundle-tua'], savings: { monthly: 2000, annual: 20000 }, currency: 'usd',
   };
 
   it('nudges on the UN-owned member when the other member is already owned', () => {
@@ -420,7 +420,7 @@ describe('AddonGrid — combo "pair to save" nudge', () => {
 
   it('is quantity-aware: fires below a member minimum, clears once met', () => {
     // Seat Pack combo needs qty ≥ 2; TUA owned. seat card at qty 1 → still nudged.
-    const seatCombo = { id: 'seaty', name: 'Seat Combo', bundleIds: ['bundle-seats', 'bundle-tua'], minQuantities: { 'bundle-seats': 2 }, savings: { monthly: 1500, annual: 15000 } };
+    const seatCombo = { id: 'seaty', name: 'Seat Combo', bundleIds: ['bundle-seats', 'bundle-tua'], minQuantities: { 'bundle-seats': 2 }, savings: { monthly: 1500, annual: 15000 }, currency: 'usd' };
     const props = { ...baseProps, bundles: [seatBundle, tuaBundle], comboDiscounts: [seatCombo] };
     const { rerender } = render(<AddonGrid {...props} addonQty={(id) => (id === 'bundle-tua' ? 1 : 1)} />);
     expect(screen.getByText(/Completes the Seat Combo/i)).toBeInTheDocument();
@@ -430,8 +430,8 @@ describe('AddonGrid — combo "pair to save" nudge', () => {
 
   it('shows only the higher-savings combo when a card completes two', () => {
     // The DORA card completes both combos (TUA + seats owned); show the bigger one.
-    const small = { id: 'small', name: 'Small', bundleIds: ['bundle-dora', 'bundle-tua'], savings: { monthly: 1000, annual: 10000 } };
-    const big = { id: 'big', name: 'Big', bundleIds: ['bundle-dora', 'bundle-seats'], savings: { monthly: 2500, annual: 25000 } };
+    const small = { id: 'small', name: 'Small', bundleIds: ['bundle-dora', 'bundle-tua'], savings: { monthly: 1000, annual: 10000 }, currency: 'usd' };
+    const big = { id: 'big', name: 'Big', bundleIds: ['bundle-dora', 'bundle-seats'], savings: { monthly: 2500, annual: 25000 }, currency: 'usd' };
     render(
       <AddonGrid
         {...baseProps}
@@ -451,7 +451,7 @@ describe('AddonGrid — unmet prerequisites', () => {
     name: 'DORA History Pack (+365d)',
     description: '365 additional days of DORA history',
     grants: { doraRetentionDays: 365 },
-    prices: { monthly: 3000, annual: 30000 },
+    prices: { monthly: 3000, annual: 30000 }, currency: 'usd',
     stackable: true,
     maxQuantity: 1,
     availableForTiers: [],

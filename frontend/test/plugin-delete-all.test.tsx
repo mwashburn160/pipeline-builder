@@ -149,6 +149,14 @@ describe('DeletePluginDialog', () => {
     }
   });
 
+  it('an accepted delete with no job in the answer says so instead of doing nothing', async () => {
+    deletePluginByName.mockResolvedValue({ success: true, statusCode: 202 });
+    render(<DeletePluginDialog name="tf-plan" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    expect(await screen.findByText(/The delete was not accepted/)).toBeInTheDocument();
+  });
+
   it('an expired or unknown job (404) stops polling and says so', async () => {
     getPluginDeleteJob.mockRejectedValue(new ApiError('Delete job not found.', 404, 'NOT_FOUND'));
     render(<DeletePluginDialog name="tf-plan" onClose={() => {}} />);
@@ -188,6 +196,21 @@ describe('DeletePluginDialog', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('closing the dialog while the delete request is still in flight hands the accepted job to the page', async () => {
+    let accept: (v: unknown) => void = () => {};
+    deletePluginByName.mockReturnValue(new Promise((resolve) => { accept = resolve; }));
+    const onDeleted = jest.fn();
+    render(<PageHarness onDeleted={onDeleted} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    await waitFor(() => expect(deletePluginByName).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByText('closed')).toBeInTheDocument();
+    await act(async () => { accept({ success: true, statusCode: 202, data: { batchId: 'b1', jobId: 'j1' } }); });
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith(expect.objectContaining({ state: 'succeeded' })));
+    expect(getPluginDeleteJob).toHaveBeenCalledWith('tf-plan', 'j1', expect.anything());
   });
 
   it('a background-watched delete that fails is reported to the page, not as a refresh', async () => {

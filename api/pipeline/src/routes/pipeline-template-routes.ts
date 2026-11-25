@@ -33,7 +33,7 @@ import {
   withProposalProvenance,
 } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
-import { tokenize } from '@pipeline-builder/pipeline-core';
+import { pipelineTemplatableView, tokenize } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
 import { instantiateTemplateProps } from '../helpers/instantiate-template.js';
@@ -52,31 +52,34 @@ const PipelineTemplateUpdateRequestSchema = PipelineTemplateUpdateSchema.extend(
 });
 
 /**
- * Every `{{ vars.X }}` placeholder in a template's self-scope fields must be
+ * Every `{{ vars.X }}` placeholder in a template's templatable fields must be
  * backed by a declared input (or a key already present in `props.vars`, or carry
  * a `| default:`) — otherwise instantiation omits it and it fails opaquely at
- * synth. Returns the undeclared var names.
+ * synth (or, in the source, at instantiate). Returns the undeclared var names.
  *
- * Only the fields the pipeline template validator/resolver actually resolve are
- * scanned — `project` and each `metadata.*` / `vars.*` value — and
- * each is tokenized INDIVIDUALLY (every such field is under the tokenizer's
+ * Only the fields the pipeline contract resolves are scanned — `project`, each
+ * `vars.*` value, the metadata synth merges (`global` ← `defaults.metadata` ←
+ * `synth.metadata`, read through pipeline-core's `pipelineTemplatableView`),
+ * and the `synth.source` identity fields instantiate bakes (every string but
+ * `options.token`, which resolves at synth against the `pipeline.*` scope).
+ * Each is tokenized INDIVIDUALLY (every such field is under the tokenizer's
  * per-field size cap and was already shape-validated by `validatePipelineTemplates`,
- * so a throw here would signal a real bug, not a large/quoted body). This avoids
- * the pitfalls of tokenizing the whole serialized `props` (size cap, escaped
- * quotes, literal `{{` inside unvalidated stage commands).
+ * so a throw here would signal a real bug, not a large/quoted body).
  */
 function undeclaredVars(props: Record<string, unknown> | undefined, inputs: TemplateInput[]): string[] {
   const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? v as Record<string, unknown> : {});
-  const vars = asRecord(props?.vars);
-  const metadata = asRecord(props?.metadata);
+  const view = pipelineTemplatableView(props ?? {});
 
   const declared = new Set<string>((inputs ?? []).map((i) => i.name));
-  for (const k of Object.keys(vars)) declared.add(k);
+  for (const k of Object.keys(view.vars)) declared.add(k);
 
   const fields: string[] = [];
-  if (typeof props?.project === 'string') fields.push(props.project);
-  for (const v of Object.values(metadata)) if (typeof v === 'string') fields.push(v);
-  for (const v of Object.values(vars)) if (typeof v === 'string') fields.push(v);
+  if (typeof view.project === 'string') fields.push(view.project);
+  for (const v of Object.values(view.metadata)) if (typeof v === 'string') fields.push(v);
+  for (const v of Object.values(view.vars)) if (typeof v === 'string') fields.push(v);
+  const source = asRecord(asRecord(props?.synth).source);
+  for (const v of Object.values(source)) if (typeof v === 'string') fields.push(v);
+  for (const [k, v] of Object.entries(asRecord(source.options))) if (k !== 'token' && typeof v === 'string') fields.push(v);
 
   const missing = new Set<string>();
   for (const field of fields) {
@@ -214,7 +217,7 @@ export function createPipelineTemplateRoutes(): Router {
 
     // Validate the `{{ }}` tokens in the template body (shape/roots/cycles).
     try {
-      validatePipelineTemplates({ props: body.props });
+      validatePipelineTemplates({ props: body.props }, { template: true });
     } catch (err) {
       return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
     }
@@ -300,7 +303,7 @@ export function createPipelineTemplateRoutes(): Router {
 
     if (body.props) {
       try {
-        validatePipelineTemplates({ props: body.props });
+        validatePipelineTemplates({ props: body.props }, { template: true });
       } catch (err) {
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }

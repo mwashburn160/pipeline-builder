@@ -17,7 +17,7 @@ const EVENT_LABELS: Record<Promotion['trigger']['event'], string> = {
 
 /** A grant amount in the promotion's own unit (percent points, else cents). */
 function amount(p: Promotion, value: number): string {
-  return p.unit === 'percent' ? `${value}%` : formatCents(value);
+  return p.unit === 'percent' ? `${value}%` : formatCents(value, p.currency);
 }
 
 /**
@@ -49,9 +49,9 @@ export function PromotionDetailDrawer({ id, onClose }: { id: string; onClose: ()
           { label: 'Eligible tiers', value: conditions?.tiers?.length ? conditions.tiers.join(', ') : 'All' },
           { label: 'Intervals', value: conditions?.intervals?.length ? conditions.intervals.join(', ') : 'All' },
           { label: 'First subscription only', value: conditions?.firstSubscriptionOnly ? 'Yes' : 'No' },
-          { label: 'Budget', value: `${formatCents(p.spentCents)} spent of ${formatCents(p.budgetCents)}` },
+          { label: 'Budget', value: `${formatCents(p.spentCents, p.currency)} spent of ${formatCents(p.budgetCents, p.currency)}` },
           { label: 'Grants', value: `${p.grantsCount}${p.maxGrants != null ? ` / ${p.maxGrants}` : ''}` },
-          { label: 'Per-org cap', value: p.perOrgCapCents != null ? formatCents(p.perOrgCapCents) : none },
+          { label: 'Per-org cap', value: p.perOrgCapCents != null ? formatCents(p.perOrgCapCents, p.currency) : none },
           { label: 'Window', value: p.startsAt || p.endsAt ? <>{p.startsAt ? <RelativeTime value={p.startsAt} /> : 'Now'} → {p.endsAt ? <RelativeTime value={p.endsAt} /> : 'open-ended'}</> : 'Always' },
           { label: 'Created', value: p.createdAt ? <RelativeTime value={p.createdAt} /> : none },
         ];

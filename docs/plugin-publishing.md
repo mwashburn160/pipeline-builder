@@ -24,7 +24,7 @@ Putting a plugin in the **plugin ecosystem**: the public, searchable directory e
 - **Accepting new publisher terms is required before new requests** — existing listings are unaffected.
 - **You can submit without an account**, and claim the listing later.
 - **Scan gates apply before anything is listed**, and a listing over its plan's quota can still ship security fixes.
-- **Flagged versions are fixed automatically where the platform may change them** — rebuilt or library-patched, proposed or published as the next version, and rolled out to pipelines. See [Automatic remediation](#automatic-remediation).
+- **Versions with fixable Critical or High findings are fixed automatically where the platform may change them** — rebuilt or library-patched, proposed or published as the next version, and rolled out to pipelines. See [Automatic remediation](#automatic-remediation).
 - **Delete plugin removes every version of a name at once**, restorable as one batch. See [Deleting plugins and versions](#deleting-plugins-and-versions).
 
 ## Overview
@@ -183,18 +183,49 @@ Each rescan also refreshes the vulnerability exposures of every pipeline that de
 
 ### Automatic remediation
 
-After each completed nightly rescan, the platform tries to produce a **fixed version** of every flagged plugin version it is allowed to change, prove it is clean and still works, and move pipelines onto it. A fixable Critical or High CVE is then closed without anyone rebuilding by hand.
+After each completed nightly rescan, the platform tries to produce a **fixed version** of every rescanned plugin version it is allowed to change that has a targeted finding, prove it is clean and still works, and move pipelines onto it. The version doesn't have to be flagged: under the default floor a fixable High never flags a version, but it is still targeted. A fixable Critical or High CVE is then closed without anyone rebuilding by hand. Deleted and yanked versions are never remediated.
 
-**What is targeted.** Fixable findings whose severity is in `PLUGIN_REMEDIATION_SEVERITIES` (default `critical,high`), plus every CISA **known-exploited** (KEV) finding whatever the list says. A KEV finding with no fixed version can't be fixed, so it goes straight to the owner request (reason `no_fix`). A finding the scanner reported without package details — no package URL, or no file location in the image (a CPE-only match, for one) — still counts toward the gates and the flag, and the scan succeeds; it is listed under `<type>:<name>@<version>` and goes straight to the owner request (reason `no_package_details`), never patched. Findings a waiver or an operator VEX statement already covers are skipped, and remediation never adds a waiver. All of a version's fixable findings from one night go into **one** remediation and one new version, never one version per CVE. Remediations run KEV first, then by EPSS, then by how many pipelines use the version.
+```mermaid
+flowchart TD
+  R["Nightly rescan pass completes"] --> T{"Targeted findings?<br/>fixable, severity in PLUGIN_REMEDIATION_SEVERITIES,<br/>or KEV; not waived or VEX-covered"}
+  T -- none --> X["Nothing queued"]
+  T -- yes --> O{"Whose plugin?"}
+  O -- "third-party listing" --> N40["Fix request to the publisher (N40)"]
+  O -- "managed toolchain" --> TC["Toolchain release candidate,<br/>propose-only"]
+  O -- "own org or Official,<br/>mode not off" --> D{"Same version and findings set seen before,<br/>or daily cap reached?"}
+  D -- yes --> X
+  D -- no --> Q["queued: system org first,<br/>then KEV, EPSS, pipelines using it"]
+  Q --> S1["Rebuild: same base tag freshly pulled,<br/>--pull --no-cache"]
+  S1 --> S2["Libraries: smallest fix within the upgrade level,<br/>source patch, overlay layer or ask-agent draft"]
+  S2 --> V{"Verify: build gate, targeted findings gone,<br/>no new Critical/High, contract and image config unchanged,<br/>smokeTest, diff scope"}
+  V -- "nothing publishable" --> NO["needs_owner: owner request (N39)"]
+  V -- candidate --> M{"Publish mode"}
+  M -- "propose: org_mode, major_upgrade,<br/>no_smoke_test, ask_agent_patch" --> AA["awaiting_approval (N36)"]
+  AA -- "Approve: rebuilt and re-verified" --> P
+  AA -- Reject --> RJ["failed / rejected"]
+  M -- apply --> P["published as the next free version (N36);<br/>leftovers to the owner (N39)"]
+  P --> S{"Rollout start taken?"}
+  S -- "transient: retried nightly,<br/>5 attempts in all" --> S
+  S -- "refused, or 5th failure" --> G["stays published, rollout_start_failed (N37)"]
+  G -- "Retry rollout" --> S
+  S -- yes --> RO["rolling_out: pipelines of the org and its live teams"]
+  RO --> W["canary of up to 5, then batches of 50:<br/>move or redeploy, unhealthy runner skipped"]
+  W -- "failed run on the new version within 24 h" --> RB["rolled back (N38); a failed canary or<br/>2 rollbacks pause it: needs_review (N37)"]
+  W -- "every pipeline settled" --> DN["done (N37); the next rescan<br/>confirms the fix"]
+```
 
-**The stages.** A remediation is one record per flagged version, moving through fixed stages:
+An Official fix (system org) is the exception at the rollout start: it is published to tenants as a new listing version, and that listing publish starts its rollout, across every organization's listing installs.
 
-1. **Rebuild** (`rebuild`). The version's kept build context is rebuilt on a freshly pulled base image of the **same tag** (a digest-pinned `FROM` is re-resolved within its tag, never to a new tag) with `--pull --no-cache`, which clears most OS-package CVEs without touching the plugin's own files. A finding in a shared platform base (`_plugin-base` and the other `_*-base` images) rebuilds that base once per pass, in a system-org pass of its own (`PLUGIN_REMEDIATION_BASE_CONCURRENCY`) that runs ahead of tenant remediations.
+**What is targeted.** Fixable findings whose severity is in `PLUGIN_REMEDIATION_SEVERITIES` (default `critical,high`), plus every CISA **known-exploited** (KEV) finding whatever the list says. A KEV finding with no fixed version can't be fixed, so it goes straight to the owner request (reason `no_fix`). A finding the scanner reported without package details — no package URL, or no file location in the image (a CPE-only match, for one) — still counts toward the gates and the flag, and the scan succeeds; it is listed under `<type>:<name>@<version>` and goes straight to the owner request (reason `no_package_details`), never patched. Findings a waiver or an operator VEX statement already covers are skipped, and remediation never adds a waiver. All of a version's fixable findings from one night go into **one** remediation and one new version, never one version per CVE. Remediations run after users' own builds in the queue: the system org's (the Official catalog) first, then KEV first, then by EPSS, then by how many pipelines use the version.
+
+**The stages.** A remediation is one record per version and set of targeted findings, moving through fixed stages:
+
+1. **Rebuild** (`rebuild`). The version's kept build context is rebuilt on a freshly pulled base image of the **same tag** (a digest-pinned `FROM` is re-resolved within its tag, never to a new tag) with `--pull --no-cache`, which clears most OS-package CVEs without touching the plugin's own files. A targeted finding in a layer of a shared platform base (`plugin-base` and the other `plugin-*-base` images, built from `_plugin-base` and the other `_*-base` directories) rebuilds that base **once** per base and findings set: the first remediation that needs it builds an overlay of the current base tag upgrading the named OS packages, checks it with the base's own smoke test and pushes it to the system namespace, under `PLUGIN_REMEDIATION_BASE_CONCURRENCY` slots of its own. The other remediations on that base wait for it and build FROM it. If the base rebuild fails, they build without it.
 2. **Libraries** (`libraries`). For each targeted finding the rebuild didn't clear, the named library is upgraded to the smallest fixed version — the highest of the lowest fixed versions across its CVEs, so one upgrade clears them all — within the allowed [upgrade level](#upgrade-levels). A **source patch** edits the manifest or lockfile in the kept context (a pin in `apt-get`/`apk add`/`dnf install`, an npm `overrides` entry, a `requirements*.txt` pin, `go get`, a Maven/Gradle override, `bundle update --conservative`, `cargo update --precise`, a `PackageReference`, or a recognised pinned tool `ARG`). An **overlay layer** is one `RUN` on top of the current image digest that upgrades the named packages in place (deb, apk, rpm, npm, python and gem only), with labels, user, entrypoint and working directory unchanged. Libraries compiled into a binary (Go, Rust, .NET, fat JARs) can only be fixed from source. When no patcher fits, the ask agent may draft a patch; it is verified the same way and only ever proposed.
-3. **Verify.** The fix goes through the full build gate, waivers, VEX, the plugin contract check and compliance, exactly as any build. Every targeted finding must be gone, no new Critical or High may appear, the image's user, entrypoint and declared commands must be unchanged, the spec's `smokeTest` must pass, and the diff may touch only the named packages' lines or the single overlay layer. A patch that fails is dropped; when several packages were patched, each is retried alone so the ones that work are kept.
-4. **Publish** (`published`, or `awaiting_approval` in propose mode). The fix is stored as the **next free version** of the plugin: the next patch (`1.4.3`, or `1.4.4` if `1.4.3` is taken — also when it was published as `v1.4.3` or `1.4.3+build.7`, since a leading `v` and build metadata don't make a different version; a prerelease such as `1.4.3-rc.1` doesn't reserve `1.4.3`), or the next minor when a library crossed a major (so installs on a patch policy don't pick it up silently). It never crosses the plugin's own major. Each fix is a new immutable version with its provenance: the version it fixes, the patch diff, and the CVEs cleared. An overlay-only fix's diff shows just the overlay, as a new `remediation-overlay/Dockerfile` (after any change the rebuild made to the kept context), never the rest of the context as deleted. The flagged version is never changed or deleted.
+3. **Verify.** The fix goes through the full build gate, waivers, VEX, the plugin contract check and compliance, exactly as any build. Every targeted finding must be gone, no new Critical or High may appear, the image's user, entrypoint, `CMD` and working directory must be unchanged, so must the plugin contract (commands, install commands, required metadata and variables and their types, secrets, env), the spec's `smokeTest` must pass, and the diff may touch only the named packages' lines or the single overlay layer. A patch that fails is dropped; when several packages were patched, each is retried alone so the ones that work are kept.
+4. **Publish** (`published`, or `awaiting_approval` in propose mode). The fix is stored as the **next free version** of the plugin: the next patch (`1.4.3`, or `1.4.4` if `1.4.3` is taken — also when it was published as `v1.4.3` or `1.4.3+build.7`, since a leading `v` and build metadata don't make a different version; a prerelease such as `1.4.3-rc.1` doesn't reserve `1.4.3`), or the next minor when a library crossed a major (so installs on a patch policy don't pick it up silently). It never crosses the plugin's own major. Each fix is a new immutable version with its provenance: the version it fixes, the patch diff, and the CVEs cleared. An overlay-only fix's diff shows just the overlay, as a new `remediation-overlay/Dockerfile` (after any change the rebuild made to the kept context), never the rest of the context as deleted. The flagged version is never changed or deleted by remediation. Once its fix is published and no pipeline references it any more, it is **deactivated**, unless it is the plugin's only remaining version. It stays stored, flagged and restorable, with its kept source.
 5. **Rollout** (`rolling_out`, then `done`, or `needs_review` if it pauses). Pipelines move onto the fix — see [Remediation upgrades](plugin-installing.md#remediation-upgrades). If the pipeline service can't take the rollout when the fix is published, the fix stays `published`:
-   - a **temporary** failure (the pipeline service unreachable, a 5xx, 408 or 429) is retried by the nightly pass once the fix has sat for 15 minutes — at most **5 attempts in all**, the one at publish included;
+   - a **temporary** failure (the pipeline service unreachable, a 5xx, 408 or 429, or an answer that can't be read) is retried by the nightly pass once the fix has sat for 15 minutes — at most **5 attempts in all**, the one at publish included;
    - a **refusal** (any other 4xx) is not retried.
 
    When it gives up (a refusal, or the 5th failed attempt) the remediation keeps stage `published` with error `rollout_start_failed`, its card reads **"Rollout didn't start: …"** with the reason, your plugin security recipients get N37 ("Rollout paused"), and `plugin_remediation_rollout_start_failures_total{reason="permanent"|"exhausted"}` alerts the operator. The fix version is live either way, so owners can still choose it. **Retry** on the card (`plugins:write`, step-up) starts the same rollout again, counting attempts from 1; nothing is rebuilt and it doesn't count toward the daily limit. Starting a rollout twice is harmless.
@@ -205,6 +236,41 @@ After each completed nightly rescan, the platform tries to produce a **fixed ver
 The next rescan of the fix must be clean for the targeted findings, and the old version's exposures close as pipelines move.
 
 **Idempotent per findings set.** A version already being remediated isn't queued again, and a set of findings that failed isn't retried until the findings change or the vulnerability DB adds a fixed version. **The owner's own fix wins**: when the owner uploads a newer version with no gated findings while a remediation runs, the remediation ends (outcome `superseded`) and the rollout uses the owner's version instead. Deleting a version cancels any remediation on it.
+
+**Stages and outcomes.** The record's `stage` and, once it has one, its `outcome`:
+
+```mermaid
+stateDiagram-v2
+  [*] --> queued: rescan pass, or Retry
+  queued --> rebuild
+  rebuild --> libraries: findings left
+  rebuild --> published: apply, all cleared
+  rebuild --> awaiting_approval: propose
+  rebuild --> needs_owner: nothing fixable (owner_request)
+  libraries --> published: apply (cleared / partial)
+  libraries --> awaiting_approval: propose
+  libraries --> needs_owner: nothing publishable (owner_request)
+  awaiting_approval --> published: Approve, rebuilt and re-verified
+  awaiting_approval --> failed: Reject (rejected)
+  published --> published: rollout start failed, retried or rollout_start_failed
+  published --> rolling_out: rollout start taken
+  published --> done: fix version purged (cancelled)
+  rolling_out --> done: rollout done
+  rolling_out --> needs_review: rollout paused
+  queued --> failed: error, or cancelled
+  failed --> [*]
+  needs_owner --> [*]
+  done --> [*]
+```
+
+Not drawn, because they apply from several stages:
+
+- **Any live stage** (queued to needs review) ends `done` / `superseded` when the owner uploads a newer clean version, and `failed` / `cancelled` when the version (or the fix version) is deleted.
+- **Before publishing** (queued, rebuild, libraries, or an approved fix awaiting its run), a remediation ends `failed` with outcome `error` (a build or infrastructure error, `SOURCE_CHECKSUM_MISMATCH`, `VERSION_NOT_SEMVER`, `ENQUEUE_FAILED`, `STRANDED`) or `cancelled` (`VERSION_DELETED`, `MODE_OFF`, `REMEDIATION_DISABLED`). An approved run that no longer produces a fix ends `needs_owner`.
+- **Retry** never reopens a record: it starts a new attempt (`attempt` + 1, `retryOf` the old id) from `failed`, `needs_owner` or `needs_review`. A `needs_review` record it replaces closes as `done` / `superseded`. The one exception is a `published` fix with `rollout_start_failed`, whose rollout start is retried in place.
+- A **canary fixture** (see [Deploy Operations](deploy-operations.md#plugin-remediation-alerts)) is a dry run: it ends `done` (`cleared` or `partial`) or `needs_owner`, and is never published.
+
+`needs_owner`, `done` and `failed` are terminal. `needs_review` is not: its fix version stays published and choosable, and **Retry** starts a new attempt.
 
 #### Upgrade levels
 
@@ -241,7 +307,7 @@ A fix that needs a bigger jump than allowed goes to the owner request, naming th
 
 `mode` (an organization setting) is `off` (build nothing), `propose` (the default) or `apply`.
 
-- In **propose** mode a fix waits as **Awaiting approval** on the plugin's remediation card, with the cleared and remaining findings and the patch diff. **Approve and publish** and **Reject** need `plugins:write` and a step-up. **Reject** takes an optional reason (up to 1,000 characters), which is kept with the decision and on its `plugin.remediation.rejected` audit entry. While Approve, Reject or Retry runs, the card disables all three.
+- In **propose** mode a fix waits as **Awaiting approval** on the plugin's remediation card, with the cleared and remaining findings, the patch diff and why it was held (`proposeReasons`: `org_mode`, `major_upgrade`, `no_smoke_test`, `ask_agent_patch`). Your plugin security recipients get N36. The candidate image is not kept: **Approve and publish** queues the fix to be rebuilt and verified again from the kept source, and publishes that build (or, if it no longer produces a fix, sends the owner request). **Approve and publish** and **Reject** need `plugins:write` and a step-up. **Reject** takes an optional reason (up to 1,000 characters), which is kept with the decision and on its `plugin.remediation.rejected` audit entry. While Approve, Reject or Retry runs, the card disables all three.
 - When a fix is published, its patch diff (and, for an Official fix, the export for `deploy/plugins`) is stored under the **fix version's** kept-source prefix, and the remediation's download links point there. Purging the old version therefore leaves them downloadable: the remediation record of a published fix outlives the version it fixed. It still lists under the old version's name and number, with its diff, but it no longer links to that version, and approve and retry answer `409 REMEDIATION_STAGE_CONFLICT` (reason `source_version_purged`), since there is nothing left to rebuild. See [What a purge removes](#deleting-plugins-and-versions).
 - In **apply** mode it publishes without waiting — except that some fixes are **always proposed**: a library upgrade that crosses a major, a plugin whose spec declares no `smokeTest`, and an ask-agent patch.
 
@@ -261,7 +327,7 @@ A **prebuilt-image upload has no source**, so it can only be fixed with an overl
 |--------|---------------|-----------|
 | Your organization's own plugin | Yes, under your `mode` | |
 | The Official catalog (system org) | Yes, under the system org's setting. The fix reaches tenants as a new listing version through an auto-approved publish request (the **Remediation fixes** rule), and the patch is exported for `deploy/plugins/**` so maintainers can merge it (`GET /api/plugins/remediations/:id/export`, system org) | |
-| A listed third-party plugin | No | A fix request goes to the publisher (N40) with the findings and a suggested patch; installers are told it was sent |
+| A listed third-party plugin | No | A fix request goes to the publisher (N40) with the findings and their fixed versions, once per version and findings set; installers are told it was sent. An owner-less (community) publisher gets none |
 | An install of a listing | No — the listing is the publisher's | Installers move once the publisher ships a fixed version |
 | A managed toolchain release (`pipeline-bootstrap` + `cdk-synth`) | A verified **release candidate** only, never published without a system-org approval — see [Remediation → toolchains](#remediation--toolchains) | `PLUGIN_REMEDIATION_TOOLCHAINS=off`: the owner request (N39) |
 
@@ -283,9 +349,9 @@ A managed toolchain release is two system-org images under one version — `pipe
 #### Limits and operator controls
 
 - Remediation builds spend **no build credits** and don't count toward the plugin-count quota, but run under your build quota, after user builds in the queue, at most `PLUGIN_REMEDIATION_CONCURRENCY` at a time.
-- At most `PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY` (default 20) remediations start per organization per day, retries included (`429 QUOTA_EXCEEDED` on a retry over it). The count and the new row are written under one per-organization lock, so retries at the same moment (or a retry during the nightly pass) never go over it together. The quotas page shows today's count.
+- At most `PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY` (default 20) remediations start per organization in any 24 hours, retries included (`429 QUOTA_EXCEEDED` on a retry over it). The count and the new row are written under one per-organization lock, so retries at the same moment (or a retry during the nightly pass) never go over it together. The quotas page shows today's count.
 - **Retry** (`POST /api/plugins/remediations/:id/retry`) needs `plugins:write` and a step-up, like Approve and Reject.
-- With the operator knob off (`PLUGIN_REMEDIATION_ENABLED=false`), Approve, Retry and a toolchain fix's Approve / Resume publish answer `503`, and no stuck toolchain publish is resumed. With your organization's own **mode** set to `off`, Approve and Retry answer `409 PLUGIN_REMEDIATION_MODE_OFF`; Reject still works.
+- With the operator knob off (`PLUGIN_REMEDIATION_ENABLED=false`), Approve, Retry and a toolchain fix's Approve / Resume publish answer `503`, and no stuck toolchain publish is resumed. A remediation job that was already queued ends `failed` / `cancelled` (`REMEDIATION_DISABLED`) when it runs, so it can be retried later. With your organization's own **mode** set to `off`, Approve and Retry answer `409 PLUGIN_REMEDIATION_MODE_OFF`; Reject still works.
 - **Stranded remediations.** A remediation that sits queued, building, or approved and waiting for its run for more than 3 hours with no job in the queue (a lost enqueue, a crashed worker) is put back on the queue by the nightly pass, up to 3 times (its error reads `STRANDED_REQUEUE:<n>` meanwhile); after that it ends `failed` with error `STRANDED`, and **Retry** starts it again.
 - `PLUGIN_REMEDIATION_ENABLED` (default `true`) is the operator's switch. Only the literal `false` turns it off; then nothing is queued, built, published or rolled out and no remediation notice is sent, and the dashboard says remediation is **turned off by the operator**. Organization settings stay editable, and kept sources and plugin deletion are unaffected.
 - `PLUGIN_REMEDIATION_SEVERITIES` (default `critical,high`) is the comma-separated list of severities targeted. An empty or invalid value falls back to the default with a warning in the log. KEV findings are always targeted.

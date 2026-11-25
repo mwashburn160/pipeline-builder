@@ -78,14 +78,14 @@ jest.unstable_mockModule('../src/utils/secret-blob.js', () => ({
 
 const { reencryptOrgSecrets, captureOrgSecrets, findUnreadableOrgSecrets, reencryptAllStoredSecrets, OrgSecretsReencryptError } = await import('../src/services/secret-reencrypt.js');
 
-/** `Model.find().select().cursor()` over a fixed array of docs. */
+/** `Model.find().select().lean().cursor()` over a fixed array of docs. */
 function cursorOver(docs: unknown[]) {
-  return { select: () => ({ cursor: () => (async function* () { yield* docs; })() }) };
+  return { select: () => bareCursorOver(docs) };
 }
 
-/** `Model.find().cursor()` — the SP-key sweep needs no projection. */
+/** `Model.find().lean().cursor()` — the SP-key sweep needs no projection. */
 function bareCursorOver(docs: unknown[]) {
-  return { cursor: () => (async function* () { yield* docs; })() };
+  return { lean: () => ({ cursor: () => (async function* () { yield* docs; })() }) };
 }
 
 beforeEach(() => {
@@ -316,9 +316,14 @@ describe('findUnreadableOrgSecrets (post-change verification)', () => {
 });
 
 describe('reencryptAllStoredSecrets (SECRET_ENCRYPTION_KEY rotation)', () => {
-  it('re-wraps every org AI key and every IdP secret, reporting counts', async () => {
-    const orgA: any = { _id: 'org-a', aiProviderKeys: { anthropic: 'old-a', openai: 'old-o' }, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
-    const orgB: any = { _id: 'org-b', aiProviderKeys: undefined, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
+  beforeEach(() => {
+    mockTotpUpdateOne.mockResolvedValue({ matchedCount: 1 });
+    mockSamlUpdateOne.mockResolvedValue({ matchedCount: 1 });
+  });
+
+  it('re-wraps every org AI key and every IdP secret, reporting counts — each write conditional on the blob it read', async () => {
+    const orgA: any = { _id: 'org-a', aiProviderKeys: { anthropic: 'old-a', openai: 'old-o' } };
+    const orgB: any = { _id: 'org-b', aiProviderKeys: undefined };
     mockOrgFind.mockReturnValue(cursorOver([orgA, orgB]));
     mockIdpFind.mockReturnValue(cursorOver([{ _id: 'idp-1', organizationId: 'org-a', clientSecretEncrypted: 'old-idp' }]));
     mockTotpFind.mockReturnValue(cursorOver([{ _id: 'totp-1', userId: 'u-1', secret: 'old-totp' }]));
@@ -340,24 +345,58 @@ describe('reencryptAllStoredSecrets (SECRET_ENCRYPTION_KEY rotation)', () => {
     });
     // Authenticator secrets are salted per USER, and the SP keys per deployment
     // — neither is reachable from the org sweep, which is how they were missed.
-    expect(mockTotpUpdateOne).toHaveBeenCalledWith({ _id: 'totp-1' }, { $set: { secret: 'enc:plain:old-totp' } });
+    expect(mockTotpUpdateOne).toHaveBeenCalledWith({ _id: 'totp-1', secret: 'old-totp' }, { $set: { secret: 'enc:plain:old-totp' } });
     expect(mockUnwrap).toHaveBeenCalledWith('old-totp', 'user:u-1', 'totp.secret');
     expect(mockWrap).toHaveBeenCalledWith('plain:old-totp', 'user:u-1');
-    expect(mockSamlUpdateOne).toHaveBeenCalledWith({ _id: 'signing' }, { $set: { privateKeyEncrypted: 'enc:plain:old-sign' } });
+    expect(mockSamlUpdateOne).toHaveBeenCalledWith(
+      { _id: 'signing', privateKeyEncrypted: 'old-sign' },
+      { $set: { privateKeyEncrypted: 'enc:plain:old-sign' } },
+    );
     expect(mockUnwrap).toHaveBeenCalledWith('old-sign', 'saml-sp-keys', 'saml-sp.signing');
-    // Each blob was read (previous key falls back inside decryptSecret) and
-    // written back under the now-current key.
-    expect(orgA.aiProviderKeys.anthropic).toBe('enc:plain:old-a');
-    expect(orgA.aiProviderKeys.openai).toBe('enc:plain:old-o');
-    expect(orgA.save).toHaveBeenCalledTimes(1);
+    // Each AI key is its own conditional write: a key set or removed by a live
+    // writer mid-sweep is never overwritten with (or resurrected from) the stale read.
+    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
+      { '_id': 'org-a', 'aiProviderKeys.anthropic': 'old-a' },
+      { $set: { 'aiProviderKeys.anthropic': 'enc:plain:old-a' } },
+    );
+    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
+      { '_id': 'org-a', 'aiProviderKeys.openai': 'old-o' },
+      { $set: { 'aiProviderKeys.openai': 'enc:plain:old-o' } },
+    );
     // An org with no keys is scanned but never written.
-    expect(orgB.save).not.toHaveBeenCalled();
-    expect(mockIdpUpdateOne).toHaveBeenCalledWith({ _id: 'idp-1' }, { $set: { clientSecretEncrypted: 'enc:plain:old-idp' } });
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(2);
+    expect(mockIdpUpdateOne).toHaveBeenCalledWith(
+      { _id: 'idp-1', clientSecretEncrypted: 'old-idp' },
+      { $set: { clientSecretEncrypted: 'enc:plain:old-idp' } },
+    );
+  });
+
+  it('a row changed by a live writer mid-sweep is left as that writer left it — not counted, not a failure', async () => {
+    mockOrgFind.mockReturnValue(cursorOver([{ _id: 'org-a', aiProviderKeys: { anthropic: 'old-a' } }]));
+    mockIdpFind.mockReturnValue(cursorOver([{ _id: 'idp-1', organizationId: 'org-a', clientSecretEncrypted: 'old-idp' }]));
+    // The user re-enrolled their authenticator between the read and the write.
+    mockTotpFind.mockReturnValue(cursorOver([{ _id: 'totp-1', userId: 'u-1', secret: 'old-totp' }]));
+    mockSamlFind.mockReturnValue(bareCursorOver([{ _id: 'signing', privateKeyEncrypted: 'old-sign' }]));
+    mockUnwrap.mockImplementation((raw: unknown) => `plain:${raw}`);
+    mockOrgUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    mockIdpUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    mockTotpUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    mockSamlUpdateOne.mockResolvedValue({ matchedCount: 0 });
+
+    const summary = await reencryptAllStoredSecrets();
+
+    expect(summary).toEqual({
+      orgsScanned: 1,
+      aiKeysReencrypted: 0,
+      idpSecretsReencrypted: 0,
+      totpSecretsReencrypted: 0,
+      samlSpKeysReencrypted: 0,
+      failures: [],
+    });
   });
 
   it('records an unreadable row as a failure and keeps going (caller exits non-zero)', async () => {
-    const orgA: any = { _id: 'org-a', aiProviderKeys: { anthropic: 'broken', openai: 'old-o' }, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
-    mockOrgFind.mockReturnValue(cursorOver([orgA]));
+    mockOrgFind.mockReturnValue(cursorOver([{ _id: 'org-a', aiProviderKeys: { anthropic: 'broken', openai: 'old-o' } }]));
     mockIdpFind.mockReturnValue(cursorOver([]));
     mockTotpFind.mockReturnValue(cursorOver([]));
     mockSamlFind.mockReturnValue(bareCursorOver([]));
@@ -371,8 +410,11 @@ describe('reencryptAllStoredSecrets (SECRET_ENCRYPTION_KEY rotation)', () => {
     expect(summary.aiKeysReencrypted).toBe(1);
     expect(summary.failures).toEqual([{ orgId: 'org-a', field: 'aiProviderKeys.anthropic', error: 'bad auth tag' }]);
     // The readable key was still migrated, and the unreadable blob is untouched.
-    expect(orgA.aiProviderKeys.openai).toBe('enc:plain:old-o');
-    expect(orgA.aiProviderKeys.anthropic).toBe('broken');
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(1);
+    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
+      { '_id': 'org-a', 'aiProviderKeys.openai': 'old-o' },
+      { $set: { 'aiProviderKeys.openai': 'enc:plain:old-o' } },
+    );
   });
 
   it('records an unreadable TOTP secret or SP key under its own scope, never reporting a clean run', async () => {

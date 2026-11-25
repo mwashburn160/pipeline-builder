@@ -160,7 +160,7 @@ secrets, and billing are all scoped to one. The creator becomes the **owner**.
 ```bash
 curl -X POST "$PLATFORM_BASE_URL/api/organization" \
   -H "Authorization: Bearer $PLATFORM_TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"acme-platform","displayName":"Acme Platform Team"}'
+  -d '{"name":"acme-platform","description":"Acme Platform Team"}'
 ```
 
 Nested **teams** (an org under a parent) are created from the **Members** page →
@@ -173,7 +173,8 @@ Nested **teams** (an org under a parent) are created from the **Members** page �
 Invite by email from the dashboard (**Members** page) or the API. Access is granted
 through **Roles** — named sets of `resource:action` permissions; a user's effective
 permissions are the union of their assigned Roles. Every org seeds built-in **Admin**
-and **Member** Roles; admins can add custom Roles.
+and **Member** Roles (plus the **Pipeline Automation** / **Pipeline Registration** machine
+Roles the Step 5 service accounts hold); admins with `roles:manage` can add custom Roles.
 
 See [Roles & Permissions](permissions.md) for the full model and the permission catalog,
 and [Feature Tiers](README.md#feature-tiers) for what each tier/seat count unlocks.

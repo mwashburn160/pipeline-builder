@@ -72,6 +72,9 @@ function replaceableBy(status: LedgerStatus): LedgerStatus[] {
   return (Object.keys(REVERSAL_RANK) as LedgerStatus[]).filter((s) => REVERSAL_RANK[s] <= REVERSAL_RANK[status]);
 }
 
+/** Charge-level reversals a re-ingest of the invoice must not overwrite. */
+const PRESERVED_REVERSALS: readonly LedgerStatus[] = ['refunded', 'disputed'];
+
 /** Statuses never collected: kept on the row, left out of billed totals. */
 const UNCOLLECTED_STATUSES: readonly LedgerStatus[] = ['void', 'uncollectible'];
 
@@ -233,14 +236,6 @@ export async function ingestStripeInvoice(orgId: string, invoice: StripeInvoiceL
   const taxCents = (invoice.total_taxes ?? []).reduce((s, t) => s + (t.amount ?? 0), 0);
   const creditCents = Math.max(0, (invoice.ending_balance ?? 0) - (invoice.starting_balance ?? 0));
 
-  // Preserve a prior reversal: if a charge.refunded / dispute already flipped this
-  // row to refunded/disputed (with a net amountPaidCents), a re-ingest of the same
-  // invoice (backfill, or a non-deduped re-delivery) must NOT overwrite those two
-  // fields back to the full paid amount — that would silently un-reverse the
-  // refund in the dashboard actuals. Everything else still re-syncs.
-  const existing = await BillingInvoice.findOne({ externalInvoiceId: invoice.id }).lean<{ status?: string }>();
-  const isReversed = existing?.status === 'refunded' || existing?.status === 'disputed';
-
   const set: Record<string, unknown> = {
     orgId,
     source: 'stripe',
@@ -253,16 +248,28 @@ export async function ingestStripeInvoice(orgId: string, invoice: StripeInvoiceL
     totalCents: invoice.total ?? 0,
     currency: invoice.currency ?? 'usd',
   };
-  if (!isReversed) {
-    set.amountPaidCents = invoice.amount_paid ?? 0;
-    set.status = mapInvoiceStatus(invoice.status);
-  }
 
-  await BillingInvoice.updateOne(
-    { externalInvoiceId: invoice.id },
-    { $set: set },
-    { upsert: true },
-  );
+  // Preserve a prior reversal: if a charge.refunded / dispute already flipped this
+  // row to refunded/disputed (with a net amountPaidCents), a re-ingest of the same
+  // invoice (backfill, or a non-deduped re-delivery) must NOT overwrite those two
+  // fields back to the full paid amount — that would silently un-reverse the
+  // refund in the dashboard actuals. Everything else still re-syncs.
+  //
+  // One conditional write, not read-then-write: a reversal landing between a
+  // read and the write was overwritten. The upsert writes status + amount only
+  // where the row is NOT reversed; on a reversed row its filter misses, the
+  // insert trips the unique `externalInvoiceId`, and the fallback re-syncs the
+  // rest without them.
+  try {
+    await BillingInvoice.updateOne(
+      { externalInvoiceId: invoice.id, status: { $nin: [...PRESERVED_REVERSALS] } },
+      { $set: { ...set, amountPaidCents: invoice.amount_paid ?? 0, status: mapInvoiceStatus(invoice.status) } },
+      { upsert: true },
+    );
+  } catch (err) {
+    if ((err as { code?: number }).code !== 11000) throw err;
+    await BillingInvoice.updateOne({ externalInvoiceId: invoice.id }, { $set: set });
+  }
   incCounter('billing_invoice_ingested_total', { source: 'stripe' });
   logger.debug('Billing invoice ingested', { orgId, invoiceId: invoice.id });
 

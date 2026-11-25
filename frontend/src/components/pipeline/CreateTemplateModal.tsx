@@ -36,8 +36,8 @@ const VISIBILITY_BLURB: Record<TemplateVisibility, string> = {
  * A row in the CREATE editor: the shared row plus `replaces`.
  *
  * `replaces` is the literal value in the source pipeline's props to swap for
- * `{{ vars.<name> }}` — what turns a fixed config into a parameterized template (the repo
- * URL → vars.repoUrl). It exists only here: editing an existing template has no source
+ * `{{ vars.<name> }}` — what turns a fixed config into a parameterized template (the
+ * source repository → vars.repo). It exists only here: editing an existing template has no source
  * pipeline to parameterize, which is why the shared row model does NOT carry it and this
  * one extends rather than reuses it.
  */
@@ -46,16 +46,16 @@ interface CreatableInput extends EditableInput {
 }
 
 
-/** Find the first git repository URL anywhere in the props JSON, so we can offer
- *  to parameterize it. Matches https://…git-host…/… and scp-style git@host:… . */
-function detectRepoUrl(props: BuilderProps | undefined | null): string | null {
-  if (!props) return null;
-  const json = JSON.stringify(props);
-  const m = json.match(/https?:\/\/[^\s"']*(?:github|gitlab|bitbucket|dev\.azure|codecommit)[^\s"']*|git@[^\s"':]+:[^\s"']+/i);
-  // Keep the URL exactly as it appears (including any `.git`): it is the literal
-  // `parameterizeProps` swaps for `{{ vars.repoUrl }}`, so stripping `.git` left
-  // the template saving `{{ vars.repoUrl }}.git`.
-  return m ? m[0] : null;
+/** The source's repository identity — the value the pipeline actually builds:
+ *  `synth.source.options.repo` (GitHub / CodeStar, `owner/name`) or
+ *  `options.repositoryName` (CodeCommit). Null for a source without one (S3).
+ *  Parameterizing THIS (not some URL elsewhere in the props) is what makes an
+ *  instance build a different repository: instantiate bakes `{{ vars.repo }}`
+ *  in the source into the supplied value. */
+function detectRepo(props: BuilderProps | undefined | null): string | null {
+  const options = (props?.synth?.source as { options?: Record<string, unknown> } | undefined)?.options;
+  const repo = options?.repo ?? options?.repositoryName;
+  return typeof repo === 'string' && repo.trim() && !repo.includes('{{') ? repo : null;
 }
 
 /** Swap each input's `replaces` literal with `{{ vars.<name> }}` throughout the
@@ -74,6 +74,9 @@ function parameterizeProps(props: BuilderProps, rows: CreatableInput[]): Builder
   return JSON.parse(json) as BuilderProps;
 }
 
+
+/** The input "Parameterize repository" declares (its `replaces` is the source's repository). */
+const REPO_INPUT: Omit<CreatableInput, 'replaces'> = { name: 'repo', label: 'Repository', type: 'string', required: true, default: '', options: '' };
 
 interface CreateTemplateModalProps {
   /** Pre-selected pipeline (the "Save as template" flow). When omitted, the modal
@@ -124,13 +127,13 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   const updateInput = (i: number, patch: Partial<CreatableInput>) => setInputs((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const removeInput = (i: number) => setInputs((rows) => rows.filter((_, idx) => idx !== i));
 
-  // One-click: declare a `repoUrl` input pre-filled with the detected source repo
-  // URL as its `replaces` value, so the template can target ANY repo on instantiate.
+  // One-click: declare a `repo` input pre-filled with the source's repository as
+  // its `replaces` value, so the template can target ANY repo on instantiate.
   const parameterizeRepo = () => {
-    const url = detectRepoUrl(source?.props);
-    setInputs((rows) => (rows.some((r) => r.name === 'repoUrl')
+    const repo = detectRepo(source?.props);
+    setInputs((rows) => (rows.some((r) => r.name === REPO_INPUT.name)
       ? rows
-      : [...rows, { name: 'repoUrl', label: 'Repository URL', type: 'string', required: true, default: '', options: '', replaces: url ?? '' }]));
+      : [...rows, { ...REPO_INPUT, replaces: repo ?? '' }]));
   };
 
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +149,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   // (or unmount) must not let an older response overwrite the current source.
   const selectGenRef = useRef(0);
   // Which source we've already auto-parameterized the repo for. Keyed by id so
-  // (a) we add the repoUrl input at most once per source and (b) removing it
+  // (a) we add the repo input at most once per source and (b) removing it
   // doesn't get undone, while selecting a DIFFERENT pipeline re-triggers.
   const autoRepoRef = useRef<string | null>(null);
 
@@ -167,7 +170,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   }, [preselected]);
 
   // Auto-parameterize the repository: once a source pipeline's props are loaded,
-  // if a repo URL is detected, pre-add the `repoUrl` input by default so the
+  // if the source names a repository, pre-add the `repo` input by default so the
   // template targets ANY repo on instantiate (repo-parameterized is the default,
   // not an opt-in click). Runs at most once per source (autoRepoRef), so removing
   // the input is respected; picking a different pipeline re-triggers. The
@@ -175,11 +178,11 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   useEffect(() => {
     if (!source?.props || autoRepoRef.current === source.id) return;
     autoRepoRef.current = source.id;
-    const url = detectRepoUrl(source.props);
-    if (!url) return;
-    setInputs((rows) => (rows.some((r) => r.name === 'repoUrl')
+    const repo = detectRepo(source.props);
+    if (!repo) return;
+    setInputs((rows) => (rows.some((r) => r.name === REPO_INPUT.name)
       ? rows
-      : [...rows, { name: 'repoUrl', label: 'Repository URL', type: 'string', required: true, default: '', options: '', replaces: url }]));
+      : [...rows, { ...REPO_INPUT, replaces: repo }]));
   }, [source]);
 
   // Fetch the full pipeline (with props) when one is selected.
@@ -208,7 +211,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   const createM = useMutation({
     // Declared inputs → vars.<name>; swap each input's `replaces` literal in the
     // captured props for `{{ vars.<name> }}` so the template is parameterized
-    // (e.g. the source repo URL becomes vars.repoUrl). A template with no inputs
+    // (e.g. the source repository becomes vars.repo). A template with no inputs
     // instantiates as a clone of the source pipeline's config.
     fn: async (sourceProps: BuilderProps) => {
       const templateInputs = toTemplateInputs(inputs);
@@ -326,7 +329,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
             </div>
           </div>
           <p className="text-xs text-fg-muted mb-2">
-            Each input becomes a <code>{'{{ vars.<name> }}'}</code> value. Set <strong>Replaces</strong> to the current value in this pipeline the input should substitute (e.g. the repo URL) — “Parameterize repository” auto-detects it.
+            Each input becomes a <code>{'{{ vars.<name> }}'}</code> value. Set <strong>Replaces</strong> to the current value in this pipeline the input should substitute (e.g. the source repository) — “Parameterize repository” auto-detects it.
           </p>
           {inputs.length === 0 ? (
             <p className="text-xs text-fg-subtle">No inputs — the template instantiates as a fixed clone. Add one to let users set the repo, branch, env, etc.</p>
@@ -335,7 +338,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
               {inputs.map((row, i) => (
                 <div key={i} className="rounded-lg border border-default p-2 space-y-2">
                   <div className="flex items-center gap-2">
-                    <Input value={row.name} onChange={(e) => updateInput(i, { name: e.target.value })} placeholder="name (repoUrl)" aria-label="Input name" disabled={saving} className="text-sm" />
+                    <Input value={row.name} onChange={(e) => updateInput(i, { name: e.target.value })} placeholder="name (repo)" aria-label="Input name" disabled={saving} className="text-sm" />
                     <Input value={row.label} onChange={(e) => updateInput(i, { label: e.target.value })} placeholder="label (Repository URL)" aria-label="Input label" disabled={saving} className="text-sm" />
                     <Select value={row.type} onChange={(e) => updateInput(i, { type: e.target.value as CreatableInput['type'] })} aria-label="Input type" disabled={saving} className="text-sm !w-28">
                       <option value="string">string</option>

@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { defaultPipelineName as sharedDefaultPipelineName, pipelineIdentityDigest } from '@pipeline-builder/api-core';
 import { randomBytes } from 'crypto';
 import { readFileSync } from 'node:fs';
+import { defaultPipelineName as sharedDefaultPipelineName, pipelineIdentityDigest } from '@pipeline-builder/api-core';
 
 // ESM has no synchronous named JSON import (Node only exposes a default export,
 // and importing `../../package.json` would also fall outside `rootDir: src`), so
@@ -246,7 +246,8 @@ const STACK_NAME_LETTER_PREFIX = 'pb-';
  * is at most 128 characters.
  *
  * - A pair whose plain derivation — `<project>-<organization>`, lowercased —
- *   already satisfies the standard keeps exactly that name
+ *   already satisfies the standard, and whose organization holds no hyphen (so
+ *   the name splits back into one pair only), keeps exactly that name
  *   (`spring-boot` / `system` → `spring-boot-system`).
  * - Any other pair is rewritten to conform: each disallowed character (`_`
  *   included: `spring_boot` / `system` → `spring-boot-system-<hash>`) becomes
@@ -270,7 +271,10 @@ export function pipelineStackName(project: string, organization: string): string
     );
   }
   const plain = `${project}-${organization}`.toLowerCase();
-  if (plain.length <= STACK_NAME_MAX_LENGTH && STACK_NAME_PATTERN.test(plain)) return plain;
+  // Plain only when it reads back one way: the pair splits at the LAST hyphen,
+  // so the organization must hold none (`a-b` / `c` and `a` / `b-c` would
+  // otherwise both be `a-b-c`, one deploy replacing the other's stack).
+  if (!organization.includes('-') && plain.length <= STACK_NAME_MAX_LENGTH && STACK_NAME_PATTERN.test(plain)) return plain;
 
   let base = plain.replace(/[^a-z0-9-]/g, '-');
   if (!/^[a-z]/.test(base)) base = `${STACK_NAME_LETTER_PREFIX}${base}`;

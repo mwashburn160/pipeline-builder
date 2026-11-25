@@ -9,7 +9,7 @@ import type { Discount } from '@/types';
  *  so dollar/credit amounts must go through `formatCents`, not raw `$${value}`
  *  (which rendered a $25 discount as "$2500"). */
 export function formatDiscount(d: Discount): string {
-  const amount = d.unit === 'percent' ? `${d.value}%` : formatCents(d.value);
+  const amount = d.unit === 'percent' ? `${d.value}%` : formatCents(d.value, d.currency);
   const kindLabel = d.kind === 'onetime' ? 'one-time' : d.kind;
   return `${amount} ${kindLabel}`;
 }

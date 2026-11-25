@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9c5f0cbd2b0130fa070b228797832dc03430d6854dc97d53350cf697384d8694
+// SOURCE-SHA256: 1491e1568aa2fa2d4d3203e26fb4a35eee935309d7cb40d6e530397fde034eff
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -61,7 +61,7 @@ export const billingBundlesTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Enable — an operator sets BILLING_BUNDLES_ENABLED=true. Self-service purchase is disabled under AWS Marketplace.",
+            "Enable — bundles are on by default (BILLING_BUNDLES_ENABLED, set false to hide the catalog). Self-service purchase is disabled under AWS Marketplace.",
             "Preview — an admin lists bundles (GET /bundles) and previews a change (POST /subscriptions/:id/addons/preview) to confirm the new effective limits before committing.",
             "Purchase — add or change an add-on (POST /subscriptions/:id/addons). Stackable packs can be bought in quantity.",
             "Compute — billing recomputes effective[quota] = tierBase + Σ(grant × quantity) and applies any qualifying combo as a recurring usage credit, using best-combo packing so nothing is discounted twice.",
@@ -81,12 +81,12 @@ export const billingBundlesTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "The nine tracked quota types",
+              "Every tracked quota type (VALID_QUOTA_TYPES: plugins, pipelines, API / automation / AI calls, storage, CPU credits, dashboards, alert rules, alert destinations, IdP configs, listings)",
               "quota service",
               "quota sync"
             ],
             [
-              "seats and purchased features (e.g. advanced_reporting)",
+              "seats, support contacts (standard and premium), the tier and purchased features (e.g. advanced_reporting)",
               "platform service",
               "PUT /organization/{orgId}/seat-limit"
             ],
@@ -94,12 +94,26 @@ export const billingBundlesTopic: HelpTopic = {
               "Effective retention windows",
               "reporting service",
               "PUT /reports/internal/retention-sync/{orgId}, writing dora_settings"
+            ],
+            [
+              "Compliance content sets (from the effective compliance_* features)",
+              "compliance service",
+              "PUT /compliance/internal/entitlements/{orgId}"
+            ],
+            [
+              "The stakeholder-reports entitlement",
+              "reporting service",
+              "PUT /reports/internal/stakeholder-sync/{orgId}"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "All three target the account root. Retention is not one of the nine flow quotas — it reuses the tier-baseline + bundle-grant math but rides its own reporting sync leg."
+          "content": "Billing pushes the full limits payload to seat-limit on every sync — seats, supportContacts, supportPremiumContacts, features and tier are all required, so a partial push is refused with 400. A platform operator (system org, orgs:manage, MFA-grade session, step-up) may override seats alone with the body { \"seats\": n } (-1 = unlimited; root org only); it writes only the root's seat cap and is audited as admin.org.seatLimit.update with override: true. An operator body carrying features, tier or either support cap is refused with 400 — those are billing-synced, and a tier pushed there would skip the over-cap guard."
+        },
+        {
+          "type": "text",
+          "content": "All five legs target the account root. Retention is not a quota type — it reuses the tier-baseline + bundle-grant math but rides its own reporting sync leg."
         },
         {
           "type": "text",
@@ -110,7 +124,7 @@ export const billingBundlesTopic: HelpTopic = {
           "items": [
             "Stackable bundles can be purchased in quantity — enter 15 Member Seats for +15 seats, with a volume discount.",
             "An unlimited baseline (-1, e.g. Team and up on dashboards) stays unlimited. Bundles never shrink it.",
-            "Feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance, Stakeholder Reports) add a capability rather than a number, and are not stackable.",
+            "Feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance, Stakeholder Reports) add a capability rather than a number, and are not stackable. The support bundles are the exception: they grant a feature and a per-unit contact count, so they stack.",
             "Effective limits are pooled at the account root — see pooling."
           ]
         }
@@ -123,7 +137,7 @@ export const billingBundlesTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Turn bundles on. BILLING_BUNDLES_ENABLED=true. Bundles are hidden unless set.",
+            "Leave bundles on, or turn them off. BILLING_BUNDLES_ENABLED defaults to true; set false to hide the catalog.",
             "Override any economics you need to with the variables below. Every price, grant and eligible-tier list is env-tunable.",
             "Confirm the provider. Under AWS Marketplace, self-service purchase is off and add-on charges are reported as metered usage instead.",
             "Have admins preview before committing. POST /subscriptions/:id/addons/preview returns the new effective limits, so the caps that change are visible in advance."
@@ -141,8 +155,8 @@ export const billingBundlesTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "BILLING_BUNDLES_ENABLED=true",
-              "Master switch — bundles are hidden unless set"
+              "BILLING_BUNDLES_ENABLED",
+              "Master switch (default true); false hides the catalog"
             ],
             [
               "BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL",
@@ -209,7 +223,7 @@ export const billingBundlesTopic: HelpTopic = {
             ],
             [
               "Pipeline Pack",
-              "+5 pipelines and +25 plugin builds / period — both, so the 5:1 ratio the tiers hold survives the purchase",
+              "+5 pipelines and +25 plugin builds / period — both, so the 5:1 ratio the tiers hold survives the purchase — plus +11,250 CPU credits / month to build them",
               "$29.99",
               "$299.99",
               "Team, Business, Enterprise",
@@ -217,7 +231,7 @@ export const billingBundlesTopic: HelpTopic = {
             ],
             [
               "Plugin Pack",
-              "+10 plugin builds / period",
+              "+10 plugin builds / period, plus +4,500 CPU credits / month to build them",
               "$11.99",
               "$119.99",
               "paid tiers",
@@ -261,7 +275,7 @@ export const billingBundlesTopic: HelpTopic = {
               "$19.99",
               "$199.99",
               "all tiers",
-              "✅"
+              "✅ (volume)"
             ],
             [
               "Listing Pack",
@@ -326,8 +340,40 @@ export const billingBundlesTopic: HelpTopic = {
               "$300",
               "Pro, Team, Business",
               "❌"
+            ],
+            [
+              "Standard Support",
+              "+1 support contact (business hours)",
+              "$19.99",
+              "$199.99",
+              "all tiers",
+              "✅ (volume)"
+            ],
+            [
+              "Priority Support",
+              "+1 support contact (faster business-hours response)",
+              "$49.99",
+              "$499.99",
+              "all tiers",
+              "✅ (volume)"
+            ],
+            [
+              "Premium Support (upgrade)",
+              "upgrades one contact to 24×7 — requires Standard or Priority Support",
+              "$99.99",
+              "$999.99",
+              "all tiers",
+              "✅ (volume)"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "The three support bundles exist only when SUPPORT_ENABLED is on (Premium also needs SUPPORT_PREMIUM_ENABLED); response targets and how contacts are designated are in Support."
+        },
+        {
+          "type": "text",
+          "content": "Volume tiers. Member Seat and CPU Credits Pack: 10% from 5 units, 20% from 15, 30% from 40. Plugin, API, Automation, AI and Storage Packs: 10% from 4, 20% from 10, 30% from 25. Support: Standard 10% / 20% / 30% from 3 / 8 / 20 contacts, Priority 10% / 20% from 3 / 8, Premium 10% from 3."
         },
         {
           "type": "text",
@@ -358,7 +404,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "This replaced a single BILLING_BUNDLE_<ID>_GRANT, which could only address a one-dimension pack and silently did nothing for the rest. That was tolerable while every stackable pack granted exactly one dimension, and stopped being tolerable when cpuCredits arrived: credits are derived from plugin-build volume, so every pack granting builds has to grant the minutes to run them, and an operator retuning the build grant must be able to retune the minutes with it — otherwise the 45-credits-per-build invariant breaks the first time the knob is used. Multi-dimension packs are now tunable per key; the ratio is held by a test rather than by refusing the override."
+          "content": "It is per key because several packs grant more than one dimension: CPU credits are derived from plugin-build volume (45 credits per build), so every pack granting builds also grants the credits to run them, and an operator retuning the build grant must be able to retune the credits with it. The ratio is held by a test rather than by refusing the override."
         },
         {
           "type": "text",
@@ -386,7 +432,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "One rule covers the whole catalog: any amount a customer is charged ends on .00 or .99, and rounding always goes up."
+          "content": "One rule covers the whole catalog: any amount a customer is charged ends on .00, .49 or .99, and rounding always goes up to the nearest of those (1–49 cents → .49, 50–98 → .99)."
         },
         {
           "type": "text",
@@ -406,7 +452,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Rounding up is deliberate in both directions. Rounding a charge down gives away revenue nobody decided to give away; rounding a reduction up gives away the same money from the other side. So a reduction is never rounded on its own — the amount still charged is snapped up and the credit is taken as the remainder. A 50% coupon on a $49.00 plan therefore charges $24.99 against a credit of $24.01, which reconciles exactly against the line above it. The step is at most 98 cents, so the rule can never move a price materially; what it removes is the appearance of imprecision."
+          "content": "Rounding up is deliberate in both directions. Rounding a charge down gives away revenue nobody decided to give away; rounding a reduction up gives away the same money from the other side. So a reduction is never rounded on its own — the amount still charged is snapped up and the credit is taken as the remainder. A 50% coupon on a $49.00 plan therefore charges $24.99 against a credit of $24.01, which reconciles exactly against the line above it. The step is at most 50 cents, so the rule can never move a price materially; what it removes is the appearance of imprecision."
         },
         {
           "type": "text",
@@ -415,7 +461,7 @@ export const billingBundlesTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "An exact dollar is left alone. Lifting $30.00 to $30.99 would be a price rise, not a rounding.",
+            "An exact dollar is left alone. Lifting $30.00 to $30.49 would be a price rise, not a rounding. So is zero: the free Listing Pack stays $0.",
             "A total is not snapped. $29.99 + $19.99 stays $49.98. Snapping the total would make it disagree with the sum of its own lines — an invoice whose arithmetic does not add up, which is exactly the failure the support size floor was restructured to avoid (it bills a visible top-up line rather than a silent minimum on the subtotal). Prices are price-shaped; their sum is just a sum."
           ]
         },
@@ -494,7 +540,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The DORA History Pack also widens the per-org report-query window, which now tracks retention and is capped at an absolute 730 days — so a pack holder can actually query the extended range, not just retain the raw rows. It only does anything useful alongside Advanced Reporting (DORA)."
+          "content": "The DORA History Pack also widens the per-org report-query window, which tracks retention and is capped at an absolute 730 days — so a pack holder can actually query the extended range, not just retain the raw rows. It requires the advanced_reporting feature — included in the tier or bought as Advanced Reporting (DORA) — and the purchase is refused without it."
         },
         {
           "type": "text",
@@ -606,8 +652,19 @@ export const billingBundlesTopic: HelpTopic = {
               "$31.98 / mo · $319.98 / yr",
               "$22.99 / mo · $229.99 / yr",
               "$8.99 / mo · $89.99 / yr"
+            ],
+            [
+              "Assured Delivery",
+              "Standard Compliance + ≥ 1 Standard Support contact",
+              "$49.98 / mo · $499.98 / yr",
+              "$34.99 / mo · $349.99 / yr",
+              "$14.99 / mo · $149.99 / yr"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "Assured Delivery exists only when SUPPORT_ENABLED is on. Its credit is anchored at one contact: further Standard Support contacts bill at their own (volume) price."
         },
         {
           "type": "text",
@@ -620,7 +677,7 @@ export const billingBundlesTopic: HelpTopic = {
             "Minimum-quantity members. A member can require a minimum quantity: Team Growth needs ≥ 5 Member Seats. It counts the purchased Seat add-on, not the account's total tier seats, and the credit is flat — extra seats beyond the minimum don't increase it.",
             "Combo and volume discounts don't stack on the same units. A tiered member's minimum units are priced inside the combo at the volume rate for that minimum (Team Growth's 5 seats at the ≥ 5 rate), and they get exactly that rate — never the deeper tier the account's total holding reaches. Only the units above the combo minimum get the held-quantity volume tier. So 20 seats + Team Usage Analytics bills the combo at its combined price plus 15 seats at the ≥ 15 rate; at exactly 5 seats nothing changes. The combo credit is computed from what the invoice actually charges those minimum units after their volume credit (rounded once over the line, the same way the volume credit itself is), so members held at the minimum net exactly the combined price — not a few cents over it.",
             "The saving is shown up front: the add-on preview and the add/remove responses include a negative combo line (e.g. Team Growth Bundle discount −$83.96), so totalCents already reflects the net.",
-            "It is realized as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants Σ member price × minQty − combined price (clamped ≥ 0) per period, idempotent per invoice. Existing qualifying accounts begin receiving the credit at their next invoice, retroactive by design."
+            "It is realized as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants Σ member price × minQty − combined price (clamped ≥ 0) per period, idempotent per invoice. An account that comes to qualify starts receiving the credit at its next invoice."
           ]
         },
         {
@@ -686,7 +743,7 @@ export const billingBundlesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Bundles are managed through the billing service — the dashboard Billing page or the API. Mutations require an org admin/owner."
+          "content": "Bundles are managed through the billing service (under /billing) — the dashboard Billing page or the API. Reads need billing:read; mutations need billing:manage, an MFA-grade admin session and the account root (a team cannot change billing). Add-on changes are audited as billing.addon.add / billing.addon.remove (plus billing.combo.expired when a change ends a combo)."
         },
         {
           "type": "table",
@@ -696,8 +753,20 @@ export const billingBundlesTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "List available bundles",
+              "List the bundles offered to the account's tier",
               "GET /bundles"
+            ],
+            [
+              "The standing bill, itemized (volume, combo and floor adjustments included)",
+              "GET /charges"
+            ],
+            [
+              "Whether current pack spend argues for a tier move",
+              "GET /crossover"
+            ],
+            [
+              "A plan change's cost, discount included",
+              "GET /plan-preview?tier="
             ],
             [
               "Preview the effect of an add-on change",
@@ -706,6 +775,10 @@ export const billingBundlesTopic: HelpTopic = {
             [
               "Add / change an add-on",
               "POST /subscriptions/:id/addons"
+            ],
+            [
+              "Add several add-ons as one atomic change (every gate runs against the final set)",
+              "POST /subscriptions/:id/addons/basket"
             ],
             [
               "Remove an add-on",
@@ -720,6 +793,10 @@ export const billingBundlesTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The preview endpoint returns the new effective limits before you commit, so you can confirm exactly which caps change."
+        },
+        {
+          "type": "text",
+          "content": "Amounts are in cents, and every response names their currency (BILLING_CURRENCY, lower-case ISO 4217): each bundle and combo in GET /bundles, every priceBreakdown (preview, add, basket, remove, /charges), /crossover and /plan-preview carry a currency field."
         }
       ]
     },

@@ -255,7 +255,7 @@ describe('list / get / delete / revoke', () => {
   });
 
   it('deletes the account together with its keys and Role assignments', async () => {
-    const view = await svc.deleteServiceAccount(ORG_ID, ACCOUNT_ID);
+    const view = await svc.deleteServiceAccount(ORG_ID, ACCOUNT_ID, ADMIN);
     expect(view.name).toBe('deploy');
     expect(mockDeleteForSas).toHaveBeenCalled();
     expect(mockRaDeleteMany).toHaveBeenCalledWith({ serviceAccountId: expect.anything() }, { session: undefined });

@@ -227,9 +227,10 @@ export function setContractListingSourceForTests(fn: typeof listingSourceFor | n
  * request's own viewer.
  */
 function viewerFilter(filter: Partial<PluginFilter>): Partial<PluginFilter> {
+  // Stamped first either way, so a filter that names a viewer is still refused.
+  const stamped = withViewerContext<PluginFilter>(filter);
   const ctx = getTenantContext();
-  if (ctx?.isSuperAdmin && !ctx.userId) return { ...filter, viewerUserId: undefined, viewerIsSuperAdmin: false };
-  return withViewerContext<PluginFilter>(filter);
+  return ctx?.isSuperAdmin && !ctx.userId ? { ...stamped, viewerUserId: undefined, viewerIsSuperAdmin: false } : stamped;
 }
 
 /** The caller's own org row a filter selects (own org, then parent), or null. */

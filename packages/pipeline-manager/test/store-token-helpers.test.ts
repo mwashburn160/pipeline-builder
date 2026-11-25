@@ -38,10 +38,26 @@ afterEach(() => {
 });
 
 describe('renewNameSuffix', () => {
-  it('names every secret\'s rotation stack after its trailing path segment — the platform secret too', () => {
-    expect(renewNameSuffix('pipeline-builder/acme/platform')).toBe('-platform');
-    expect(renewNameSuffix('pipeline-builder/acme/reporting-ingest')).toBe('-reporting-ingest');
-    expect(renewNameSuffix('pipeline-builder/acme/registry_push')).toBe('-registry-push');
+  it('names every secret\'s rotation stack after its trailing path segment, plus a hash of the whole name', () => {
+    expect(renewNameSuffix('pipeline-builder/acme/platform')).toMatch(/^-platform-[0-9a-f]{8}$/);
+    expect(renewNameSuffix('pipeline-builder/acme/reporting-ingest')).toMatch(/^-reporting-ingest-[0-9a-f]{8}$/);
+    expect(renewNameSuffix('pipeline-builder/acme/registry_push')).toMatch(/^-registry-push-[0-9a-f]{8}$/);
+    expect(renewNameSuffix('pipeline-builder/acme/platform')).toBe(renewNameSuffix('pipeline-builder/acme/platform'));
+  });
+
+  // Regression: the suffix was the leaf alone, and every org's platform secret
+  // ends in `/platform` — two orgs rotated from one AWS account shared one
+  // stack, role and Lambda, the second deploy re-pointing the first org's
+  // rotation at its own secret (the first org's key then expired unrotated).
+  it('keeps two orgs\' same-leaf secrets on separate stacks', () => {
+    expect(renewNameSuffix('pipeline-builder/org-a/platform')).not.toBe(renewNameSuffix('pipeline-builder/org-b/platform'));
+  });
+
+  // The suffix lands in IAM role, Lambda function and EventBridge rule names (64 characters each).
+  it('fits the 64-character resource-name limit for a long leaf', () => {
+    const suffix = renewNameSuffix(`pipeline-builder/acme/${'x'.repeat(80)}`);
+    expect(`pipeline-builder-token-renew${suffix}`.length).toBeLessThanOrEqual(64);
+    expect(suffix).toMatch(/^-x+-[0-9a-f]{8}$/);
   });
 });
 

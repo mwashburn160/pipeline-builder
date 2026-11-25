@@ -59,6 +59,7 @@ const mockStripeCheckoutCreate = jest.fn<AnyFn>();
 const mockStripeInvoicesList = jest.fn<AnyFn>();
 const mockStripeInvoicePaymentsList = jest.fn<AnyFn>();
 const mockStripeRefundsCreate = jest.fn<AnyFn>();
+const mockStripeRefundsList = jest.fn<AnyFn>(async () => ({ data: [] }));
 const mockStripeWebhookEndpointsList = jest.fn<AnyFn>();
 const mockStripeWebhookEndpointsRetrieve = jest.fn<AnyFn>();
 const mockStripeWebhookEndpointsUpdate = jest.fn<AnyFn>();
@@ -77,7 +78,7 @@ jest.unstable_mockModule('stripe', () => {
     checkout: { sessions: { create: mockStripeCheckoutCreate } },
     invoices: { list: mockStripeInvoicesList },
     invoicePayments: { list: mockStripeInvoicePaymentsList },
-    refunds: { create: mockStripeRefundsCreate },
+    refunds: { create: mockStripeRefundsCreate, list: mockStripeRefundsList },
     webhookEndpoints: { list: mockStripeWebhookEndpointsList, retrieve: mockStripeWebhookEndpointsRetrieve, update: mockStripeWebhookEndpointsUpdate },
   }));
   return { default: StripeMock };
@@ -747,6 +748,22 @@ describe('StripeProvider', () => {
         { payment_intent: 'pi_1', reason: 'duplicate', metadata: { invoiceId: 'in_1', subscriptionId: 'sub_dup' } },
         { idempotencyKey: 'duplicate-subscription-refund-in_1' },
       );
+    });
+
+    it('returns the refund already made for the invoice instead of refunding again (idempotency beyond Stripe\'s 24h key window)', async () => {
+      mockStripeInvoicesList.mockResolvedValue({ data: [{ id: 'in_1', amount_paid: 4900 }] });
+      mockStripeInvoicePaymentsList.mockResolvedValue({ data: [{ payment: { type: 'payment_intent', payment_intent: 'pi_1' } }] });
+      mockStripeRefundsList.mockResolvedValueOnce({
+        data: [
+          { id: 're_failed', status: 'failed', metadata: { invoiceId: 'in_1' } },
+          { id: 're_other', status: 'succeeded', metadata: {} },
+          { id: 're_1', status: 'succeeded', metadata: { invoiceId: 'in_1' } },
+        ],
+      });
+
+      await expect(provider.refundFirstPaidInvoice('sub_dup')).resolves.toEqual({ invoiceId: 'in_1', refundId: 're_1' });
+      expect(mockStripeRefundsList).toHaveBeenCalledWith({ payment_intent: 'pi_1', limit: 100 });
+      expect(mockStripeRefundsCreate).not.toHaveBeenCalled();
     });
 
     it('refunds nothing when no invoice is paid yet (no charge to refund)', async () => {

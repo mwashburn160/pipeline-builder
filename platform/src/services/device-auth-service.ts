@@ -104,7 +104,6 @@ export interface DeviceAuthRecord {
   interval: number;
   /** Epoch ms of the last poll (0 = never polled). */
   lastPolledAt: number;
-  polls: number;
   status: 'pending' | 'approved' | 'denied';
   /** The CLI asked for a step-up token alongside the session (`auth pat`). */
   stepUpRequested: boolean;
@@ -126,6 +125,19 @@ const EXPIRY_GRACE_MS = 5 * 60_000;
 
 const deviceCodes = createPendingStateStore<DeviceAuthRecord>({
   prefix: 'devcode:',
+  ttlMs: config.auth.device.ttlMs + EXPIRY_GRACE_MS,
+  cleanupIntervalMs: config.oauth.cleanupIntervalMs,
+  maxEntries: config.auth.device.maxPending,
+});
+
+/**
+ * Polls per flow, keyed like the record. A separate atomic counter rather than
+ * a field of the record: the record is rewritten read-modify-write on every
+ * poll, so concurrent polls would each write back the same count and the
+ * ceiling would never be reached by a client polling in parallel.
+ */
+const devicePolls = createPendingStateStore<number>({
+  prefix: 'devpolls:',
   ttlMs: config.auth.device.ttlMs + EXPIRY_GRACE_MS,
   cleanupIntervalMs: config.oauth.cleanupIntervalMs,
   maxEntries: config.auth.device.maxPending,
@@ -244,7 +256,6 @@ export async function startDeviceAuthorization(params: {
     expiresAt,
     interval: config.auth.device.intervalSeconds,
     lastPolledAt: 0,
-    polls: 0,
     status: 'pending',
     stepUpRequested: params.stepUpRequested,
   };
@@ -259,6 +270,7 @@ export async function startDeviceAuthorization(params: {
 async function discard(key: string, userCode: string): Promise<void> {
   await deviceCodes.remove(key);
   await deviceDecisions.remove(key);
+  await devicePolls.remove(key);
   await userCodeIndex.remove(userCode);
 }
 
@@ -363,7 +375,10 @@ export async function poll(deviceCode: unknown): Promise<PollResult> {
   const record = await withDecision(key, stored);
 
   const now = Date.now();
-  if (now > record.expiresAt || record.polls >= config.auth.device.maxPolls) {
+  // Every poll that reaches a live record counts, atomically, before anything
+  // else: the poll past the ceiling is refused however many arrive at once.
+  const polls = await devicePolls.increment(key, record.expiresAt - now + EXPIRY_GRACE_MS);
+  if (now > record.expiresAt || polls > config.auth.device.maxPolls) {
     await discard(key, record.userCode);
     return { outcome: 'expired_token', existed: true, deviceRequestId: record.id };
   }
@@ -380,7 +395,6 @@ export async function poll(deviceCode: unknown): Promise<PollResult> {
   // can never overwrite a decision that landed between the read and the write.
   const next: DeviceAuthRecord = {
     ...stored,
-    polls: record.polls + 1,
     lastPolledAt: now,
     interval: tooFast ? record.interval + SLOW_DOWN_STEP_SECONDS : record.interval,
   };
@@ -397,6 +411,7 @@ export async function poll(deviceCode: unknown): Promise<PollResult> {
     // which is what an already-redeemed code is).
     const claimed = await deviceDecisions.consume(key);
     await deviceCodes.remove(key);
+    await devicePolls.remove(key);
     await userCodeIndex.remove(record.userCode);
     if (!claimed || claimed.status !== 'approved' || !claimed.approval) return { outcome: 'expired_token', existed: true, deviceRequestId: record.id };
     return { outcome: 'approved', record: { ...record, approval: claimed.approval }, approval: claimed.approval };

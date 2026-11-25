@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, envStr, getServiceAuthHeader, type BillingInterval, type PlanTier } from '@pipeline-builder/api-core';
+import { envInt, getServiceAuthHeader, type BillingInterval, type PlanTier } from '@pipeline-builder/api-core';
 import { fetchQuotaSnapshot, fetchSeatUsage, type QuotaSnapshot } from './downstream-client.js';
+import { BILLING_CURRENCY } from '../config/currency.js';
 
 /** Per-quota-type usage entry returned by the rollup. */
 export interface UsageEntry {
@@ -62,7 +63,7 @@ export interface UsageRollup {
   /** Cost breakdown for the active period. Flat-rate today (no metered overages). */
   cost: {
     subscriptionCents: number;
-    /** Upper-case ISO code, from `BILLING_CURRENCY`. Prices are authored in ONE
+    /** Lower-case ISO 4217 code, from `BILLING_CURRENCY`, like every billing amount. Prices are authored in ONE
      *  currency (the `BILLING_PLAN_*` cents values), so this reports which one
      *  rather than converting — it was the literal 'USD', which mislabelled
      *  every amount on a deployment billing in anything else. */
@@ -70,18 +71,6 @@ export interface UsageRollup {
   };
 }
 
-/**
- * `BILLING_CURRENCY`, read straight from the env rather than through
- * `../config.js`.
- *
- * This module is reached by suites that mock `./downstream-client.js` — which is
- * what otherwise pulls config in — so a DIRECT config import loads the real
- * module in those suites and throws `MONGODB_URI is required`. It took out nine
- * tests. `envStr` comes from the api-core import already at the top of this
- * file, so this adds no dependency, and it is the same env var and default that
- * `config.currency` reads.
- */
-const BILLING_CURRENCY = envStr('BILLING_CURRENCY', 'usd').trim().toUpperCase();
 
 /** Build a single UsageEntry from a (limit, used, resetAt) triple. */
 function toUsageEntry(limit: number, used: number, resetAt: Date | string | undefined): UsageEntry {

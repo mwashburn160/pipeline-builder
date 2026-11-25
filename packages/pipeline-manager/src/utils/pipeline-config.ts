@@ -69,20 +69,21 @@ export async function fetchPipelineProps(client: ApiClient, pipelineId: string):
 }
 
 /**
- * Apply pass-1 self-referencing template resolution to `propsWithIds` and print it
- * to stdout (used by `synth --show-resolved` / `deploy --show-resolved`). Exits with
- * code 1 if resolution reports errors. `resolveSelfReferencing` mutates the object
- * in place, so the printed JSON reflects the expanded templates.
+ * Print `propsWithIds` as synth sees it (used by `synth --show-resolved` /
+ * `deploy --show-resolved`): pipeline-core's `resolvePipelineProps` — the same
+ * resolver PipelineBuilder runs at synth and the API's `?resolve=true` uses —
+ * expands `project`, `vars.*` and metadata across `global` ←
+ * `defaults.metadata` ← `synth.metadata`. Exits with code 1 when resolution
+ * fails (unresolved reference or cycle).
  */
 export async function printResolvedOrExit(propsWithIds: Record<string, unknown>): Promise<void> {
-  const { resolveSelfReferencing } = await import('@pipeline-builder/pipeline-core');
-  const scope = { metadata: propsWithIds.metadata ?? {}, vars: propsWithIds.vars ?? {} };
-  const isTpl = (f: string) => f === 'projectName' || f.startsWith('metadata.') || f.startsWith('vars.');
-  const result = resolveSelfReferencing(propsWithIds, scope, isTpl, (f: string) => (isTpl(f) ? f : null));
-  if (result.errors.length) {
-    console.error('Resolution errors:');
-    for (const e of result.errors) console.error(`  [${e.field ?? '?'}] ${e.message}`);
+  const { resolvePipelineProps } = await import('@pipeline-builder/pipeline-core');
+  let resolved: Record<string, unknown>;
+  try {
+    resolved = resolvePipelineProps(propsWithIds);
+  } catch (err) {
+    console.error((err as Error).message);
     process.exit(1);
   }
-  console.log(JSON.stringify(propsWithIds, null, 2));
+  console.log(JSON.stringify(resolved, null, 2));
 }

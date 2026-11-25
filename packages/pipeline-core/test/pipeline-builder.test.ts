@@ -122,6 +122,33 @@ describe('PipelineBuilder', () => {
     });
   });
 
+  describe('pipeline self-references', () => {
+    // Synth resolves `{{ metadata.* }}` / `{{ vars.* }}` in the props itself —
+    // remote fetch, local spec and `pipeline create --deploy` all reach here —
+    // so plugin templates never see the literal text.
+    it('resolves project, metadata layers and vars before anything reads them', () => {
+      const { builder } = build(baseProps({
+        project: '{{ vars.service }}',
+        global: { env: 'dev', url: 'https://github.com/{{ vars.repo }}' },
+        synth: {
+          source: { type: 'github', options: { repo: 'acme/checkout', branch: 'main' } },
+          plugin: { name: 'cdk-synth' },
+          metadata: { env: '{{ vars.stage }}' },
+        },
+        vars: { service: 'checkout', stage: 'prod', repo: 'acme/checkout' },
+      } as Partial<BuilderProps>));
+      const scope = builder.config.getPipelineScope().pipeline;
+      expect(scope.project).toBe('checkout');
+      expect(scope.metadata).toMatchObject({ env: 'prod', url: 'https://github.com/acme/checkout' });
+      expect(builder.config.pipelineName).toBe('my_org-checkout-pipeline');
+    });
+
+    it('fails the synth on an unresolved self-reference', () => {
+      expect(() => build(baseProps({ global: { env: '{{ vars.missing }}' } } as Partial<BuilderProps>)))
+        .toThrow(/Pipeline resolution failed/);
+    });
+  });
+
   describe('core pipeline', () => {
     it('creates one V2 CodePipeline with the derived name and a GitHub source', () => {
       const { template, builder } = build(baseProps());

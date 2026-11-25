@@ -128,8 +128,10 @@ Response: `200` with `{ "data": { "incidentId": "PD-4821", "ok": true } }`.
 
 | Failure | Response |
 |---|---|
-| Validation failure | `400 VALIDATION_ERROR` |
-| Token without the `reporting:ingest` scope | `403` |
+| Validation failure, or a token with no org | `400 VALIDATION_ERROR` |
+| Token without the `reporting:ingest` scope | `403 INSUFFICIENT_PERMISSIONS` |
+
+The two ingest routes are **metered** against the org's `apiCalls` quota but never refused for it: a dropped incident cannot be re-sent, so the DORA history would be wrong for good.
 
 ## Idempotency
 
@@ -138,7 +140,7 @@ Incidents are keyed on **`(org, incidentId)`**. Posting the same `incidentId` ag
 1. **On open** — `openedAt` set, `resolvedAt` omitted.
 2. **On resolve** — the same `incidentId` with `resolvedAt` now populated.
 
-The resolve POST updates `resolvedAt`, and any other changed fields, in place. Retries and at-least-once webhook deliveries are therefore safe.
+The resolve POST updates `resolvedAt`, and any other changed fields, in place. Retries and at-least-once webhook deliveries are therefore safe. A write that changes something (new, resolved, re-opened, re-ranked) is audited as `reporting.incident.record` with before/after; an unchanged re-post is not.
 
 ## Correlation window
 
@@ -153,18 +155,17 @@ Each incident is attributed to the **most recent successful deploy** to its `env
 An org admin can override the window per-org (1–720 hours), in the [Admin UI](#admin-ui) or via the endpoint:
 
 ```
-GET  /api/reports/settings/incidents      # read { incidentWindowHours, defaultWindowHours,
-                                          #        eventRetentionDays, doraRetentionDays,
-                                          #        defaultEventRetentionDays, defaultDoraRetentionDays }
-PUT  /api/reports/settings/incidents      # any subset of { "incidentWindowHours": 12,
-                                          #   "eventRetentionDays": 45, "doraRetentionDays": 200 }
+GET  /api/reports/settings/incidents      # { settings: { incidentWindowHours, defaultWindowHours,
+                                          #   eventRetentionDays, doraRetentionDays,
+                                          #   defaultEventRetentionDays, defaultDoraRetentionDays } }
+PUT  /api/reports/settings/incidents      # { "incidentWindowHours": 12 }
 ```
 
 Both require `reports:read` + `advanced_reporting`; the **PUT additionally requires the org-admin `org_settings:write`** permission.
 
-The PUT is a **partial** upsert — send any subset, and omitted fields are left unchanged. When set, the correlation-window override is used everywhere the correlation runs: DORA CFR/MTTR, the incidents list, and the test dry-run. When unset, the env default applies.
+The PUT is an idempotent upsert of `incidentWindowHours` (audited as `reporting.settings.update`; changing it drops the org's cached DORA reports). When set, the override is used everywhere the correlation runs: DORA CFR/MTTR, the incidents list, and the test dry-run. When unset, the env default applies.
 
-The same endpoint carries the two **retention** overrides (`eventRetentionDays` / `doraRetentionDays`, 1–730 days) — see [DORA Metrics → Retention](dora-metrics.md#retention).
+The GET also returns the two **retention** values (`eventRetentionDays` / `doraRetentionDays`), but they are **read-only** here: retention is billing-owned, written only by the billing → reporting retention sync from the plan and any purchased Retention / DORA History packs. The PUT body is strict, so sending either field is a `400` — see [DORA Metrics → Retention](dora-metrics.md#retention).
 
 ## Alertmanager adapter (native)
 
@@ -179,15 +180,15 @@ Mapping, per alert:
 
 | Incident field | From |
 |----------------|------|
-| `incidentId` | alert `fingerprint` (falls back to the payload `groupKey`) |
+| `incidentId` | `<fingerprint>@<startsAt as ISO>` (fingerprint falls back to the payload `groupKey`; truncated to 255). The `startsAt` suffix makes each firing episode of the same alert its own incident. |
 | `environment` | the `environment` **label** (override the label name with `?environmentLabel=<label>`) |
 | `severity` | the `severity` label (defaults to `unknown`) |
 | `openedAt` | `startsAt` |
-| `resolvedAt` | `endsAt`, only when the alert `status` is `resolved` (Alertmanager's "no end" zero value is ignored) |
+| `resolvedAt` | `endsAt`, only when the alert's `status` (or, if absent, the batch `status`) is `resolved` (Alertmanager's "no end" zero value is ignored) |
 
 Same `reporting:ingest` auth and idempotent `(org, incidentId)` upsert as the generic route.
 
-Alerts missing an `environment` label, a stable `fingerprint`, or a valid `startsAt` are **skipped**, and the response reports `{ received, ingested, skipped }`. Set an `environment` label on your alerting rules that **matches the environment you declared on the deploy stage**.
+Alerts missing an `environment` label, a `fingerprint` (and no `groupKey`), or a valid `startsAt` are **skipped**, and the response reports `{ received, ingested, skipped, ok }`. A batch of more than **1000** alerts is rejected with `400 VALIDATION_ERROR` so the sender re-batches; it is never silently truncated. Set an `environment` label on your alerting rules that **matches the environment you declared on the deploy stage**.
 
 ## Point your tool here
 
@@ -228,7 +229,7 @@ Any tool that can POST JSON works — map its stable alert id, open and resolve 
 - the **generate/rotate** flow for the per-org `reporting:ingest` [token](#getting-a-token-self-serve), shown once;
 - **provider presets** (Alertmanager / PagerDuty / Datadog / generic) with copy-paste setup steps and the required `environment` mapping;
 - the [per-org correlation window](#per-org-correlation-window) input;
-- the **Retention** inputs — standard-event and DORA-source windows; see [DORA Metrics → Retention](dora-metrics.md#retention);
+- the **Retention** windows (standard events and DORA source), read-only, with a link to the retention packs in billing; see [DORA Metrics → Retention](dora-metrics.md#retention);
 - a **Send test incident** button;
 - the **recent incidents** list.
 
@@ -239,10 +240,10 @@ POST /api/reports/incidents/test            # { "environment"?: "production" }
 GET  /api/reports/incidents?limit=&offset=  # recent incidents + correlation, paginated
 ```
 
-Both require `reports:read` + `advanced_reporting`, and are org-admin surfaces.
+Both are user-session routes requiring `reports:read` + `advanced_reporting` (and an `apiCalls` quota check); the machine token cannot call them.
 
-- **Test** is a **non-persisting dry-run**: it reports whether a synthetic incident opening *now* for `environment` would correlate to a recent successful deploy under the org's window. A wiring and config check that **does not write an incident or affect metrics**. Returns `{ environment, openedAt, windowHours, correlated, executionId, deployCompletedAt }`.
-- **List** returns recent incidents newest-first, each with its `resolved` state and its correlated deploy (`correlatedExecutionId` / `deployCompletedAt`, or `null`).
+- **Test** is a **non-persisting dry-run**: it reports whether a synthetic incident opening *now* for `environment` would correlate to a recent successful deploy under the org's window. A wiring and config check that **does not write an incident or affect metrics**. `environment` defaults to `production`. Returns `{ test: { environment, openedAt, windowHours, correlated, executionId, deployCompletedAt } }`.
+- **List** returns `incidents` newest-first with pagination (`hasMore`), each with `incidentId`, `environment`, `severity`, `openedAt`, `resolvedAt`, `createdAt`, its `resolved` state and its correlated deploy (`correlatedExecutionId` / `deployCompletedAt`, or `null`).
 
 ## Related
 

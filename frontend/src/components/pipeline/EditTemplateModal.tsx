@@ -225,7 +225,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
             {inputs.map((row, i) => (
               <div key={i} className="rounded-lg border border-default p-2 space-y-2">
                 <div className="flex items-center gap-2">
-                  <Input value={row.name} onChange={(e) => updateInput(i, { name: e.target.value })} placeholder="name (repoUrl)" aria-label="Input name" disabled={loading} className="text-sm" />
+                  <Input value={row.name} onChange={(e) => updateInput(i, { name: e.target.value })} placeholder="name (repo)" aria-label="Input name" disabled={loading} className="text-sm" />
                   <Input value={row.label} onChange={(e) => updateInput(i, { label: e.target.value })} placeholder="label (Repository URL)" aria-label="Input label" disabled={loading} className="text-sm" />
                   <Select value={row.type} onChange={(e) => updateInput(i, { type: e.target.value as EditableInput['type'] })} aria-label="Input type" disabled={loading} className="text-sm !w-28">
                     <option value="string">string</option>

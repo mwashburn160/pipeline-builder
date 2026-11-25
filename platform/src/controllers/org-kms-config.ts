@@ -119,9 +119,14 @@ async function restoreKmsConfig(
   previous: ProposedKmsConfig | null,
 ): Promise<boolean> {
   try {
+    // The restore is a config change too: a replica that picked up the briefly
+    // saved `next` keeps it for a full cache TTL from now, so the verification
+    // is re-stamped from the restore rather than left due from the save.
     const restored = await Organization.updateOne(
       { _id: org._id, ...kmsConfigMatch(next) },
-      previous ? { $set: { kmsConfig: { keyId: previous.keyId, ciphertextBase64: previous.ciphertextBase64 } } } : { $unset: { kmsConfig: 1 } },
+      previous
+        ? { $set: { kmsConfig: { keyId: previous.keyId, ciphertextBase64: previous.ciphertextBase64 }, ...kmsVerifySchedule() } }
+        : { $unset: { kmsConfig: 1 }, $set: kmsVerifySchedule() },
     );
     if (restored.matchedCount === 0) {
       logger.error('KMS config restore skipped: the config changed again since this request saved it', { orgId });
@@ -133,6 +138,38 @@ async function restoreKmsConfig(
   }
   evictPerOrgCache(orgId);
   return true;
+}
+
+/** Where an operator retries a failed runner-key re-wrap. */
+const RUNNER_RETRY_HINT = 'retry with POST /api/admin/orgs/:orgId/kms-config/runner-keys/reencrypt '
+  + '(it re-wraps with the outgoing config, recorded on the org).';
+
+/**
+ * Keep the outgoing config past this request when the runner-key re-wrap
+ * failed: once the new config is saved it survives nowhere else, and the rows
+ * still wrapped under it can only be read with it. Set only when no earlier
+ * failure is pending (its rows are under the OLDER config). A successful
+ * re-wrap read every row under some config, so it clears any pending marker.
+ * Never throws: the change itself is already committed.
+ */
+async function recordRunnerRewrapOutcome(
+  orgId: string,
+  org: OrganizationDocument,
+  previous: ProposedKmsConfig | null,
+  ok: boolean,
+): Promise<void> {
+  try {
+    if (!ok) {
+      await Organization.updateOne(
+        { _id: org._id, kmsRunnerRewrapFrom: { $exists: false } },
+        { $set: { kmsRunnerRewrapFrom: { ...(previous ? { keyId: previous.keyId, ciphertextBase64: previous.ciphertextBase64 } : {}), pendingSince: new Date() } } },
+      );
+    } else if (org.kmsRunnerRewrapFrom) {
+      await Organization.updateOne({ _id: org._id }, { $unset: { kmsRunnerRewrapFrom: 1 } });
+    }
+  } catch (err) {
+    logger.error('Could not record the runner-key re-wrap outcome', { orgId, ok, error: errorMessage(err) });
+  }
 }
 
 /** The two config changes, keyed: their audit action and the words their messages use. */
@@ -265,6 +302,7 @@ async function changeKmsConfig(
   if (!runnerKeys.ok) {
     logger.error(`KMS config ${verb}: runner signing key re-encryption failed after config change`, { orgId, error: runnerKeys.error });
   }
+  await recordRunnerRewrapOutcome(orgId, org, previousKmsConfig, runnerKeys.ok);
 
   audit(req, action, {
     targetType: 'org-kms-config',
@@ -282,7 +320,7 @@ async function changeKmsConfig(
   });
 
   if (secretsError) {
-    const runnerNote = !runnerKeys.ok ? ` Also, ${runnerKeys.error}.` : '';
+    const runnerNote = !runnerKeys.ok ? ` Also, ${runnerKeys.error}; ${RUNNER_RETRY_HINT}` : '';
     return void sendError(
       res, 500,
       `KMS config ${done} but re-encryption failed mid-flight: ${secretsError}. Some secrets may now be unreadable. Re-enter them via their respective admin endpoints.${runnerNote}`,
@@ -292,7 +330,7 @@ async function changeKmsConfig(
   if (!runnerKeys.ok) {
     return void sendError(
       res, 500,
-      `KMS config ${done}${reencrypt ? ' and platform secrets re-encrypted' : ''}, but ${runnerKeys.error}. That org's pipeline runners cannot sign until the pipeline re-encrypt is rerun for it.`,
+      `KMS config ${done}${reencrypt ? ' and platform secrets re-encrypted' : ''}, but ${runnerKeys.error}. That org's pipeline runners cannot sign until the re-wrap succeeds: ${RUNNER_RETRY_HINT}`,
     );
   }
 
@@ -405,4 +443,40 @@ export const testOrgKmsConfig = withController('Test org KMS config', async (req
     logger.warn('KMS config test failed', { orgId, keyId: parsed.keyId, error: message });
     return sendError(res, 400, `KMS test failed: ${message}`);
   }
+});
+
+/**
+ * POST /api/admin/orgs/:orgId/kms-config/runner-keys/reencrypt — retry a KMS
+ * change's failed runner-signing-key re-wrap. The pipeline service reads each
+ * row under the current config, then the outgoing one recorded on the org
+ * (`kmsRunnerRewrapFrom`), then the shared provider, and writes under the
+ * current one — so the retry is safe to repeat. 409 when nothing is pending.
+ */
+export const retryRunnerKeyReencrypt = withController('Retry runner key re-encrypt', async (req, res) => {
+  if (!requireSystemAdmin(req, res)) return;
+  const orgId = String(req.params.orgId);
+  const org = await Organization.findById(toOrgId(orgId));
+  if (!org) return sendError(res, 404, 'Organization not found');
+  const pending = org.kmsRunnerRewrapFrom;
+  if (!pending) return sendError(res, 409, 'No runner signing key re-wrap is pending for this organization', ErrorCode.CONFLICT);
+
+  const previousKmsConfig = activeKmsConfig(pending);
+  const runnerKeys = await reencryptRunnerSigningKeys({ orgId, previousKmsConfig });
+  audit(req, 'admin.org.kms-config.runner-keys.reencrypt', {
+    targetType: 'org-kms-config',
+    targetId: orgId,
+    affectedOrgId: orgId,
+    details: { ...(previousKmsConfig ? { previousKeyId: previousKmsConfig.keyId } : { previousKeyId: null }), ...runnerKeyDetails(runnerKeys) },
+    ...(runnerKeys.ok ? {} : { outcome: 'failure' as const }),
+  });
+  if (!runnerKeys.ok) {
+    logger.error('Runner signing key re-wrap retry failed', { orgId, error: runnerKeys.error });
+    return sendError(res, 500, `${runnerKeys.error}. The outgoing config is still recorded; retry once the cause is fixed.`);
+  }
+  // Conditional on the marker this retry read, so a newer failure's marker survives.
+  await Organization.updateOne(
+    { '_id': org._id, 'kmsRunnerRewrapFrom.pendingSince': pending.pendingSince },
+    { $unset: { kmsRunnerRewrapFrom: 1 } },
+  );
+  sendSuccess(res, 200, runnerKeyDetails(runnerKeys));
 });

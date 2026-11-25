@@ -180,8 +180,8 @@ const USAGE_SUMS = {
   calls: { $sum: '$calls' },
   counted: sumWhen('counted'),
   refunded: sumWhen('refunded'),
-  tokensIn: { $sum: { $ifNull: ['$tokensIn', 0] } },
-  tokensOut: { $sum: { $ifNull: ['$tokensOut', 0] } },
+  tokensIn: { $sum: '$tokensIn' },
+  tokensOut: { $sum: '$tokensOut' },
 };
 
 /** The caller TYPE of a bucket, computed in the pipeline (the principal id is never read). */

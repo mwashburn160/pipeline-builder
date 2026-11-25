@@ -382,7 +382,7 @@ describe('the digest', () => {
 });
 
 describe('the operator switch', () => {
-  it('PLUGIN_AUTO_TIDY_ENABLED=false: the scheduled job does no work; only the literal "false" disables', async () => {
+  it('PLUGIN_AUTO_TIDY_ENABLED=false: the scheduled job does no work; only "false" (any case) disables', async () => {
     process.env.PLUGIN_AUTO_TIDY_ENABLED = 'false';
     const result = await run(0);
     expect(result).toMatchObject({ operatorEnabled: false, orgs: [] });
@@ -390,6 +390,11 @@ describe('the operator switch', () => {
     expect((await rowOf(ids['1.0.0']!)).tidy_warned_at).toBeNull();
     // The preview still answers (and says the job is off).
     expect(await tidyPreview(A, { now: T0 })).toMatchObject({ operatorEnabled: false, totals: { warn: 2 } });
+    // Case and surrounding space don't matter (the PLUGIN_REMEDIATION_ENABLED parsing).
+    process.env.PLUGIN_AUTO_TIDY_ENABLED = ' FALSE ';
+    expect((await run(0)).operatorEnabled).toBe(false);
+    process.env.PLUGIN_AUTO_TIDY_ENABLED = 'False';
+    expect((await run(0)).operatorEnabled).toBe(false);
     process.env.PLUGIN_AUTO_TIDY_ENABLED = '0';
     expect((await run(0)).operatorEnabled).toBe(true);
   });

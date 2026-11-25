@@ -547,6 +547,36 @@
   },
   {
     "method": "POST",
+    "path": "/admin/orgs/:orgId/kms-config/runner-keys/reencrypt",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org_kms:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [
+      "totp",
+      "webauthn"
+    ],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "admin.org.kms-config.runner-keys.reencrypt"
+    ]
+  },
+  {
+    "method": "POST",
     "path": "/admin/orgs/:orgId/kms-config/test",
     "auth": true,
     "permissions": [

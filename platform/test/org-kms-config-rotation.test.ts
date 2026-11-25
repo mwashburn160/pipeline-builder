@@ -59,7 +59,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   },
 }));
 
-const { putOrgKmsConfig, deleteOrgKmsConfig } = await import('../src/controllers/org-kms-config.js');
+const { putOrgKmsConfig, deleteOrgKmsConfig, retryRunnerKeyReencrypt } = await import('../src/controllers/org-kms-config.js');
 
 const ORG = 'aaaaaaaaaaaaaaaaaaaaaaaa';
 const SYSADMIN = { sub: 'sa-1', isSuperAdmin: true };
@@ -400,7 +400,9 @@ describe('kms-config: re-encrypt failed before any secret was written', () => {
     expect(mockOrgUpdateOne).toHaveBeenCalledTimes(2);
     expect(mockOrgUpdateOne.mock.calls[1]).toEqual([
       { '_id': ORG, 'kmsConfig.keyId': NEW.keyId, 'kmsConfig.ciphertextBase64': NEW.ciphertextBase64 },
-      { $set: { kmsConfig: OLD } },
+      // The restore re-stamps the verification: a replica that picked up the
+      // briefly-saved NEW config keeps it a full cache TTL from the restore.
+      { $set: { kmsConfig: OLD, kmsVerifyDueAt: DUE } },
     ]);
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
     expect(mockAudit.mock.calls[0][2]).toMatchObject({
@@ -414,7 +416,7 @@ describe('kms-config: re-encrypt failed before any secret was written', () => {
     mockReencryptOrg.mockRejectedValue(unwritten());
     const res = await put();
     expect(res.statusCode).toBe(500);
-    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $unset: { kmsConfig: 1 } });
+    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $unset: { kmsConfig: 1 }, $set: { kmsVerifyDueAt: DUE } });
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
   });
 
@@ -424,7 +426,7 @@ describe('kms-config: re-encrypt failed before any secret was written', () => {
     const res = await del();
     expect(res.statusCode).toBe(500);
     expect(mockOrgUpdateOne.mock.calls[1][0]).toHaveProperty('$or');
-    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $set: { kmsConfig: OLD } });
+    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $set: { kmsConfig: OLD, kmsVerifyDueAt: DUE } });
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
   });
 
@@ -447,5 +449,79 @@ describe('kms-config: re-encrypt failed before any secret was written', () => {
     expect(res.statusCode).toBe(500);
     expect(mockOrgUpdateOne).toHaveBeenCalledTimes(1);
     expect(mockRunnerReencrypt).toHaveBeenCalled();
+  });
+});
+
+describe('kms-config: recovering a failed runner-key re-wrap', () => {
+  const retry = async () => {
+    const res = mockRes();
+    await (retryRunnerKeyReencrypt as any)({ params: { orgId: ORG }, query: {}, body: {}, user: SYSADMIN, headers: {} }, res);
+    return res;
+  };
+  const PENDING = expect.any(Date);
+
+  it('a failed re-wrap records the outgoing config durably (once — the oldest unmigrated config wins) and names the retry route', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockRunnerReencrypt.mockResolvedValue({ ok: false, error: 'pipeline service unreachable' });
+    const res = await put();
+    expect(res.statusCode).toBe(500);
+    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
+      { _id: ORG, kmsRunnerRewrapFrom: { $exists: false } },
+      { $set: { kmsRunnerRewrapFrom: { keyId: OLD.keyId, ciphertextBase64: OLD.ciphertextBase64, pendingSince: PENDING } } },
+    );
+    expect(res.body.message).toMatch(/kms-config\/runner-keys\/reencrypt/);
+    expect(res.body.message).not.toMatch(/rerun/);
+  });
+
+  it('a failed re-wrap from the shared provider records a marker with no config', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc(undefined));
+    mockRunnerReencrypt.mockResolvedValue({ ok: false, error: 'pipeline service unreachable' });
+    await put();
+    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
+      { _id: ORG, kmsRunnerRewrapFrom: { $exists: false } },
+      { $set: { kmsRunnerRewrapFrom: { pendingSince: PENDING } } },
+    );
+  });
+
+  it('the retry re-runs the re-wrap with the RECORDED outgoing config and clears the marker on success', async () => {
+    const since = new Date('2026-11-20T00:00:00Z');
+    mockOrgFindById.mockReturnValue({ ...orgDoc({ ...NEW }), kmsRunnerRewrapFrom: { ...OLD, pendingSince: since } });
+    const res = await retry();
+    expect(res.statusCode).toBe(200);
+    expect(mockRunnerReencrypt).toHaveBeenCalledWith({ orgId: ORG, previousKmsConfig: OLD });
+    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
+      { '_id': ORG, 'kmsRunnerRewrapFrom.pendingSince': since },
+      { $unset: { kmsRunnerRewrapFrom: 1 } },
+    );
+    expect(res.body.data).toMatchObject({ runnerKeysReencrypted: 2 });
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'admin.org.kms-config.runner-keys.reencrypt', expect.objectContaining({ affectedOrgId: ORG }));
+  });
+
+  it('a shared-provider marker retries with previousKmsConfig null', async () => {
+    mockOrgFindById.mockReturnValue({ ...orgDoc({ ...NEW }), kmsRunnerRewrapFrom: { pendingSince: new Date() } });
+    await retry();
+    expect(mockRunnerReencrypt).toHaveBeenCalledWith({ orgId: ORG, previousKmsConfig: null });
+  });
+
+  it('a retry that fails again answers 500 and keeps the marker', async () => {
+    mockOrgFindById.mockReturnValue({ ...orgDoc({ ...NEW }), kmsRunnerRewrapFrom: { ...OLD, pendingSince: new Date() } });
+    mockRunnerReencrypt.mockResolvedValue({ ok: false, error: 'pipeline service unreachable' });
+    const res = await retry();
+    expect(res.statusCode).toBe(500);
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
+    expect(mockAudit.mock.calls[0][2]).toMatchObject({ outcome: 'failure' });
+  });
+
+  it('409 when no re-wrap is pending', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...NEW }));
+    const res = await retry();
+    expect(res.statusCode).toBe(409);
+    expect(mockRunnerReencrypt).not.toHaveBeenCalled();
+  });
+
+  it('a later change whose re-wrap succeeds clears a pending marker (every row read under some config)', async () => {
+    mockOrgFindById.mockReturnValue({ ...orgDoc({ ...OLD }), kmsRunnerRewrapFrom: { pendingSince: new Date() } });
+    await put();
+    expect(mockOrgUpdateOne).toHaveBeenCalledWith({ _id: ORG }, { $unset: { kmsRunnerRewrapFrom: 1 } });
   });
 });

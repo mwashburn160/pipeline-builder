@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5bf8a4e644bb8efba06b6861b7b37694458d080f7956ac7c33008fc7a197b2e5
+// SOURCE-SHA256: 746399d51ba9c409620b1edbb9cf131b4bba87f71699f1aa3904cf31f417a9df
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -32,9 +32,9 @@ export const serviceMeshTopic: HelpTopic = {
             "Every ambient connection lands on HBONE port 15008, not the app's port. Each target ships an allow-ambient-hbone policy for exactly this, so mesh traffic flows alongside default-deny-ingress. If you are writing a new policy and traffic stops, that port is the first thing to check — ztunnel names it directly: \"maybe a NetworkPolicy is blocking HBONE port 15008\".",
             "Nothing in a pod changes. Ambient adds only node-level components, so the hardened readOnlyRootFilesystem / drop: [ALL] / runAsNonRoot / automountServiceAccountToken: false posture stays exactly as-is.",
             "The CiliumNetworkPolicy files are inert on every target. No Cilium controller is installed; they are kept as a ready-made overlay for clusters that already run Cilium.",
-            "Only two plaintext hops exist — the intentional TLS ingress edge, and two PERMISSIVE carve-outs.",
+            "Only two PERMISSIVE carve-outs exist, both port-scoped — the nginx ingress port (the TLS edge) and Prometheus 9090 for KEDA. Everything else is STRICT.",
             "A 403 between services is almost always a missing sa/<name> in the callee's AuthorizationPolicy.",
-            "Kiali's graph is L4 only under ambient without waypoints: who talks to whom and whether it is mTLS, but no HTTP rates, latency or status codes.",
+            "Kiali's graph is L4 only outside the one waypoint (which fronts only the seven services with internal routes): who talks to whom and whether it is mTLS, but no HTTP rates, latency or status codes.",
             "LEAN=1 trims the footprint so the stack plus mesh fits an ~8-core laptop or a t3.xlarge."
           ]
         }
@@ -260,7 +260,7 @@ export const serviceMeshTopic: HelpTopic = {
           "rows": [
             [
               "loki :3100",
-              "promtail, ops-center, grafana, prometheus — never plugin / plugin-quarantine-builder"
+              "alloy, ops-center, grafana, prometheus — never plugin / plugin-quarantine-builder"
             ],
             [
               "prometheus :9090",
@@ -605,7 +605,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "LEAN omits the optional observability/admin services (prometheus, thanos, loki, promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali) and collapses every workload to a single replica, leaving the core stack + mesh room to schedule. Both targets drive the same lean_filter over the kustomize stream. The full stack is the default (LEAN=0) for larger machines; eks is unaffected (Karpenter provisions more nodes instead)."
+          "content": "LEAN omits the optional observability/admin services (prometheus, thanos, loki, alloy, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali; on ec2 also ask-model) and collapses every workload to a single replica, leaving the core stack + mesh room to schedule. Both targets drive the same pb_lean_filter (deploy/bin/k8s-resources.sh) over the kustomize stream. The full stack is the default (LEAN=0) for larger machines; eks is unaffected (Karpenter provisions more nodes instead)."
         }
       ]
     },
@@ -662,7 +662,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "What you get here is L4 only. This mesh runs ambient with no waypoint proxies, so ztunnel is a TCP proxy and reports istio_tcp_* and nothing else — measured on a live cluster, 553 istio_* series with istio_requests_total at zero. The graph shows who talks to whom, how much traffic, and whether the edge is mTLS. It does not show HTTP success rates, RPS, per-route latency or status codes; those need waypoint proxies, which cost a pod per namespace/service and change the data path."
+          "content": "What you get here is mostly L4. The only waypoint is pb-waypoint, in front of the seven services that expose internal routes; everywhere else ztunnel is a TCP proxy and reports istio_tcp_* and nothing else. The graph shows who talks to whom, how much traffic, and whether the edge is mTLS. It does not show HTTP success rates, RPS, per-route latency or status codes for the services behind no waypoint; those need waypoint proxies, which cost a pod per namespace/service and change the data path."
         },
         {
           "type": "text",

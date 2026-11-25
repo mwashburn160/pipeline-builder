@@ -373,6 +373,8 @@ export interface SoftDeleteTarget {
   orgId: string;
   /** The org whose RLS scope the snapshot export reads with. */
   actorOrgId: string;
+  /** A platform operator's delete — a takedown only the platform may restore. */
+  byPlatform?: boolean;
 }
 
 /**
@@ -393,8 +395,9 @@ export async function softDeleteOrg(
   orgId: string,
   actorOrgId: string,
   deletedBy: string,
+  opts: { byPlatform?: boolean } = {},
 ): Promise<SoftDeleteResult> {
-  const { results } = await softDeleteOrgsTogether([{ orgId, actorOrgId }], deletedBy);
+  const { results } = await softDeleteOrgsTogether([{ orgId, actorOrgId, byPlatform: opts.byPlatform }], deletedBy);
   return results[0];
 }
 
@@ -453,8 +456,8 @@ export async function softDeleteOrgsTogether<T = undefined>(
     await withMongoTransaction(async (session) => {
       // Reassigned per attempt: a retried body re-reads the (rolled-back) rows.
       tombstoned = [];
-      for (const { orgId } of captured) {
-        tombstoned.push({ orgId, ...await tombstoneOrg(orgId, now, purgeAfter, session) });
+      for (const { orgId, byPlatform } of captured) {
+        tombstoned.push({ orgId, ...await tombstoneOrg(orgId, now, purgeAfter, session, byPlatform === true) });
       }
       extra = alsoInTransaction ? await alsoInTransaction(session) : undefined;
     });
@@ -530,10 +533,11 @@ async function tombstoneOrg(
   deletedAt: Date,
   purgeAfter: Date,
   session: ClientSession,
+  byPlatform: boolean,
 ): Promise<{ memberIds: Types.ObjectId[]; revokedPatIds: string[] }> {
   const tomb = await Organization.updateOne(
     { _id: toOrgId(orgId), deletedAt: null },
-    { $set: { deletedAt, purgeAfter } },
+    { $set: { deletedAt, purgeAfter, ...(byPlatform ? { deletedByPlatform: true } : {}) } },
   ).session(session);
   if (tomb.matchedCount === 0) throw new Error(ORG_ALREADY_DELETED);
 

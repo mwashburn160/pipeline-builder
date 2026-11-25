@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ValidationError, type TemplateInput } from '@pipeline-builder/api-core';
+import { bakeSourceTemplates } from '@pipeline-builder/pipeline-core';
 import { withoutToolchainPin } from './template-props.js';
 
 /** Request body accepted by the instantiate endpoint (post-validation). */
@@ -64,10 +65,13 @@ export function buildTemplateVars(
 /**
  * Instantiate a template into a concrete pipeline `props` (BuilderProps). Bakes
  * the requested project/organization/pipelineName and merges the resolved
- * `vars` over the template's own defaults. The `{{ vars.* }}` placeholders in the
- * body are left intact — they resolve at synth time like any pipeline var — so
- * the returned props flow straight into the normal create path (which runs the
- * usual compliance + quota checks and template validation).
+ * `vars` over the template's own defaults. `{{ vars.* }}` in `synth.source`
+ * (the repository identity — everything but `options.token`) is baked here
+ * against those vars, so the pipeline names a real repository; the other
+ * `{{ vars.* }}` placeholders are left intact — they resolve at synth time like
+ * any pipeline var — so the returned props flow straight into the normal create
+ * path (which runs the usual compliance + quota checks and template validation).
+ * Throws `ValidationError` when a source reference has no value.
  */
 export function instantiateTemplateProps(template: TemplateLike, body: InstantiateBody): Record<string, unknown> {
   const inputs = (template.inputs ?? []) as TemplateInput[];
@@ -84,5 +88,5 @@ export function instantiateTemplateProps(template: TemplateLike, body: Instantia
   const existingVars = (props.vars && typeof props.vars === 'object') ? (props.vars as Record<string, unknown>) : {};
   props.vars = { ...existingVars, ...vars };
 
-  return props;
+  return bakeSourceTemplates(props, props.vars as Record<string, unknown>);
 }

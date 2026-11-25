@@ -17,9 +17,8 @@ import {
   requirePermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { CoreConstants } from '@pipeline-builder/pipeline-core';
+import { CoreConstants, resolvePipelineProps } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { resolvePipeline } from '../helpers/pipeline-template-validator.js';
 import { pipelineRegistryService } from '../services/pipeline-registry-service.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
@@ -132,7 +131,9 @@ export function createReadPipelineRoutes(): Router {
     const payload = normalizeArrayFields(result, ['keywords']);
     if (shouldResolve) {
       try {
-        resolvePipeline(payload);
+        // pipeline-core's resolver — the one synth (PipelineBuilder) and
+        // `--show-resolved` use, so this preview is exactly what synth sees.
+        payload.props = resolvePipelineProps(payload.props as object) as typeof payload.props;
       } catch (err) {
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }

@@ -20,7 +20,9 @@ export function validateFormState(state: FormBuilderState): Record<string, strin
       break;
     case 'github':
       if (!state.synth.github.repo.trim()) errors['synth.github.repo'] = 'Repository is required';
-      else if (!state.synth.github.repo.includes('/')) errors['synth.github.repo'] = 'Format: owner/repo';
+      // A `{{ vars.* }}` placeholder (a template body's parameterized repository,
+      // baked at instantiate) has no owner/repo shape to check.
+      else if (!state.synth.github.repo.includes('{{') && !state.synth.github.repo.includes('/')) errors['synth.github.repo'] = 'Format: owner/repo';
       break;
     case 'codestar':
       if (!state.synth.codestar.repo.trim()) errors['synth.codestar.repo'] = 'Repository is required';

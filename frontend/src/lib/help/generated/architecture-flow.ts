@@ -1,6 +1,6 @@
 // GENERATED FROM docs/architecture-flow.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 26b26623954358334942df2af60f2ff48c94356d5e30276a4a0ae40bb407c819
+// SOURCE-SHA256: 200f78ba6a1f665ce6c626d86807eeb660bd5b3b76bf553cf274f48e001cc34e
 // SPDX-License-Identifier: Apache-2.0
 import { Workflow } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -48,7 +48,7 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "It ships with 119 ready-to-use plugins spanning build, test, security, quality, monitoring and infrastructure, and can also generate new plugins and pipelines from natural-language prompts via pluggable AI providers — Anthropic, OpenAI, Google, xAI and Amazon Bedrock."
+          "content": "It ships with 118 ready-to-use plugins spanning build, test, security, quality, monitoring and infrastructure, and can also generate new plugins and pipelines from natural-language prompts via pluggable AI providers — Anthropic, OpenAI, Google, xAI and Amazon Bedrock."
         },
         {
           "type": "text",
@@ -135,7 +135,7 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "flowchart TB\n    subgraph Clients\n        FE[Frontend<br/>Next.js]\n        CLI[CLI<br/>pipeline-manager]\n        API_EXT[REST API]\n    end\n\n    subgraph Platform[\"Pipeline Builder Platform\"]\n        NGINX[Nginx<br/>Reverse Proxy]\n        PLATFORM[Platform API<br/>Identity / Orgs / Audit]\n        PIPELINE[Pipeline API]\n        PLUGIN[Plugin API]\n        COMPLIANCE[Compliance]\n        QUOTA[Quota]\n        BILLING[Billing]\n        MESSAGE[Message]\n        REPORTING[Reporting]\n        OPS[Ops Controller<br/>Dashboards / Alerting / On-call]\n        IMGREG[Image Registry<br/>Token / Image API]\n    end\n\n    subgraph Data\n        MONGO[(MongoDB<br/>Users / Orgs)]\n        PG[(PostgreSQL<br/>Pipelines / Plugins)]\n        REDIS[(Redis<br/>BullMQ / Cache)]\n    end\n\n    subgraph Build\n        BK[buildkitd Sidecar<br/>Rootless BuildKit]\n        REG[Registry<br/>Plugin Images]\n    end\n\n    FE & CLI & API_EXT --> NGINX\n    NGINX -->|route by path| PLATFORM & PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & OPS & IMGREG\n    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & OPS & IMGREG -.->|verify tokens via JWKS| PLATFORM\n    PLUGIN & PIPELINE -->|validate| COMPLIANCE\n    PLATFORM --> MONGO\n    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & OPS --> PG\n    PLUGIN --> REDIS\n    PLUGIN -->|buildctl build_image| BK\n    PLUGIN -->|crane push prebuilt| REG\n    BK -->|push with scoped Bearer token| REG\n    IMGREG -->|mint scoped token| REG",
+          "content": "flowchart TB\n    subgraph Clients\n        FE[Frontend<br/>Next.js]\n        CLI[CLI<br/>pipeline-manager]\n        API_EXT[REST API]\n    end\n\n    subgraph Platform[\"Pipeline Builder Platform\"]\n        NGINX[Nginx<br/>Reverse Proxy]\n        PLATFORM[Platform API<br/>Identity / Orgs / Audit]\n        PIPELINE[Pipeline API]\n        PLUGIN[Plugin API]\n        COMPLIANCE[Compliance]\n        QUOTA[Quota]\n        BILLING[Billing]\n        MESSAGE[Message]\n        REPORTING[Reporting]\n        OPS[Ops Center<br/>Dashboards / Alerting / On-call]\n        IMGREG[Image Registry<br/>Token / Image API]\n        ASK[Ask Agent]\n    end\n\n    subgraph Data\n        MONGO[(MongoDB<br/>Users / Orgs / Quota / Billing)]\n        PG[(PostgreSQL<br/>Pipelines / Plugins)]\n        REDIS[(Redis<br/>BullMQ / Cache)]\n    end\n\n    subgraph Build\n        BK[buildkitd Sidecar<br/>Rootless BuildKit]\n        REG[Registry<br/>Plugin Images]\n    end\n\n    FE & CLI & API_EXT --> NGINX\n    NGINX -->|route by path| PLATFORM & PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & OPS & IMGREG & ASK\n    PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & OPS & IMGREG & ASK -.->|verify tokens via JWKS| PLATFORM\n    PLUGIN & PIPELINE -->|validate| COMPLIANCE\n    PLUGIN & PIPELINE -->|reserve slot| QUOTA\n    PLATFORM & QUOTA & BILLING --> MONGO\n    PIPELINE & PLUGIN & COMPLIANCE & MESSAGE & REPORTING & OPS --> PG\n    PLATFORM & PIPELINE & PLUGIN & OPS & IMGREG --> REDIS\n    PLUGIN -->|buildctl build_image| BK\n    PLUGIN -->|crane push prebuilt| REG\n    BK -->|push with scoped Bearer token| REG\n    IMGREG -->|mint scoped token| REG",
           "language": "mermaid"
         },
         {
@@ -183,7 +183,7 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "sequenceDiagram\n    participant Dev as Developer\n    participant API as Plugin API\n    participant Queue as Build Queue<br/>(BullMQ)\n    participant BK as buildkitd Sidecar\n    participant Reg as Registry\n    participant IR as image-registry<br/>(signer)\n    participant DB as PostgreSQL\n\n    Dev->>API: POST /plugins (multipart: plugin.zip)\n    API->>API: Extract ZIP (spec, Dockerfile, config)\n    API->>API: Compliance check (fail-closed)\n    API-->>Dev: 202 Accepted\n\n    API->>Queue: Enqueue build job\n\n    Queue->>BK: buildctl build --frontend dockerfile.v0<br/>attest:provenance=mode=min\n    BK->>Reg: push image index (bearer-token auth)\n    BK-->>Queue: pushed digest (--metadata-file)\n    Queue->>Reg: syft scan <repo>@<digest> → SPDX SBOM\n    Queue->>IR: POST /internal/plugin-signatures {repo, digest, sbom}\n    IR->>Reg: cosign sign + cosign attest (sha256-<digest>.sig / .att)\n    Queue->>DB: Store plugin (name, version, commands, env, imageDigest, imageSource)\n    Queue-->>Dev: SSE: build complete",
+          "content": "sequenceDiagram\n    participant Dev as Developer\n    participant API as Plugin API\n    participant Queue as Build Queue<br/>(BullMQ)\n    participant BK as buildkitd Sidecar\n    participant Reg as Registry\n    participant IR as image-registry<br/>(signer)\n    participant DB as PostgreSQL\n\n    Dev->>API: POST /plugins (multipart: plugin.zip)\n    API->>API: Extract ZIP (spec, Dockerfile, config)\n    API->>API: Reserve plugins quota slot\n    API->>API: Compliance check (fail-closed: 403 blocked, 503 unavailable)\n    API->>Queue: Enqueue build job\n    API-->>Dev: 202 Accepted\n\n    Queue->>BK: buildctl build --frontend dockerfile.v0<br/>attest:provenance=mode=min\n    BK->>Reg: push image index (bearer-token auth)\n    BK-->>Queue: pushed digest (--metadata-file)\n    Queue->>Reg: syft scan <repo>@<digest> → SPDX SBOM\n    Queue->>IR: POST /internal/plugin-signatures {repo, digest, sbom}\n    IR->>Reg: cosign sign + cosign attest (sha256-<digest>.sig / .att)\n    Queue->>DB: Store plugin (name, version, commands, env, imageDigest, imageSource)\n    Queue-->>Dev: SSE: build complete",
           "language": "mermaid"
         },
         {
@@ -236,12 +236,12 @@ export const architectureFlowTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Resolution until installs ship. Plugin reads and lookups include another"
+            "Resolution through installs. /plugins/lookup resolves a reference to"
           ]
         },
         {
           "type": "text",
-          "content": "org's plugin only when it is a system-org row that is the source of a live Official listing version (OFFICIAL_LISTED_PLUGIN_SCOPE in pipeline-data). W2 switches resolution to installs (implicit for Official) and to the listing's public/* image repository."
+          "content": "a listing only through the org's install — an explicit plugin_installs row (its own or, for a team, its root org's), or the implicit install every org has of Official listings unless its consumption policy sets officialInstalls: explicit. The consumption policy is applied on every resolution (packages/pipeline-data/src/api/plugin-resolution.ts); see Installing Plugins."
         },
         {
           "type": "list",
@@ -265,7 +265,7 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "sequenceDiagram\n    participant User as User (UI/API)\n    participant Plat as Platform API\n    participant Pipe as Pipeline API\n    participant Comp as Compliance\n    participant DB as PostgreSQL\n\n    User->>Plat: Create Pipeline (project, org, props)\n    Plat->>Pipe: POST /pipelines\n    Pipe->>Pipe: Auth + quota check\n    Pipe->>Comp: Validate pipeline props\n    Comp-->>Pipe: Allowed / Blocked\n    Pipe->>DB: Store pipeline (id, project, org, props JSON)\n    Pipe-->>User: 201 Created",
+          "content": "sequenceDiagram\n    participant User as User (UI/API)\n    participant Pipe as Pipeline API\n    participant Quota as Quota\n    participant Comp as Compliance\n    participant DB as PostgreSQL\n\n    User->>Pipe: POST /api/pipelines (project, org, props) via nginx\n    Pipe->>Pipe: Auth + pipelines:write, validate body\n    Pipe->>Quota: Reserve a pipelines slot (429 over limit)\n    Pipe->>Comp: Validate pipeline props\n    Comp-->>Pipe: Allowed / Blocked\n    alt blocked or compliance unavailable\n        Pipe->>Quota: Refund slot\n        Pipe-->>User: 403 COMPLIANCE_VIOLATION / 503\n    else allowed\n        Pipe->>DB: Store pipeline (id, project, org, props JSON)\n        Pipe-->>User: 201 Created\n    end",
           "language": "mermaid"
         },
         {
@@ -289,7 +289,7 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "sequenceDiagram\n    participant CLI as pipeline-manager\n    participant CDK as CDK Constructs\n    participant API as Platform API\n\n    CLI->>API: POST /api/plugins/lookup (every plugin)\n    API-->>CLI: Plugin config (commands, env, computeType, imageDigest)\n    Note over CLI: Any plugin that does not resolve fails the synth\n    CLI->>CDK: cdk synth / cdk deploy (resolved props)\n    CDK->>CDK: PipelineBuilder(props)\n    CDK->>CDK: PluginLookup hands each step its resolved record\n\n    CDK->>CDK: Create CodeBuildStep per stage/step\n    CDK->>CDK: Assemble CodePipeline (Source → Synth → Stages)\n    CDK-->>CLI: CloudFormation template",
+          "content": "sequenceDiagram\n    participant CLI as pipeline-manager\n    participant CDK as CDK Constructs\n    participant API as Plugin API\n\n    CLI->>API: POST /api/plugins/lookup (every plugin)\n    API-->>CLI: Plugin config (commands, env, computeType, imageDigest)\n    Note over CLI: Any plugin that does not resolve fails the synth\n    CLI->>CDK: cdk synth / cdk deploy (resolved props)\n    CDK->>CDK: PipelineBuilder(props)\n    CDK->>CDK: PluginLookup hands each step its resolved record\n\n    CDK->>CDK: Create CodeBuildStep per stage/step\n    CDK->>CDK: Assemble CodePipeline (Source → Synth → Stages)\n    CDK-->>CLI: CloudFormation template",
           "language": "mermaid"
         },
         {
@@ -306,7 +306,7 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "flowchart TB\n    CFN[CloudFormation Template]\n    CFN --> CP[AWS::CodePipeline::Pipeline]\n    CFN --> CB1[AWS::CodeBuild::Project x N]\n    CFN --> LF[AWS::Lambda::Function<br/>Plugin Lookup]\n    CFN --> IAM[AWS::IAM::Role<br/>Pipeline Execution]\n    CFN --> S3[AWS::S3::Bucket<br/>Artifacts]\n    CFN --> CW[AWS::CloudWatch::LogGroup]\n\n    CB1 --> BE[BuildEnvironment]\n    BE --> IMG[Image: plugin or AWS default]\n    BE --> CT[ComputeType: from plugin]\n    BE --> ENV[EnvironmentVariables:<br/>plugin.env + metadata + secrets]",
+          "content": "flowchart TB\n    CFN[CloudFormation Template]\n    CFN --> CP[AWS::CodePipeline::Pipeline]\n    CFN --> CB1[AWS::CodeBuild::Project x N]\n    CFN --> IAM[AWS::IAM::Role<br/>Pipeline + CodeBuild]\n    CFN --> S3[AWS::S3::Bucket<br/>Artifacts]\n\n    CB1 --> BE[BuildEnvironment]\n    BE --> IMG[Image: plugin or AWS default]\n    BE --> CT[ComputeType: from plugin]\n    BE --> ENV[EnvironmentVariables:<br/>plugin.env + metadata + secrets]",
           "language": "mermaid"
         }
       ]
@@ -321,7 +321,7 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "sequenceDiagram\n    participant GH as GitHub\n    participant CP as CodePipeline\n    participant CB as CodeBuild\n    participant IMG as Plugin Image\n\n    GH->>CP: Push / webhook\n    CP->>CP: Stage: Source (fetch code)\n\n    CP->>CB: Stage: Synth\n    CB->>IMG: Pull cdk-synth image\n    CB->>CB: Run pipeline-manager pipeline synth\n    CB-->>CP: Output: cdk.out/\n\n    CP->>CP: Stage: SelfMutation (update pipeline if changed)\n\n    CP->>CB: Stage: Test\n    CB->>IMG: Pull jest + eslint images\n    CB->>CB: Run plugin commands\n\n    CP->>CB: Stage: Security\n    CB->>IMG: Pull snyk + trivy images\n    CB->>CB: Run security scans\n\n    CP->>CB: Stage: Deploy\n    CB->>IMG: Pull cdk-deploy image\n    CB->>CB: Run deployment\n\n    CP->>CP: Pipeline Complete",
+          "content": "sequenceDiagram\n    participant GH as GitHub\n    participant CP as CodePipeline\n    participant CB as CodeBuild\n    participant IMG as Plugin Image\n\n    GH->>CP: Push / webhook\n    CP->>CP: Stage: Source (fetch code)\n\n    CP->>CB: Stage: Synth\n    CB->>IMG: Pull cdk-synth image\n    CB->>CB: Run pipeline-manager pipeline synth\n    CB-->>CP: Output: cdk.out/\n\n    CP->>CP: Stage: UpdatePipeline (self-mutation, if changed)\n\n    CP->>CB: Stage: Test\n    CB->>IMG: Pull jest + eslint images\n    CB->>CB: Run plugin commands\n\n    CP->>CB: Stage: Security\n    CB->>IMG: Pull snyk + trivy images\n    CB->>CB: Run security scans\n\n    CP->>CB: Stage: Deploy\n    CB->>IMG: Pull cdk-deploy image\n    CB->>CB: Run deployment\n\n    CP->>CP: Pipeline Complete",
           "language": "mermaid"
         },
         {
@@ -407,7 +407,7 @@ export const architectureFlowTopic: HelpTopic = {
       "blocks": [
         {
           "type": "code",
-          "content": "flowchart TB\n    ROOT[Root Organization: acme-corp<br/>orgId: abc123]\n    ROOT --> PLUG[Plugins<br/>scoped by orgId + visibility]\n    ROOT --> PIPE[Pipelines<br/>scoped by project, org, orgId]\n    ROOT --> SEC[Secrets<br/>AWS SM: /prefix/abc123/secretName]\n    ROOT --> QUO[Quotas + seats<br/>pooled at the root org]\n    ROOT --> COMP[Compliance<br/>per-org policy rules]\n    ROOT --> TEAM[Team: acme-mobile<br/>orgId: def456, parentOrgId: abc123]\n    TEAM --> TMEM[Members + roles<br/>scoped to the team]",
+          "content": "flowchart TB\n    ROOT[Root Organization: acme-corp<br/>orgId: abc123]\n    ROOT --> PLUG[Plugins<br/>scoped by orgId + visibility]\n    ROOT --> PIPE[Pipelines<br/>scoped by project, org, orgId]\n    ROOT --> SEC[Secrets<br/>AWS SM: pipeline-builder/abc123/secretName]\n    ROOT --> QUO[Quotas + seats<br/>pooled at the root org]\n    ROOT --> COMP[Compliance<br/>per-org policy rules]\n    ROOT --> TEAM[Team: acme-mobile<br/>orgId: def456, parentOrgId: abc123]\n    TEAM --> TMEM[Members + roles<br/>scoped to the team]",
           "language": "mermaid"
         },
         {

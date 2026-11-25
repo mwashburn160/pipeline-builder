@@ -75,7 +75,8 @@ interface UsageCardProps {
 /** Read-only "this period" cost + usage rollup. Period dates become editable when
  *  `onPeriodChange` is supplied (reframes the displayed window, not the bars). */
 export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageCardProps) {
-  const dollars = formatCents;
+  // The plan price in the account's billing currency (zero-decimal currencies included).
+  const dollars = (cents: number) => formatCents(cents, rollup.cost.currency);
   const editable = !!onPeriodChange;
   const startVal = toDateInput(rollup.period.start);
   const endVal = toDateInput(rollup.period.end);

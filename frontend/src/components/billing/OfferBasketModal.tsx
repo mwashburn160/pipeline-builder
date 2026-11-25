@@ -104,13 +104,13 @@ export function OfferBasketModal({
                     {i.quantity > 1 && <span className="text-fg-muted"> × {i.quantity}</span>}
                   </span>
                   <span className="text-sm tabular-nums text-fg-muted">
-                    {formatPrice(priceOf(i.bundle) * i.quantity)}/{per}
+                    {formatPrice(priceOf(i.bundle) * i.quantity, i.bundle.currency)}/{per}
                   </span>
                 </li>
               ))}
             </ul>
             <p className="text-sm text-fg" data-testid="offer-basket-total">
-              Total <strong className="tabular-nums">{formatPrice(totalCents)}</strong> per {per}, added to
+              Total <strong className="tabular-nums">{formatPrice(totalCents, items[0].bundle.currency)}</strong> per {per}, added to
               your current bill.
             </p>
           </>

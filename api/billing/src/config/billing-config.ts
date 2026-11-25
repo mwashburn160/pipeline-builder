@@ -796,19 +796,17 @@ function loadBundles(): BundleConfig[] {
     // dimension with genuine per-unit marginal cost, so the one pack priced off
     // compute we actually buy.
     //
-    // $2.99 and NOT the $2.49 originally authored: `snapUpPrice` requires every
-    // customer-visible amount to end in .00 or .99 and rounds UP, so 249 is not
-    // an expressible price here — it resolves to 299 whatever is written. Pinned
-    // to 299 explicitly so the authored number is the effective one; a silent
-    // snap is how a price nobody chose ends up on an invoice.
+    // $2.49: `snapUpPrice` requires every customer-visible amount to end in .00,
+    // .49 or .99 (rounding UP), so 249 is expressible as written — the authored
+    // number is the effective one, never a silent snap to a price nobody chose.
     //
-    // $2.99 / 500 = $0.00598 a credit against a ~$0.003 market rate (CircleCI's
-    // flat 5 credits per vCPU-minute; GitHub's 2-core Linux runner) — about 2x,
+    // $2.49 / 500 = $0.00498 a credit against a ~$0.003 market rate (CircleCI's
+    // flat 5 credits per vCPU-minute; GitHub's 2-core Linux runner) — about 1.7x,
     // which is a normal top-up premium over the $0.00347 embedded in Pro's own
     // tier price and has to cover a volume curve reaching 30% off. An earlier
     // draft priced it at $4.99, which was 3.3x market. The compliant price below
-    // it is $1.99, a 15% premium on the embedded rate, which the volume curve
-    // alone would erase.
+    // it is $1.99 ($0.00398 a credit), a premium of about 15% on the embedded
+    // rate, which the volume curve alone would erase.
     //
     // GRANULAR at +500 rather than coarse, which is what buys headroom on the one
     // size bound that binds: RATE_PACKS refuses a pack granting more than half

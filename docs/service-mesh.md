@@ -18,9 +18,9 @@ An **Istio ambient (sidecar-less) service mesh** on every deploy target, giving 
 - **Every ambient connection lands on HBONE port `15008`, not the app's port.** Each target ships an `allow-ambient-hbone` policy for exactly this, so mesh traffic flows alongside `default-deny-ingress`. If you are writing a new policy and traffic stops, that port is the first thing to check — ztunnel names it directly: "maybe a NetworkPolicy is blocking HBONE port 15008".
 - **Nothing in a pod changes.** Ambient adds only node-level components, so the hardened `readOnlyRootFilesystem` / `drop: [ALL]` / `runAsNonRoot` / `automountServiceAccountToken: false` posture stays exactly as-is.
 - **The `CiliumNetworkPolicy` files are inert on every target.** No Cilium controller is installed; they are kept as a ready-made overlay for clusters that already run Cilium.
-- **Only two plaintext hops exist** — the intentional TLS ingress edge, and two PERMISSIVE carve-outs.
+- **Only two PERMISSIVE carve-outs exist**, both port-scoped — the nginx ingress port (the TLS edge) and Prometheus `9090` for KEDA. Everything else is STRICT.
 - **A 403 between services is almost always a missing `sa/<name>`** in the callee's `AuthorizationPolicy`.
-- **Kiali's graph is L4 only** under ambient without waypoints: who talks to whom and whether it is mTLS, but no HTTP rates, latency or status codes.
+- **Kiali's graph is L4 only** outside the one waypoint (which fronts only the seven services with internal routes): who talks to whom and whether it is mTLS, but no HTTP rates, latency or status codes.
 - **`LEAN=1` trims the footprint** so the stack plus mesh fits an ~8-core laptop or a t3.xlarge.
 
 ## Overview
@@ -146,7 +146,7 @@ listing exactly the caller identities real traffic needs.
 >
 > | Workload | Admitted |
 > |---|---|
-> | loki :3100 | promtail, ops-center, grafana, prometheus — **never** plugin / plugin-quarantine-builder |
+> | loki :3100 | alloy, ops-center, grafana, prometheus — **never** plugin / plugin-quarantine-builder |
 > | prometheus :9090 | ops-center, grafana, prometheus (self-scrape); KEDA (non-mesh, plaintext via the PERMISSIVE port — matched by `notPrincipals: ["*"]`, bounded to the `keda` namespace by NetworkPolicy); :10901 thanos-query |
 > | thanos-query :9090 | ops-center, grafana, prometheus |
 > | thanos-store-gateway | :10901 thanos-query; :10902 prometheus |
@@ -401,9 +401,10 @@ LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh   # -E preserves LEAN through 
 ```
 
 LEAN omits the optional observability/admin services (prometheus, thanos, loki,
-promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali) and collapses every workload to
-a single replica, leaving the core stack + mesh room to schedule. Both targets drive the
-same `lean_filter` over the kustomize stream. The full stack is the default (LEAN=0) for
+alloy, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali; on ec2 also
+ask-model) and collapses every workload to a single replica, leaving the core
+stack + mesh room to schedule. Both targets drive the
+same `pb_lean_filter` (`deploy/bin/k8s-resources.sh`) over the kustomize stream. The full stack is the default (LEAN=0) for
 larger machines; **eks** is unaffected (Karpenter provisions more nodes instead).
 
 ## Troubleshooting
@@ -424,13 +425,12 @@ Kiali ships on the three kubernetes targets (`k8s/kiali.yaml`), reached through
 nginx at **`/kiali/`** like `/pgadmin/`, and dropped by `LEAN=1`. It is not
 deployed on **docker**, which runs no mesh.
 
-**What you get here is L4 only.** This mesh runs ambient with no waypoint
-proxies, so ztunnel is a TCP proxy and reports `istio_tcp_*` and nothing else —
-measured on a live cluster, 553 `istio_*` series with `istio_requests_total` at
-**zero**. The graph shows who talks to whom, how much traffic, and whether the
+**What you get here is mostly L4.** The only waypoint is `pb-waypoint`, in front
+of the seven services that expose internal routes; everywhere else ztunnel is a
+TCP proxy and reports `istio_tcp_*` and nothing else. The graph shows who talks to whom, how much traffic, and whether the
 edge is mTLS. It does **not** show HTTP success rates, RPS, per-route latency or
-status codes; those need waypoint proxies, which cost a pod per
-namespace/service and change the data path.
+status codes for the services behind no waypoint; those need waypoint proxies,
+which cost a pod per namespace/service and change the data path.
 
 It depends on the `istio-mesh` Prometheus scrape job — Kiali reads topology from
 Prometheus, not from the API server, so without that job the graph is empty.

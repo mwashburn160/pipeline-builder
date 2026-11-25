@@ -26,11 +26,14 @@ export function useSalesContext(): {
   bundles: Bundle[];
   interval: BillingInterval;
   crossover: CrossoverVerdict | null;
+  /** The currency of the crossover's amounts; set together with `crossover`. */
+  crossoverCurrency: string | null;
   refresh: () => void;
 } {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [interval, setInterval] = useState<BillingInterval>('monthly');
   const [crossover, setCrossover] = useState<CrossoverVerdict | null>(null);
+  const [crossoverCurrency, setCrossoverCurrency] = useState<string | null>(null);
   const unmountedRef = useUnmountedRef();
 
   const refresh = useCallback(() => {
@@ -49,6 +52,7 @@ export function useSalesContext(): {
         if (unmountedRef.current) return;
         const verdict = res.data?.crossover ?? null;
         setCrossover(verdict);
+        setCrossoverCurrency(verdict ? res.data?.currency ?? null : null);
         // The interval the account is actually billed at, so the pack price on a
         // quota card is quoted in the same period as their bill rather than
         // always monthly.
@@ -59,5 +63,5 @@ export function useSalesContext(): {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  return { bundles, interval, crossover, refresh };
+  return { bundles, interval, crossover, crossoverCurrency, refresh };
 }

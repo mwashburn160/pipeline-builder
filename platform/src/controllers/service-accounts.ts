@@ -87,7 +87,7 @@ const serviceAccountErrors = {
   [SA_INVALID_IP_ALLOWLIST]: { status: 400, message: 'ipAllowlist entries must be IP addresses or CIDR blocks' },
   [SA_KEY_NOT_FOUND]: { status: 404, message: 'Key not found or already revoked' },
   [SA_INVALID_SCOPE]: { status: 400, message: 'scope is not a recognised capability scope' },
-  [SA_BUILTIN_ROLE_MISSING]: { status: 409, message: 'This organization has no built-in Role for the requested role. The platform creates it at startup — upgrade/restart the platform, then retry' },
+  [SA_BUILTIN_ROLE_MISSING]: { status: 409, message: 'This organization has no built-in Role for the requested role. Every organization is seeded with it at creation, so it was removed outside the API — recreate it, then retry' },
   [SA_SCOPE_NOT_PERMITTED]: { status: 403, message: 'You cannot issue a key with this capability: scim needs organization admin (or members:manage and roles:manage) on an SSO-entitled organization, and registry:push needs plugins:write' },
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'One or more roles do not exist in this organization' },
   [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can grant a superadmin role' },
@@ -236,7 +236,7 @@ export const deleteOrganizationServiceAccount = withController('Delete service a
   const accountId = req.params.accountId as string;
   if (!(await requireOrgScope(req, res, id))) return;
 
-  const account = await deleteServiceAccount(id, accountId);
+  const account = await deleteServiceAccount(id, accountId, roleAssignmentActor(req));
   audit(req, 'org.service-account.delete', {
     targetType: 'service-account',
     targetId: account.id,
@@ -244,7 +244,12 @@ export const deleteOrganizationServiceAccount = withController('Delete service a
     details: { name: account.name, keysDeleted: account.keys.length },
   });
   sendSuccess(res, 200, undefined, 'Service account deleted');
-}, serviceAccountErrors);
+}, {
+  ...serviceAccountErrors,
+  // Deleting strips every Role the account holds — refused like removing one.
+  [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can delete a service account holding a superadmin role' },
+  [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot delete this service account: it holds a role granting permissions you do not hold yourself' },
+});
 
 /**
  * POST /organization/:id/service-accounts/:accountId/keys — issue a `pb_sa_` key.

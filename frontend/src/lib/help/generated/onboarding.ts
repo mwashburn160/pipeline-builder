@@ -1,6 +1,6 @@
 // GENERATED FROM docs/onboarding.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 472aa7ee53f953c7172b60e0c4f939f24a1881b091630a78cc8ff183805b7839
+// SOURCE-SHA256: 3433854b87be6610ac630d194299b2843fe1849e29fc54bfc419d7acb160fc2e
 // SPDX-License-Identifier: Apache-2.0
 import { Rocket } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -275,7 +275,7 @@ export const onboardingTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "curl -X POST \"$PLATFORM_BASE_URL/api/organization\" \\\n  -H \"Authorization: Bearer $PLATFORM_TOKEN\" -H \"Content-Type: application/json\" \\\n  -d '{\"name\":\"acme-platform\",\"displayName\":\"Acme Platform Team\"}'",
+          "content": "curl -X POST \"$PLATFORM_BASE_URL/api/organization\" \\\n  -H \"Authorization: Bearer $PLATFORM_TOKEN\" -H \"Content-Type: application/json\" \\\n  -d '{\"name\":\"acme-platform\",\"description\":\"Acme Platform Team\"}'",
           "language": "bash"
         },
         {
@@ -290,7 +290,7 @@ export const onboardingTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Invite by email from the dashboard (Members page) or the API. Access is granted through Roles — named sets of resource:action permissions; a user's effective permissions are the union of their assigned Roles. Every org seeds built-in Admin and Member Roles; admins can add custom Roles."
+          "content": "Invite by email from the dashboard (Members page) or the API. Access is granted through Roles — named sets of resource:action permissions; a user's effective permissions are the union of their assigned Roles. Every org seeds built-in Admin and Member Roles (plus the Pipeline Automation / Pipeline Registration machine Roles the Step 5 service accounts hold); admins with roles:manage can add custom Roles."
         },
         {
           "type": "text",

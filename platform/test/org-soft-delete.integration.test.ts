@@ -192,6 +192,34 @@ suite('org soft-delete (real Mongo replica set)', () => {
       expect((await m.PersonalAccessToken.findById(rootPat._id).lean()).revoked).toBe(false);
     });
 
+    it('a PLATFORM delete is a takedown: a tenant cannot restore it, and the listing says so', async () => {
+      const { organizationService } = await import('../src/services/organization-service.js');
+      const { orgHierarchyService } = await import('../src/services/org-hierarchy-service.js');
+      await cascade.softDeleteOrg(teamId, rootId, 'operator-1', { byPlatform: true });
+      expect((await m.Organization.findById(teamId).lean()).deletedByPlatform).toBe(true);
+
+      expect((await orgHierarchyService.listDeletedTeams(rootId, false)).teams).toEqual([
+        expect.objectContaining({ orgId: teamId, deletedByPlatform: true, restorable: false }),
+      ]);
+      await expect(organizationService.restore(teamId, 'admin-1', false)).rejects.toThrow('ORG_RESTORE_PLATFORM_DELETED');
+      expect((await m.Organization.findById(teamId).lean()).deletedAt).toBeTruthy();
+
+      expect((await orgHierarchyService.listDeletedTeams(rootId, true)).teams[0]).toMatchObject({ restorable: true });
+      await organizationService.restore(teamId, 'operator-1', true);
+      const live = await m.Organization.findById(teamId).lean();
+      expect(live.deletedAt).toBeNull();
+      expect(live.deletedByPlatform).toBeUndefined();
+    });
+
+    it('a tenant\'s own team delete stays self-serve restorable', async () => {
+      const { organizationService } = await import('../src/services/organization-service.js');
+      const { orgHierarchyService } = await import('../src/services/org-hierarchy-service.js');
+      await cascade.softDeleteOrg(teamId, rootId, 'admin-1');
+      expect((await orgHierarchyService.listDeletedTeams(rootId, false)).teams[0]).toMatchObject({ deletedByPlatform: false, restorable: true });
+      await organizationService.restore(teamId, 'admin-1', false);
+      expect((await m.Organization.findById(teamId).lean()).deletedAt).toBeNull();
+    });
+
     it('a racing repeat delete cannot reset purgeAfter: exactly one tombstone lands, the other is ORG_ALREADY_DELETED', async () => {
       const results = await Promise.allSettled([
         cascade.softDeleteOrg(teamId, rootId, 'admin-1'),

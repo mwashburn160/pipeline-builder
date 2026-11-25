@@ -126,11 +126,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  pipelineScopeMetadata: (p: Record<string, any>) => ({ ...(p.global ?? {}), ...(p.defaults?.metadata ?? {}), ...(p.synth?.metadata ?? {}) }),
-  allowedScopeRoots: () => () => true,
-  validateTemplates: () => ({ valid: true, errors: [] }),
-  detectCycles: () => [],
-  resolveSelfReferencing: () => ({ errors: [] }),
+  validatePipelineProps: () => [],
   tokenize: () => [],
 }));
 

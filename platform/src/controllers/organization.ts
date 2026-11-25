@@ -12,7 +12,7 @@ import { organizationService, orgHierarchyService, changedAiProviderFields } fro
 import { exportOrg, softDeleteOrg } from '../services/org-cascade-service.js';
 import {
   ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, SYSTEM_ORG_LIMIT_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED,
-  ORG_TEAM_NOT_FOUND, ORG_SEAT_LIMIT, ORG_RESTORE_PARENT_GONE, ORG_RESTORE_PARENT_INELIGIBLE,
+  ORG_TEAM_NOT_FOUND, ORG_SEAT_LIMIT, ORG_RESTORE_PARENT_GONE, ORG_RESTORE_PARENT_INELIGIBLE, ORG_RESTORE_PLATFORM_DELETED,
   ORG_MOVE_SYSTEM, ORG_MOVE_DELETED, ORG_MOVE_SELF, ORG_MOVE_CYCLE, ORG_MOVE_HAS_TEAMS, ORG_MOVE_TARGET_NOT_FOUND,
   ORG_MOVE_TARGET_NOT_ROOT, ORG_MOVE_TARGET_TIER, ORG_MOVE_NOOP, ORG_MOVE_BILLED, ORG_MOVE_BILLING_UNVERIFIED,
   ORG_MOVE_CONFLICT,
@@ -295,7 +295,8 @@ export const deleteOrganization = withController('Delete organization', async (r
   // ORG_SNAPSHOT_FAILED and the org is NOT tombstoned — we never lose an org
   // without a recovery snapshot.
   const actorOrgId = (req.user!.organizationId as string) ?? SYSTEM_ORG_ID;
-  const result = await softDeleteOrg(id, actorOrgId, req.user!.sub);
+  // This route is platform-only: its delete is a takedown the tenant cannot undo.
+  const result = await softDeleteOrg(id, actorOrgId, req.user!.sub, { byPlatform: true });
 
   logger.info(`Organization ${id} soft-deleted by system admin ${req.user!.sub}`, {
     purgeAfter: result.purgeAfter, snapshotId: result.snapshotId, membersInvalidated: result.membersInvalidated,
@@ -341,7 +342,7 @@ export const restoreOrganization = withController('Restore organization', async 
 
   // Exclude the acting admin from the member token-invalidation so restoring an
   // org never logs out the person who did it (they'd otherwise 401 → login screen).
-  const restored = await organizationService.restore(id, req.user!.sub);
+  const restored = await organizationService.restore(id, req.user!.sub, isSystemAdmin(req));
   if (!restored) {
     return sendError(res, 404, 'No organization pending deletion with this id (already purged or never deleted)');
   }
@@ -355,9 +356,10 @@ export const restoreOrganization = withController('Restore organization', async 
   });
   sendSuccess(res, 200, { organization: restored }, 'Organization restored');
 }, {
-  [ORG_RESTORE_PARENT_GONE]: { status: 409, message: 'This team\'s parent organization is deleted — restore the parent first' },
-  [ORG_RESTORE_PARENT_INELIGIBLE]: { status: 409, message: 'This team\'s parent organization can no longer hold teams (it is a team itself, or its plan no longer includes teams)' },
-  [ORG_SEAT_LIMIT]: { status: 409, message: 'Restoring this team would put the account over its seat limit — free seats or add a seat pack first' },
+  [ORG_RESTORE_PLATFORM_DELETED]: { status: 403, message: 'This organization was deleted by a platform operator and can only be restored by the platform — contact support', code: ORG_RESTORE_PLATFORM_DELETED },
+  [ORG_RESTORE_PARENT_GONE]: { status: 409, message: 'This team\'s parent organization is deleted — restore the parent first', code: ORG_RESTORE_PARENT_GONE },
+  [ORG_RESTORE_PARENT_INELIGIBLE]: { status: 409, message: 'This team\'s parent organization can no longer hold teams (it is a team itself, or its plan no longer includes teams)', code: ORG_RESTORE_PARENT_INELIGIBLE },
+  [ORG_SEAT_LIMIT]: { status: 409, message: 'Restoring this team would put the account over its seat limit — free seats or add a seat pack first', code: ORG_SEAT_LIMIT },
 });
 
 /**
@@ -412,7 +414,7 @@ export const listDeletedTeams = withController('List deleted teams', async (req,
   if (!(await canManageOrgScope(req, id))) {
     return forbid(req, res, 'org-admin', 'You can only view the teams of an organization you administer');
   }
-  sendSuccess(res, 200, await orgHierarchyService.listDeletedTeams(id));
+  sendSuccess(res, 200, await orgHierarchyService.listDeletedTeams(id, isSystemAdmin(req)));
 });
 
 /**
@@ -435,7 +437,9 @@ export const deleteTeam = withController('Delete team', async (req, res) => {
   if (!team || team.parentOrgId !== id) throw new Error(ORG_TEAM_NOT_FOUND);
 
   const actorOrgId = (req.user!.organizationId as string) ?? SYSTEM_ORG_ID;
-  const result = await softDeleteOrg(teamId, actorOrgId, req.user!.sub);
+  // A platform operator deleting a team through the tenant route is still a
+  // takedown; a parent admin's own delete stays self-serve restorable.
+  const result = await softDeleteOrg(teamId, actorOrgId, req.user!.sub, { byPlatform: isSystemAdmin(req) });
 
   logger.info(`Team ${teamId} of ${id} soft-deleted by ${req.user!.sub}`, {
     purgeAfter: result.purgeAfter, snapshotId: result.snapshotId, membersInvalidated: result.membersInvalidated,

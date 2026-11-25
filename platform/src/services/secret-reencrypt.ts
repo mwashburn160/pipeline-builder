@@ -292,7 +292,10 @@ export interface ReencryptAllSummary {
  * failures, the previous key can be removed.
  *
  * Idempotent: re-running re-wraps the same plaintexts (fresh IVs), which is
- * harmless. A row that cannot be decrypted is RECORDED, not thrown — one
+ * harmless. Every write is conditional on the exact blob read, so a secret a
+ * live writer sets, replaces or removes mid-sweep is kept as it left it (it
+ * wrote under the current key) — never overwritten with or resurrected from
+ * the stale read. A row that cannot be decrypted is RECORDED, not thrown — one
  * unreadable secret must not stop the other orgs from being migrated — and the
  * caller (the script) exits non-zero so the failure is never a silent green.
  *
@@ -317,37 +320,44 @@ export async function reencryptAllStoredSecrets(): Promise<ReencryptAllSummary> 
     failures: [],
   };
 
-  for await (const org of Organization.find({}).select('aiProviderKeys').cursor()) {
+  /** One row's conditional write; true when it matched. A miss means a live
+   *  writer replaced or removed the blob since it was read — that writer used
+   *  the current key, so its value is kept and the row is simply not counted. */
+  const writeIfUnchanged = async (field: string, write: () => Promise<{ matchedCount?: number }>): Promise<boolean> => {
+    if ((await write()).matchedCount !== 0) return true;
+    logger.warn('Secret changed during fleet-wide re-encryption; kept the concurrent value', { field });
+    return false;
+  };
+
+  for await (const org of Organization.find({}).select('aiProviderKeys').lean().cursor()) {
     summary.orgsScanned++;
-    const orgId = org._id.toString();
-    const keys = org.aiProviderKeys as Record<string, string | undefined> | undefined;
-    if (!keys) continue;
-    let modified = false;
+    const orgId = String(org._id);
+    const keys = (org.aiProviderKeys ?? {}) as Record<string, string | undefined>;
     for (const provider of AI_PROVIDERS) {
       const raw = keys[provider];
       if (!raw) continue;
+      const path = `aiProviderKeys.${provider}`;
       try {
-        const plaintext = await unwrapEncrypted(raw, orgId, `aiProviderKeys.${provider}`);
-        keys[provider] = await wrapEncrypted(plaintext, orgId);
-        modified = true;
-        summary.aiKeysReencrypted++;
+        const wrapped = await wrapEncrypted(await unwrapEncrypted(raw, orgId, path), orgId);
+        if (await writeIfUnchanged(path, () => Organization.updateOne({ _id: org._id, [path]: raw }, { $set: { [path]: wrapped } }))) {
+          summary.aiKeysReencrypted++;
+        }
       } catch (err) {
-        summary.failures.push({ orgId, field: `aiProviderKeys.${provider}`, error: errorMessage(err) });
+        summary.failures.push({ orgId, field: path, error: errorMessage(err) });
       }
-    }
-    if (modified) {
-      org.markModified('aiProviderKeys');
-      await org.save();
     }
   }
 
-  for await (const idp of OrgIdpConfig.find({}).select('organizationId clientSecretEncrypted').cursor()) {
-    if (!idp.clientSecretEncrypted) continue;
+  for await (const idp of OrgIdpConfig.find({}).select('organizationId clientSecretEncrypted').lean().cursor()) {
+    const raw = idp.clientSecretEncrypted;
+    if (!raw) continue;
     const orgId = String(idp.organizationId);
     try {
-      const plaintext = await unwrapEncrypted(idp.clientSecretEncrypted, orgId, 'idpClientSecret');
-      await OrgIdpConfig.updateOne({ _id: idp._id }, { $set: { clientSecretEncrypted: await wrapEncrypted(plaintext, orgId) } });
-      summary.idpSecretsReencrypted++;
+      const wrapped = await wrapEncrypted(await unwrapEncrypted(raw, orgId, 'idpClientSecret'), orgId);
+      if (await writeIfUnchanged('idpClientSecret', () => OrgIdpConfig.updateOne(
+        { _id: idp._id, clientSecretEncrypted: raw },
+        { $set: { clientSecretEncrypted: wrapped } },
+      ))) summary.idpSecretsReencrypted++;
     } catch (err) {
       summary.failures.push({ orgId, field: 'idpClientSecret', error: errorMessage(err) });
     }
@@ -356,13 +366,17 @@ export async function reencryptAllStoredSecrets(): Promise<ReencryptAllSummary> 
   // Authenticator secrets are salted `user:<userId>`, NOT by org — a TOTP row
   // has no org at all, so it can only be found by sweeping the collection.
   // `select('+secret')` is required: the field is `select: false` by default.
-  for await (const totp of UserTotp.find({}).select('+secret userId').cursor()) {
+  // The write is conditional on the secret read: a user who re-enrols mid-sweep
+  // keeps the new secret instead of having it replaced by the old one.
+  for await (const totp of UserTotp.find({}).select('+secret userId').lean().cursor()) {
     const scope = `user:${String(totp.userId)}`;
-    if (!totp.secret) continue;
+    const raw = totp.secret;
+    if (!raw) continue;
     try {
-      const plaintext = await unwrapEncrypted(totp.secret, scope, 'totp.secret');
-      await UserTotp.updateOne({ _id: totp._id }, { $set: { secret: await wrapEncrypted(plaintext, scope) } });
-      summary.totpSecretsReencrypted++;
+      const wrapped = await wrapEncrypted(await unwrapEncrypted(raw, scope, 'totp.secret'), scope);
+      if (await writeIfUnchanged('totp.secret', () => UserTotp.updateOne({ _id: totp._id, secret: raw }, { $set: { secret: wrapped } }))) {
+        summary.totpSecretsReencrypted++;
+      }
     } catch (err) {
       summary.failures.push({ orgId: scope, field: 'totp.secret', error: errorMessage(err) });
     }
@@ -371,21 +385,18 @@ export async function reencryptAllStoredSecrets(): Promise<ReencryptAllSummary> 
   // The SAML SP signing/encryption keys are deployment-wide (salt `saml-sp-keys`),
   // so they belong to no org either. Losing these unreadable would break every
   // org's SAML connection at once, with no way to re-enter the value by hand.
-  for await (const key of SamlSpKey.find({}).cursor()) {
-    if (!key.privateKeyEncrypted) continue;
+  for await (const key of SamlSpKey.find({}).lean().cursor()) {
+    const raw = key.privateKeyEncrypted;
+    if (!raw) continue;
+    const field = `saml-sp.${String(key._id)}`;
     try {
-      const plaintext = await unwrapEncrypted(key.privateKeyEncrypted, SAML_SP_SECRET_CONTEXT, `saml-sp.${String(key._id)}`);
-      await SamlSpKey.updateOne(
-        { _id: key._id },
-        { $set: { privateKeyEncrypted: await wrapEncrypted(plaintext, SAML_SP_SECRET_CONTEXT) } },
-      );
-      summary.samlSpKeysReencrypted++;
+      const wrapped = await wrapEncrypted(await unwrapEncrypted(raw, SAML_SP_SECRET_CONTEXT, field), SAML_SP_SECRET_CONTEXT);
+      if (await writeIfUnchanged(field, () => SamlSpKey.updateOne(
+        { _id: key._id, privateKeyEncrypted: raw },
+        { $set: { privateKeyEncrypted: wrapped } },
+      ))) summary.samlSpKeysReencrypted++;
     } catch (err) {
-      summary.failures.push({
-        orgId: SAML_SP_SECRET_CONTEXT,
-        field: `saml-sp.${String(key._id)}`,
-        error: errorMessage(err),
-      });
+      summary.failures.push({ orgId: SAML_SP_SECRET_CONTEXT, field, error: errorMessage(err) });
     }
   }
 

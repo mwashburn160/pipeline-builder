@@ -56,7 +56,9 @@ A subscription may hold **one standing `recurring` rule** at a time; credits the
 | `BILLING_PROMOTIONS_ENABLED` | `true` | Auto-granting promotions; requires discounts enabled |
 | `BILLING_METERING_ENABLED` | off | Required for Marketplace credit realization |
 | `BILLING_METERING_DRAWDOWN_DRYRUN` | `false` | Log intended withholding without changing anything |
-| `BILLING_PROMOTION_BACKFILL_INTERVAL_MS` | — | Backfill cron cadence (leader-locked) |
+| `BILLING_PROMOTION_BACKFILL_INTERVAL_MS` | `3600000` (1 h) | Backfill cron cadence (leader-locked) |
+| `BILLING_DISCOUNT_PROBE_RATE_LIMIT_PER_MIN` | `10` | Per-org limit on self-service redemption previews |
+| `BILLING_DISCOUNT_REDEEM_RATE_LIMIT_PER_MIN` | `5` | Per-org limit on self-service redemptions |
 | `BILLING_PROMOTION_CLAWBACK_WINDOW_MS` | 7 days | Cancel-within window that reverses a promo grant |
 
 See [Environment Variables → Billing](environment-variables.md#billing).
@@ -202,7 +204,7 @@ A campaign is now a record whose `_id` **is** the normalized slug (trimmed, lowe
 
 ## Promotions
 
-**The aggregate floor covers promotions too.** It did not: the floor lived with the discount code and consulted only the credits derivable from the composition (combo + volume), so a coupon on a maxed stack was refused while a promotion on the identical account was granted — and promotions fire automatically, with no human in the loop. The floor is now one calculation (`helpers/credit-floor.ts`) that every gate reads, and "standing credits" counts the account's recurring discount and its eligible recurring promotions as well. A promotion that would breach it is refused before any budget is reserved (`promotion_floor_refused`), and the per-period re-grant of a standing recurring discount **clamps** to the remaining headroom rather than vanishing from the invoice (`discount_floor_clamped`).
+**The aggregate floor covers promotions too.** The floor is one calculation (`helpers/credit-floor.ts`) that every gate reads — discount codes and promotions alike, since promotions fire automatically with no human in the loop — and "standing credits" counts the account's recurring discount and its eligible recurring promotions as well as the composition credits (combo + volume). A promotion that would breach it is refused before any budget is reserved (`promotion_floor_refused`), and the per-period re-grant of a standing recurring discount **clamps** to the remaining headroom rather than vanishing from the invoice (`discount_floor_clamped`).
 
 
 A **promotion** is the marketing counterpart to a discount. Where a discount is *redeemed* (a code someone enters) or *manually granted*, a promotion **auto-grants a usage credit when an org hits a trigger**, bounded by a campaign budget.
@@ -250,7 +252,7 @@ A grant is reversed — ledger row pulled, balance reduced, promotion and campai
 
 ### Referrals
 
-A `referral` promotion is **two-sided**. A new org subscribes with a **referral code** — the referrer's org id — via `referralCode` on `POST /billing/subscriptions`:
+A `referral` promotion is **two-sided**. A new org subscribes with a **referral code** — the referrer's org id — via `referralCode` on `POST /billing/subscriptions` (or `/subscriptions/checkout`):
 
 - The **referee** is credited immediately (`value`), and a pending `Referral` is recorded.
 - The **referrer** is credited only once the referee **qualifies**, meaning its *first paid invoice*, with `referrerValue` (or the same as the referee if unset). Gating on first payment defeats fake-referral farming.
@@ -259,24 +261,34 @@ Guards: no self-referral; a referee is referred **at most once** (unique); the r
 
 ## API
 
-All routes are under `/billing` and gated by `BILLING_DISCOUNTS_ENABLED`.
+All routes are under `/billing`. The discount and campaign routes 404 when `BILLING_DISCOUNTS_ENABLED` is off; the promotion routes 404 when promotions are off. "`billing:operate`" below means the system-org-only permission, with the system org as the active org and an MFA-grade session. Self-service redeem and remove additionally require an MFA-grade admin session and the account **root** (a team cannot change billing); redeem and preview are rate-limited per org.
 
 | Method | Path | Gate | Purpose |
 |--------|------|------|---------|
-| `POST` | `/admin/campaigns` | system admin | Create a campaign (budget, window, exclusivity) |
-| `GET` | `/admin/campaigns` · `/:id` | system admin | List / inspect one, with its code counts and **ledger-sourced** spend |
-| `PUT` | `/admin/campaigns/:id` | system admin | Edit, or end with `isActive: false` (a budget below committed spend is refused); `null` for `budgetCents` / `startsAt` / `endsAt` clears it (unlimited budget, window open on that side) |
-| `POST` | `/admin/campaigns/:id/end` | system admin | End the campaign **and every code in it** |
-| `POST` | `/admin/discounts` | system admin | Mint a discount (ceiling-checked; a named `campaign` must exist) |
-| `POST` | `/admin/discounts/:id/token` | system admin | Mode B — issue / re-issue an opaque token |
-| `POST` | `/admin/discounts/:id/apply` | system admin | Mode A — direct grant to `{ targetOrgId }` |
-| `GET` | `/admin/discounts` · `/:id` | system admin | List (filter by campaign/active/target) / inspect |
-| `PUT` · `DELETE` | `/admin/discounts/:id` | system admin | Edit / **revoke** |
+| `POST` | `/admin/campaigns` | `billing:operate` | Create a campaign (budget, window, exclusivity) |
+| `GET` | `/admin/campaigns` · `/:id` | `billing:operate` | List / inspect one, with its code counts and **ledger-sourced** spend |
+| `PUT` | `/admin/campaigns/:id` | `billing:operate` | Edit, or end with `isActive: false` (a budget below committed spend is refused); `null` for `budgetCents` / `startsAt` / `endsAt` clears it (unlimited budget, window open on that side) |
+| `POST` | `/admin/campaigns/:id/end` | `billing:operate` | End the campaign **and every code in it** |
+| `POST` | `/admin/discounts` | `billing:operate` | Mint a discount (ceiling-checked; a named `campaign` must exist) |
+| `POST` | `/admin/discounts/:id/token` | `billing:operate` | Mode B — issue / re-issue an opaque token |
+| `POST` | `/admin/discounts/:id/apply` | `billing:operate` | Mode A — direct grant to `{ targetOrgId }` |
+| `POST` | `/admin/discounts/:id/preview` | `billing:operate` | Dry-run against `{ targetOrgId }`: the resulting price breakdown |
+| `GET` | `/admin/discounts` · `/:id` | `billing:operate` | List (filter by campaign/active/target) / inspect |
+| `PUT` · `DELETE` | `/admin/discounts/:id` | `billing:operate` | Edit / **revoke** |
+| `POST` | `/subscriptions/:id/discounts/preview` | `billing:read` | Self-service preview of a token or alias before redeeming |
 | `POST` | `/subscriptions/:id/discounts` | `billing:manage` | Self-service redeem a token or alias |
 | `DELETE` | `/subscriptions/:id/discounts/:discountId` | `billing:manage` | Stop a standing recurring discount (granted credits persist). One write guarded on that id: 404 when it is not the standing rule, 409 if the rule changed concurrently — a different discount is never cleared |
-| `GET` | `/events` | `billing:read` | The caller's own billing events — credit applied/consumed/exhausted, discounts, combos (own org only) |
+| `POST` · `GET` | `/admin/promotions` · `/:id` | `billing:operate` | Create / list / inspect promotions |
+| `PUT` · `DELETE` | `/admin/promotions/:id` | `billing:operate` | Edit / **revoke** (stops future grants) |
+| `POST` | `/admin/promotions/:id/grant` | `billing:operate` | Manual grant to one account |
+| `POST` | `/admin/promotions/:id/activate` | `billing:operate` | [Batch activation](#batch-activation-and-backfill) across the eligible base |
+| `POST` | `/admin/promotions/:id/preview` | `billing:operate` | Projected reach and committed spend |
+| `GET` | `/admin/promotions/:id/spend` | `billing:operate` | Ledger spend vs the advisory cache, and their drift |
+| `GET` | `/events` | `billing:read` | The caller's own billing events — credit applied/consumed/exhausted, discounts, combos (own org only; not behind the discounts flag) |
 
-Every mutation writes a local `billing_events` row and mirrors to the central [audit trail](audit-events.md): `billing.discount.generate` / `.issue` / `.apply` / `.remove` / `.revoke`, `billing.campaign.create` / `.update` / `.end`, plus `billing.credit.consumed` / `.exhausted` and `billing.combo.expired` for usage-credit realization, attributing both the acting party and the affected account.
+Every mutation writes a local `billing_events` row and mirrors to the central [audit trail](audit-events.md): `billing.discount.generate` / `.issue` / `.apply` / `.remove` / `.revoke`, `billing.campaign.create` / `.update` / `.end`, `billing.promotion.create` / `.update` / `.revoke` / `.grant` / `.activate`, plus `billing.credit.consumed` / `.exhausted` and `billing.combo.expired` for usage-credit realization, attributing both the acting party and the affected account.
+
+Discount and promotion records, and the `priceBreakdown` a preview returns, carry `currency` (`BILLING_CURRENCY`, lower-case ISO 4217) — the currency of a `dollar` value and of every cent amount.
 
 **Tokens, signing keys and aliases are never logged or audited** — only the discount id, kind and value. An account can review its own credit movement via `GET /billing/events` (`billing:read`).
 

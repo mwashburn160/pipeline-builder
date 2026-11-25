@@ -86,7 +86,7 @@ export function createValidatePipelineRoutes(quotaService: QuotaService): Router
           warnings: [],
         }, 'Pipeline configuration is not valid');
       }
-      const { project, organization, pipelineName, visibility } = prepared;
+      const { project, organization, pipelineName, visibility, props } = prepared;
 
       // Templates + plugin contracts — the same helper the create path runs.
       const check = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);
@@ -107,7 +107,7 @@ export function createValidatePipelineRoutes(quotaService: QuotaService): Router
       // Compliance, as a pre-flight (no audit, no notification).
       try {
         const verdict = await complianceClient.dryRunPipeline(orgId, {
-          project, organization, pipelineName, props: body.props, visibility,
+          project, organization, pipelineName, props, visibility,
         }, getQuotaServiceAuthHeader(orgId));
         for (const v of verdict.violations) {
           problems.push({ stage: 'compliance', message: v.message });

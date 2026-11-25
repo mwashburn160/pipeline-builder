@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fa11efdfd003335a26ec613a7fe78a33e1dd15b349c87c6062f6574c9be5e284
+// SOURCE-SHA256: 527001edfb9903c3eda67a5509f4cf298dc720075bb5062b8d55a17a1e4f267f
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -128,12 +128,12 @@ export const permissionsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Built-in Roles — every org seeds Admin and Member; the system org"
+            "Built-in Roles — every org seeds Admin, Member and the two machine"
           ]
         },
         {
           "type": "text",
-          "content": "also seeds Super Admin, Ecosystem Manager, Publisher Verifier and the job Roles (see Ecosystem Manager). The Roles themselves are created with the org, but each built-in Role's permission set is resolved from the catalog at sign-in, so a release's catalog change reaches every org on the next token refresh (no claims bump is needed or made — tokens pick it up as they refresh). A built-in Role stores no permission list; the Role list and detail responses fill permissions from the catalog. A custom Role grants exactly its stored list."
+          "content": "Roles (Pipeline Automation, Pipeline Registration); the system org also seeds Super Admin, Ecosystem Manager, Publisher Verifier and the job Roles (see Ecosystem Manager). The Roles themselves are created with the org, but each built-in Role's permission set is resolved from the catalog at sign-in, so a release's catalog change reaches every org on the next token refresh (no claims bump is needed or made — tokens pick it up as they refresh). A built-in Role stores no permission list; the Role list and detail responses fill permissions from the catalog. A custom Role grants exactly its stored list."
         },
         {
           "type": "list",
@@ -298,7 +298,7 @@ export const permissionsTopic: HelpTopic = {
             [
               "On-call (system org only)",
               "oncall:manage",
-              "System-org only, and in no built-in Role — so in practice Super Admin only. Reads the paging posture (GET /observability/oncall-status) and sends a test page (POST /observability/oncall-test, audited because it rings a phone). Not a schedule editor: the provider owns the rota, the escalation and the contact methods. Deliberately outside the Ecosystem Manager Role — paging is the vendor's own operational concern, and widening that Role to carry it would hand the pager to people hired to review plugins. See On-call Paging."
+              "System-org only, carried by the Platform Operator Role (and Super Admin's implicit-all). Reads the paging posture (GET /observability/oncall-status) and sends a test page (POST /observability/oncall-test, audited because it rings a phone). Not a schedule editor: the provider owns the rota, the escalation and the contact methods. Deliberately outside the Ecosystem Manager Role — paging is the vendor's own operational concern, and widening that Role to carry it would hand the pager to people hired to review plugins. See On-call Paging."
             ],
             [
               "Compliance",
@@ -312,13 +312,13 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Observability",
-              "dashboards:read, dashboards:write, observability:read, observability:write, logs:export",
+              "dashboards:read, dashboards:write, observability:read, observability:write, logs:export, audit:read",
               "logs:export is admin/owner by default — viewing logs rides observability:read, but DOWNLOADING them is bulk egress an org may withhold from members. See Logs."
             ],
             [
               "Insights",
-              "reports:read, reports:rollup",
-              ":rollup allows including descendant teams in reports"
+              "reports:read, reports:rollup, reports:write, reports:publish",
+              ":rollup allows including descendant teams in reports. :write authors, schedules and drafts stakeholder reports (auto-send rule); :publish publishes one and mints expiring share links for people outside the platform, and is also what an auto-send definition needs"
             ],
             [
               "Messaging",
@@ -338,7 +338,7 @@ export const permissionsTopic: HelpTopic = {
             [
               "Org settings",
               "org_settings:write",
-              "General org settings + AI provider config; team lifecycle for a parent admin (delete a team, list and restore recently-deleted teams, export); the org's plugin security notifications (PUT /plugins/security-notifications — recipients, rescan digest, webhook URL/secret, external address; POST /plugins/security-notifications/test; audited plugin.security_notifications.update / .test). Reading those settings needs only plugins:read (secret and address never returned)"
+              "General org settings + AI provider config; team lifecycle for a parent admin (delete a team, list and restore recently-deleted teams, export); the org's plugin security notifications (PUT /plugins/security-notifications — recipients, rescan digest, webhook URL/secret, external address; POST /plugins/security-notifications/test; audited plugin.security_notifications.update / .test). Reading those settings needs only plugins:read (secret and address never returned). Also the org's pipeline runners and runner signing key (/pipelines/runners…: register, update, test, revoke; generate, rotate, cancel, finish, revoke, key mode), whose writes add an MFA-grade session and step-up; see secret rotation"
             ],
             [
               "SSO / IdP",
@@ -400,7 +400,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "System-org-only carve-out. plugins:moderate, publishers:verify, platform:read, orgs:read, registry:read, registry:write, billing:operate, the three *_console:open ids, impersonation:open, toolchain:operate and oncall:manage are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the Super-Admin-only registry:purge. oncall:manage differs from the rest in one way worth stating: it is in no built-in Role either, so Super Admins are its only holders. That is deliberate rather than an omission — paging is the vendor's own operational concern and has nothing to do with ecosystem moderation. Every other member of this class has at least one seeded carrier, and that is an asserted invariant (packages/api-core/test/permissions.test.ts): a permission no custom Role may carry and no bundle grants is Super-Admin-only in practice, which is the exact failure this class exists to avoid — it is how platform:read shipped, and it is why splitting registry:write out of the purge rung came with a Registry Operator Role rather than on its own."
+          "content": "System-org-only carve-out. plugins:moderate, publishers:verify, platform:read, orgs:read, registry:read, registry:write, billing:operate, the three *_console:open ids, impersonation:open, oncall:manage, support_cases:write, support_content:write, subscriptions:read, subscriptions:manage, orgs:manage, quotas:manage, plugin_queue:manage and toolchain:operate are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the Super-Admin-only registry:purge. Every member of this class has at least one seeded carrier, and that is an asserted invariant (packages/api-core/test/permissions.test.ts): a permission no custom Role may carry and no bundle grants is Super-Admin-only in practice, which is the exact failure this class exists to avoid — it is how platform:read shipped, and it is why splitting registry:write out of the purge rung came with a Registry Operator Role rather than on its own."
         },
         {
           "type": "text",
@@ -496,7 +496,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "plugins:read, plugins:moderate, publishers:verify, messages:read, observability:read. See below."
+          "content": "plugins:read, plugins:moderate, messages:read, observability:read. publishers:verify is the separate Publisher Verifier Role. See below."
         },
         {
           "type": "list",
@@ -579,7 +579,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Why templates exist at all. The seeded ladder is Member (15 permissions) then Admin (all 37), so promoting anyone past \"author and read\" used to mean either picking from the full catalog by hand or — the shortcut people actually took — granting Admin, which includes org_kms:write, org_idp:write, billing:manage and roles:manage."
+          "content": "Why templates exist at all. The seeded ladder is Member (16 permissions) then Admin (all 41 org-assignable), so promoting anyone past \"author and read\" used to mean either picking from the full catalog by hand or — the shortcut people actually took — granting Admin, which includes org_kms:write, org_idp:write, billing:manage and roles:manage."
         },
         {
           "type": "text",
@@ -591,7 +591,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The built-in Role for the people who run the plugin ecosystem (moderation runbook): deciding publish requests, publisher tiers and profile changes, transfers, yanks and advisories, and moderating anonymous submissions and reviews. They get no platform superadmin powers — one of two built-in Roles that carry system-org-only permissions without the flag, alongside Platform Operator."
+          "content": "The built-in Role for the people who run the plugin ecosystem (moderation runbook): deciding publish requests, publisher tiers and profile changes, transfers, yanks and advisories, and moderating anonymous submissions and reviews. They get no platform superadmin powers — like every other system-org job Role, it carries system-org-only permissions without the flag."
         },
         {
           "type": "table",
@@ -614,7 +614,7 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Permissions",
-              "plugins:read, plugins:moderate, publishers:verify, messages:read (in-app notices), observability:read (the moderation-SLA dashboard). Nothing tenant-facing: no registry:*, no members:manage."
+              "plugins:read, plugins:moderate, messages:read (in-app notices), observability:read (the moderation-SLA dashboard). publishers:verify is the separate Publisher Verifier Role. Nothing tenant-facing: no registry:*, no members:manage."
             ],
             [
               "Who can assign it",
@@ -685,7 +685,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The system org seeds nine Roles. All but Super Admin set grantsRole: 'member' — no admin rights over the system org, and none of them sets User.isSuperAdmin. A member may hold any number of them: effective permissions are the deduplicated union, so one person covering two jobs gets two Roles rather than a bespoke one."
+          "content": "Besides Admin, Member and the two machine Roles every org has, the system org seeds Super Admin and nine job Roles (SYSTEM_ORG_JOB_BUNDLES). Every job Role sets grantsRole: 'member' — no admin rights over the system org, and none of them sets User.isSuperAdmin. A member may hold any number of them: effective permissions are the deduplicated union, so one person covering two jobs gets two Roles rather than a bespoke one."
         },
         {
           "type": "table",
@@ -739,6 +739,11 @@ export const permissionsTopic: HelpTopic = {
               "Ecosystem Manager",
               "the plugin ecosystem",
               "See above."
+            ],
+            [
+              "Publisher Verifier",
+              "awarding Verified, suspending and unsuspending publishers",
+              "plugins:read, publishers:verify, messages:read, observability:read. Split from Ecosystem Manager so triaging the publish queue does not also mint a Verified publisher."
             ]
           ]
         },
@@ -1012,7 +1017,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Each test also writes its table to frontend/src/generated/route-table/<service>.json (regenerate with UPDATE_ROUTE_TABLES=1), and the frontend's test/route-permissions.test.tsx asserts that every gated control matches the route it calls on EVERY dimension the table records — permissions, entitlements (features), step-up, scopes, assurance and the admin-actions MFA policy (orgAdminAssurance) — so a UI gate can't drift from the API. Its GATED_ROUTES_WITHOUT_A_CONTROL registry closes the other direction: a route that gains a gate must be mapped to the control that calls it or listed there with a reason, or the test fails naming the route."
+          "content": "Each test also writes its table to frontend/src/generated/route-table/<service>.json (regenerate with UPDATE_ROUTE_TABLES=1), and the frontend's test/route-permissions.test.tsx asserts that every gated control matches the route it calls on EVERY dimension the table records — permissions, entitlements (features), step-up, scopes, assurance and the admin-actions MFA policy (orgAdminAssurance) — so a UI gate can't drift from the API. Its ROUTE_DISPOSITIONS registry closes the other direction: a gated route must be mapped to the control that calls it, or given a category (no-ui, external-callback, sysadmin-console, …) with a reason, or the test fails naming the route."
         },
         {
           "type": "text",
@@ -1358,12 +1363,12 @@ export const permissionsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "code",
-          "content": "GET|POST    /api/organization/:id/roles                       # list / create Roles\nPUT|DELETE  /api/organization/:id/roles/:roleId               # update / delete a custom Role\nPOST|DELETE /api/organization/:id/roles/:roleId/members/:uid  # add / remove a Role member",
+          "content": "GET|POST    /api/organization/:id/roles                       # list / create Roles\nPUT|DELETE  /api/organization/:id/roles/:roleId               # update / delete a custom Role\nPOST        /api/organization/:id/roles/:roleId/members       # add a Role member (user in the body)\nDELETE      /api/organization/:id/roles/:roleId/members/:userId  # remove a Role member",
           "language": "bash"
         },
         {
           "type": "text",
-          "content": "POST / PUT / DELETE require roles:manage. Custom-Role authoring validates the requested permissions against the org-assignable set (the registry and system-org-only carve-outs are rejected) and against the author's own permissions (the permission ceiling above) — a request granting a permission the author lacks is rejected 403."
+          "content": "POST / PUT / DELETE require roles:manage (plus the org's admin-actions MFA policy); the list is open to any signed-in member of the org. Custom-Role authoring validates the requested permissions against the org-assignable set (the registry and system-org-only carve-outs are rejected) and against the author's own permissions (the permission ceiling above) — a request granting a permission the author lacks is rejected 403."
         },
         {
           "type": "text",
@@ -1412,7 +1417,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "An invitation is gated on invitations:manage and nothing coarser. That is worth stating because it was not true until recently: the service demanded owner-or-admin on every write, which made the permission unusable — the route admitted it, the service refused it, and the shipped People Manager template (which grants invitations:manage and is deliberately not admin) could not send a single invitation."
+          "content": "An invitation is gated on invitations:manage and nothing coarser, so the People Manager template (which grants invitations:manage and is deliberately not admin) can send them."
         },
         {
           "type": "table",
@@ -1437,7 +1442,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "An invitation can carry Roles. roleIds names Roles to assign on acceptance, so hiring into a job does not mean inviting someone as admin and demoting them afterwards, or inviting them as a member and remembering to assign later. The same field has always existed on the user-admin API; the invitation was the path that lacked it, which left every Role template without an onboarding route."
+          "content": "An invitation can carry Roles. roleIds names Roles to assign on acceptance, so hiring into a job does not mean inviting someone as admin and demoting them afterwards, or inviting them as a member and remembering to assign later — it is how every Role template gets an onboarding route. The user-admin API takes the same field."
         },
         {
           "type": "text",
@@ -1493,16 +1498,16 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "GET         /api/organization/:id/service-accounts                      # list accounts + their keys\nPOST        /api/organization/:id/service-accounts                      # create an account\nGET         /api/organization/:id/service-accounts/:accountId           # one account\nPATCH       /api/organization/:id/service-accounts/:accountId           # description / roles / budget / disabled\nDELETE      /api/organization/:id/service-accounts/:accountId           # delete the account + every key\nPOST        /api/organization/:id/service-accounts/:accountId/keys      # issue a pb_sa_ key (shown once)\nDELETE      /api/organization/:id/service-accounts/:accountId/keys/:id  # revoke one key",
+          "content": "GET         /api/organization/:id/service-accounts                      # list accounts + their keys\nPOST        /api/organization/:id/service-accounts                      # create an account\nGET         /api/organization/:id/service-accounts/:accountId           # one account\nPATCH       /api/organization/:id/service-accounts/:accountId           # description / roles / budget / disabled\nDELETE      /api/organization/:id/service-accounts/:accountId           # delete the account + every key\nPOST        /api/organization/:id/service-accounts/:accountId/keys      # issue a pb_sa_ key (shown once)\nPOST        /api/organization/:id/service-accounts/provision-key        # find-or-create an account + issue its key, one step-up (infra store-token)\nDELETE      /api/organization/:id/service-accounts/:accountId/keys/:id  # revoke one key",
           "language": "bash"
         },
         {
           "type": "text",
-          "content": "EVERY route here requires service_accounts:manage — the listing is an inventory of the org's machine credentials, so it is not a member-level read (it carries no secret either way: a key is shown once, at creation). Writes add step-up, except key REVOCATION, which is deliberately left at the permission alone so a compromised key can be killed without a second factor."
+          "content": "EVERY route here requires service_accounts:manage — the listing is an inventory of the org's machine credentials, so it is not a member-level read (it carries no secret either way: a key is shown once, at creation). Writes add step-up — and creating an account or issuing a key also needs an aal: 2 session, with the bootstrap-setup carve-out a fresh install's first administrator relies on — except key REVOCATION, which is deliberately left at the permission alone so a compromised key can be killed without a second factor."
         },
         {
           "type": "text",
-          "content": "A service account's Roles go through the same assignment ceiling as a person's: the caller must already hold every permission the Role grants, and only a platform superadmin may grant a superadmin-granting Role. A service account therefore can never exceed its creator's permissions. It also can never satisfy step-up itself (requireStepUp refuses the principal), so one machine key can never be used to mint another."
+          "content": "A service account's Roles go through the same assignment ceiling as a person's: the caller must already hold every permission the Role grants, and only a platform superadmin may grant a superadmin-granting Role. A service account therefore can never exceed its creator's permissions. The same ceiling guards wielding an existing account: minting a key for it, re-enabling it, and deleting it are refused with 403 (RL_ASSIGN_EXCEEDS_CEILING, or RL_REQUIRES_SUPERADMIN for a superadmin-granting Role) unless the caller may assign every Role the account holds. Disabling an account and revoking a key are not ceilinged, so any service_accounts:manage holder can contain a compromise. It also can never satisfy step-up itself (requireStepUp refuses the principal), so one machine key can never be used to mint another."
         },
         {
           "type": "text",
@@ -1744,7 +1749,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Switching organizations is different. Switching your active organization follows your own memberships: you can switch to any organization you are an active member of, including a separate one. Being a parent admin does not let you switch into a team you don't belong to — you administer and view it from the parent instead."
+          "content": "Switching organizations is different. Switching your active organization follows your own memberships: you can switch to any organization you are an active member of, including a separate one. A parent admin may also switch into one of its own teams without being a member, but only while holding team_access:open; without it you administer and view the team from the parent instead."
         }
       ]
     },

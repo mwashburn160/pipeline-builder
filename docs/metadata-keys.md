@@ -255,7 +255,7 @@ Configure pipeline event notifications via SNS. **Wiring:** Custom synth — whe
 
 ## Pipeline Operations
 
-Operational settings for execution tracking, metrics, artifact retention, and pipeline variables. **Wiring:** Custom synth — read directly in `PipelineBuilder`.
+Operational settings for execution tracking, metrics, artifact retention, pipeline variables and the run-time plugin check. **Wiring:** Custom synth — read directly in `PipelineBuilder`.
 
 | MetadataKeys constant | String value | Effect |
 |----|-----|-----|
@@ -263,6 +263,7 @@ Operational settings for execution tracking, metrics, artifact retention, and pi
 | `ENABLE_METRICS` | `aws:cdk:operations:metrics` | Creates a CloudWatch alarm on `FailedPipelineExecutionCount`. |
 | `ARTIFACT_RETENTION_DAYS` | `aws:cdk:operations:artifactretentiondays` | Adds an S3 lifecycle expiration rule to a custom artifact bucket. |
 | `PIPELINE_VARIABLES` | `aws:cdk:operations:variables` | Declares CodePipeline V2 pipeline-level variables. JSON array (`[{"name":"ENV","default":"prod","description":"..."}]`) or compact `name=default` comma list. |
+| `RUNTIME_VULN_CHECK` | `aws:cdk:operations:runtimevulncheck` | Adds a report-only `pipeline-manager plugin verify` step per stage that grades the plugin images the stage is about to run (`POST /api/plugins/runtime-check`); it never blocks. Needs `pipelineId` and `orgId` (synthesize through `pipeline-manager pipeline synth/deploy --id`) — without either the steps are skipped with a warning. |
 
 ## Encryption
 

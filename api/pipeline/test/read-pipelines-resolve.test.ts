@@ -51,28 +51,17 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  pipelineScopeMetadata: (p: Record<string, any>) => ({ ...(p.global ?? {}), ...(p.defaults?.metadata ?? {}), ...(p.synth?.metadata ?? {}) }),
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30',
     CACHE_CONTROL_DETAIL: 'private, max-age=60',
   },
-  // These are used by pipeline-template-validator:
-  validateTemplates: () => ({ valid: true, errors: [] }),
-  detectCycles: () => [],
-  allowedScopeRoots: () => () => true,
-  resolveSelfReferencing: jest.fn((doc: Record<string, any>) => {
-    // Simple substitution: walk metadata.* and replace {{ metadata.X }}
-    const metadata = doc.metadata ?? {};
-    const vars = doc.vars ?? {};
-    const scope: Record<string, any> = { metadata, vars };
-    const subst = (s: unknown) => {
-      if (typeof s !== 'string') return s;
-      return s.replace(/\{\{\s*(metadata|vars)\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, root, key) => {
-        return String(scope[root]?.[key] ?? `{{ ${root}.${key} }}`);
-      });
-    };
-    for (const k of Object.keys(metadata)) metadata[k] = subst(metadata[k]);
-    return { errors: [] };
+  // The one pipeline resolver (pipeline-core): a simple substitution of
+  // `{{ metadata.X }}` across `global`, returning NEW props (as the real one does).
+  resolvePipelineProps: jest.fn((props: Record<string, any>) => {
+    const metadata = { ...(props.global ?? {}) };
+    const subst = (s: unknown) => (typeof s !== 'string' ? s
+      : s.replace(/\{\{\s*metadata\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (m, key) => String(metadata[key] ?? m)));
+    return { ...props, global: Object.fromEntries(Object.entries(metadata).map(([k, v]) => [k, subst(v)])) };
   }),
   tokenize: jest.fn<AnyFn>(),
 }));
@@ -112,15 +101,14 @@ describe('GET /pipelines/:id ?resolve=true', () => {
       id: 'pid-1',
       visibility: 'public',
       pipelineName: 'p1',
-      global: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
-      vars: {},
+      props: { global: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' }, vars: {} },
     });
     const res = mockRes();
     await handler(mockReq(), res);
     expect(res.status).toHaveBeenCalledWith(200);
     const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
     // Source form preserves template token intact
-    expect(payload.data.pipeline.global.clusterName).toBe('acme-{{ metadata.env }}');
+    expect(payload.data.pipeline.props.global.clusterName).toBe('acme-{{ metadata.env }}');
   });
 
   it('returns resolved form when resolve=true', async () => {
@@ -128,14 +116,15 @@ describe('GET /pipelines/:id ?resolve=true', () => {
       id: 'pid-1',
       visibility: 'public',
       pipelineName: 'p1',
-      global: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
-      vars: {},
+      props: { global: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' }, vars: {} },
     });
     const res = mockRes();
     await handler(mockReq({ resolve: 'true' }), res);
     expect(res.status).toHaveBeenCalledWith(200);
     const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
-    expect(payload.data.pipeline.global.clusterName).toBe('acme-prod');
+    expect(payload.data.pipeline.props.global.clusterName).toBe('acme-prod');
+    // Resolved by the shared pipeline-core resolver, on the props.
+    expect(pipelineCore.resolvePipelineProps).toHaveBeenCalledWith({ global: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' }, vars: {} });
   });
 
   it('returns source when resolve=false (any value other than "true")', async () => {
@@ -143,30 +132,31 @@ describe('GET /pipelines/:id ?resolve=true', () => {
       id: 'pid-1',
       visibility: 'public',
       pipelineName: 'p1',
-      global: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
+      props: { global: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' } },
     });
     const res = mockRes();
     await handler(mockReq({ resolve: 'false' }), res);
     const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
-    expect(payload.data.pipeline.global.clusterName).toBe('acme-{{ metadata.env }}');
+    expect(payload.data.pipeline.props.global.clusterName).toBe('acme-{{ metadata.env }}');
   });
 
   it('returns 400 TEMPLATE_VALIDATION_FAILED when resolution hits an error', async () => {
-    // Swap the resolver mock to return an error once
-    (pipelineCore.resolveSelfReferencing as jest.Mock<AnyFn>).mockImplementationOnce(() => ({
-      errors: [{ field: 'metadata.env', message: 'cycle detected', code: 'TEMPLATE_CYCLE' }],
-    }));
+    // The resolver throws (cycle / unresolved path) once
+    (pipelineCore.resolvePipelineProps as jest.Mock<AnyFn>).mockImplementationOnce(() => {
+      throw new Error('Pipeline resolution failed:\n  • [metadata.a] Template cycle detected');
+    });
     mockFindById.mockResolvedValue({
       id: 'pid-1',
       visibility: 'public',
       pipelineName: 'p1',
-      global: { a: '{{ metadata.b }}', b: '{{ metadata.a }}' },
+      props: { global: { a: '{{ metadata.b }}', b: '{{ metadata.a }}' } },
     });
     const res = mockRes();
     await handler(mockReq({ resolve: 'true' }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
     expect(payload.code).toBe('TEMPLATE_VALIDATION_FAILED');
+    expect(payload.message).toMatch(/Template cycle detected/);
   });
 });
 

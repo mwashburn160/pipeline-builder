@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { pipelineStackName } from '../src/config/cli.constants.js';
+import { defaultPipelineName, pipelineStackName } from '../src/config/cli.constants.js';
 import { bakePlatformRegistry, buildRegistryPayload, readStepManifest, registryOverrideFromBaseUrl } from '../src/utils/registry.js';
 
 describe('registryOverrideFromBaseUrl', () => {
@@ -80,5 +80,62 @@ describe('buildRegistryPayload stack name', () => {
     expect(payload.stackName).toMatch(/^spring-boot-system-[0-9a-f]{8}$/);
     expect(payload.project).toBe('spring_boot');
     expect(payload.organization).toBe('system');
+  });
+
+  // Regression: the platform stores project/organization SANITIZED
+  // (`spring-boot` -> `spring_boot`) while the synth app names the stack and the
+  // CodePipeline from the RAW `props` it is handed. Deriving the registry names
+  // from the record recorded `spring-boot-system-<hash>` for a stack deployed as
+  // `spring-boot-system`, so audit-stacks reported it orphaned.
+  it('derives the stack and pipeline names from the synth props, not the sanitized record', async () => {
+    const payload = await buildRegistryPayload(
+      {
+        id: 'pl-1',
+        orgId: 'org-1',
+        project: 'spring_boot',
+        organization: 'acme',
+        props: { project: 'Spring-Boot', organization: 'Acme' },
+      },
+      'us-east-1',
+    );
+    expect(payload.stackName).toBe('spring-boot-acme');
+    expect(payload.stackName).toBe(pipelineStackName('Spring-Boot', 'Acme'));
+    expect(payload.pipelineName).toBe(defaultPipelineName('Acme', 'Spring-Boot'));
+    // The record's slot is still what the registry row carries.
+    expect(payload.project).toBe('spring_boot');
+    expect(payload.organization).toBe('acme');
+  });
+
+  // The synth resolves the pipeline's self-references (PipelineBuilder →
+  // resolvePipelineProps) before naming the stack, so a templated `project` must
+  // be registered under the resolved value, not the placeholder text.
+  it('derives the names from the RESOLVED props when project is templated', async () => {
+    const payload = await buildRegistryPayload(
+      {
+        id: 'pl-1',
+        orgId: 'org-1',
+        project: 'app',
+        organization: 'acme',
+        props: { project: '{{ vars.service }}', organization: 'acme', vars: { service: 'checkout' } },
+      },
+      'us-east-1',
+    );
+    expect(payload.stackName).toBe(pipelineStackName('checkout', 'acme'));
+    expect(payload.pipelineName).toBe(defaultPipelineName('acme', 'checkout'));
+  });
+
+  it('records the synth props pipelineName over the record\'s (the CodePipeline is named from props)', async () => {
+    const payload = await buildRegistryPayload(
+      {
+        id: 'pl-1',
+        orgId: 'org-1',
+        pipelineName: 'record-name',
+        project: 'app',
+        organization: 'acme',
+        props: { project: 'app', organization: 'acme', pipelineName: 'deployed-name' },
+      },
+      'us-east-1',
+    );
+    expect(payload.pipelineName).toBe('deployed-name');
   });
 });

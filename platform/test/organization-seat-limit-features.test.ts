@@ -17,14 +17,13 @@ import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSetSeatLimit = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockSetAccountSeats = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockSetTier = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockCheckTierOvercap = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
 const mockAudit = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, unknown>, key: string) => params?.[key],
-  // Service-principal gate passes so we reach the body validation.
-  isServicePrincipal: () => true,
   sendError: (res: any, status: number, message: string, code?: string, details?: unknown) =>
     res.status(status).json({ success: false, message, code, details }),
   sendSuccess: (res: any, status: number, data: unknown, message?: string) =>
@@ -42,6 +41,7 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: je
 jest.unstable_mockModule('../src/services/index.js', () => ({
   organizationService: {
     setSeatLimit: (...a: unknown[]) => mockSetSeatLimit(...a),
+    setAccountSeats: (...a: unknown[]) => mockSetAccountSeats(...a),
     setTier: (...a: unknown[]) => mockSetTier(...a),
     checkTierOvercap: (...a: unknown[]) => mockCheckTierOvercap(...a),
   },
@@ -84,6 +84,7 @@ const req = (body: Record<string, unknown>, user: Record<string, unknown> = BILL
 beforeEach(() => {
   jest.clearAllMocks();
   mockSetSeatLimit.mockResolvedValue({ rootOrgId: 'root-1', seats: 5 });
+  mockSetAccountSeats.mockResolvedValue({ rootOrgId: 'root-1', seats: 5, previous: { seats: 3 } });
   mockCheckTierOvercap.mockResolvedValue([]);
 });
 
@@ -96,6 +97,40 @@ describe('updateOrganizationSeatLimit — the full limits payload is required', 
     await call(reqRaw(body), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockSetSeatLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateOrganizationSeatLimit — platform operator seat override', () => {
+  /** A platform operator holding orgs:manage (the admin Seats card's caller). */
+  const OPERATOR = { sub: 'op-1', principalType: 'user', permissions: ['orgs:manage'] };
+
+  it('sets only the seat cap from a seats-only body (what the admin Seats card sends)', async () => {
+    const res = mockRes();
+    await call(reqRaw({ seats: 9 }, OPERATOR), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockSetAccountSeats).toHaveBeenCalledWith('root-1', 9);
+    expect(mockSetSeatLimit).not.toHaveBeenCalled();
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'admin.org.seatLimit.update', expect.objectContaining({
+      details: expect.objectContaining({ seats: 9, previous: { seats: 3 }, override: true }),
+    }));
+  });
+
+  it.each(['features', 'tier', 'supportContacts', 'supportPremiumContacts'])(
+    'refuses an operator body carrying %s (billing owns it; a tier here would skip the over-cap guard)',
+    async (field) => {
+      const res = mockRes();
+      await call(reqRaw({ seats: 9, ...FULL, [field]: (FULL as Record<string, unknown>)[field] }, OPERATOR), res);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(mockSetAccountSeats).not.toHaveBeenCalled();
+      expect(mockSetSeatLimit).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still validates the seat count', async () => {
+    const res = mockRes();
+    await call(reqRaw({ seats: -2 }, OPERATOR), res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockSetAccountSeats).not.toHaveBeenCalled();
   });
 });
 

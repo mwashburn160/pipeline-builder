@@ -62,12 +62,12 @@ export function CurrentChargesCard() {
                     x3" is informative, "Pro x1" is noise. */}
                 {item.quantity > 1 && <span className="text-xs"> &times;{item.quantity}</span>}
               </dt>
-              <dd className="font-mono text-fg-muted text-right tabular-nums">{formatCents(item.cents)}</dd>
+              <dd className="font-mono text-fg-muted text-right tabular-nums">{formatCents(item.cents, breakdown.currency)}</dd>
             </div>
           ))}
           <div className="flex items-center justify-between gap-3 text-sm border-t border-default pt-1 mt-1 font-medium">
             <dt>Total ({breakdown.interval})</dt>
-            <dd className="font-mono text-fg text-right tabular-nums">{formatCents(breakdown.totalCents)}</dd>
+            <dd className="font-mono text-fg text-right tabular-nums">{formatCents(breakdown.totalCents, breakdown.currency)}</dd>
           </div>
         </dl>
       )}

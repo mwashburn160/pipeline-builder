@@ -111,7 +111,7 @@ export async function reconcileStripeWebhookEvents(
       missingEvents: all,
       endpointId: config.stripe.webhookEndpointId || undefined,
       webhookUrl: config.stripe.webhookUrl || undefined,
-      fix: 'Create the endpoint, or set STRIPE_WEBHOOK_ENDPOINT_ID to its id (we_…) when it is not registered at PLATFORM_BASE_URL/billing/stripe/webhook',
+      fix: 'Create the endpoint, or set STRIPE_WEBHOOK_ENDPOINT_ID to its id (we_…) when it is not registered at PLATFORM_BASE_URL/api/billing/stripe/webhook',
     });
     return publish({ status: 'endpoint_not_found', added: [], missing: all });
   }

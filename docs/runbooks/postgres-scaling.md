@@ -123,8 +123,18 @@ Alertmanager routes the Postgres CPU/memory alerts to
 `POST /observability/postgres-rung` on `ops-center`, authenticated with the same
 per-instance relay secret as `/pvc-autoexpand`, and the controller moves one
 rung — pod requests/limits **and** the derived server config in one patch.
-**Off by default**: a rung change restarts the container, and on the single
-primary that is a brief write interruption.
+**On for the AWS targets** (eks and ec2 ship `POSTGRES_RUNG_ENABLED=true`),
+**off on minikube and docker** (and when the variable is unset): a rung change
+restarts the container, and on the single primary that is a brief write
+interruption. Docker has no Kubernetes API for the controller to patch.
+
+**Standbys stop one rung below the top.** `POSTGRES_RUNG_MAX_REPLICA=1` caps
+each standby at the middle rung (`2000m/4Gi`), so at `PG_READ_REPLICA_MAX=2` the
+read tier tops out at 4 CPU. The primary is held to that same ceiling on the way
+up, so a standby can always match it and stay promotable. With the shipped
+values the controller therefore takes the primary to the middle rung and no
+further. The ceiling rung is a by-hand step, or comes after you raise
+`POSTGRES_RUNG_MAX_REPLICA`.
 
 | Alert | Workload | Direction |
 |---|---|---|
@@ -138,12 +148,14 @@ What it refuses to do, and the outcome it reports:
 
 | Outcome | Meaning |
 |---|---|
-| `at-ceiling` | At `POSTGRES_RUNG_MAX`. Raising it means raising the **LimitRange first**, or the pod cannot be created at all |
+| `at-ceiling` | At `POSTGRES_RUNG_MAX` (primary) or `POSTGRES_RUNG_MAX_REPLICA` (standby). Raising the primary past `2` means raising the **LimitRange first**, or the pod cannot be created at all |
+| `above-replica-ceiling` | A primary rung-up past the standby ceiling (`POSTGRES_RUNG_MAX_REPLICA`). A standby could not follow it, so it could no longer be promoted. Raise `POSTGRES_RUNG_MAX_REPLICA` first |
 | `at-floor` | At `1000m/2Gi`; the data tier does not drop below Guaranteed QoS at 1 CPU |
 | `not-at-replica-max` | A standby KEDA can still scale **out**, and out is cheaper than up |
 | `below-primary` | A standby rung-down that would put it under the primary, so it could not be promoted |
 | `cooldown` | Inside `POSTGRES_RUNG_COOLDOWN_SECONDS` of the last decision |
-| `error` + "Redis unavailable" | **Fails closed.** No Redis means no cooldown and no cross-replica lock, so two platform replicas would both restart the primary |
+| `disabled` | `POSTGRES_RUNG_ENABLED` is not `true` |
+| `error` + "Redis unavailable" | **Fails closed.** No Redis means no cooldown and no cross-replica lock, so two ops-center replicas would both restart the primary |
 
 Watch `postgres_rung_current{workload}`, `postgres_rung_at_ceiling{workload}`
 and `postgres_rung_total{workload,direction,result}`.
@@ -162,7 +174,8 @@ its scale-up window precisely so a rung change settles before the count reacts.
 ### Moving the primary up a rung, by hand
 
 For when `POSTGRES_RUNG_ENABLED` is false, or the controller reported
-`at-ceiling` and you have decided to raise the LimitRange. Triggered by
+`at-ceiling` or `above-replica-ceiling` and you have decided to go further by
+hand. Triggered by
 `PostgresPrimaryCpuSaturated` **or** `PostgresPrimaryMemoryPressure`, sustained.
 Both move the *whole* rung.
 
@@ -214,44 +227,42 @@ than no alert.
 
 ### Adding a read replica (AWS targets, 1 → 2)
 
-Triggered by `PostgresReadReplicaSaturated`, sustained. **Not** by
-`PostgresReplicationLagHigh` — see [Lag](#lag-is-not-a-capacity-signal).
+**KEDA does this, not you.** On eks and ec2 the `postgres-replica`
+`ScaledObject` adds a standby when the standbys pass 75% CPU (80% memory is a
+backstop), up to `PG_READ_REPLICA_MAX` (2 on AWS). Scale-up is deliberately slow
+(a 600s stabilization window, at most one pod per 15 minutes), because a new
+standby is seeded with `pg_basebackup`, which takes minutes and loads the primary
+*while it is already under pressure*. It is **not** driven by
+`PostgresReplicationLagHigh`; see [Lag](#lag-is-not-a-capacity-signal).
 
-**Prerequisites, all of them, before going past one standby:**
+`kubectl scale statefulset postgres-replica` does not stick: the StatefulSet
+declares no `replicas` and the KEDA-managed HPA owns the count. To change the
+range, set `PG_READ_REPLICA_MIN` / `PG_READ_REPLICA_MAX` and redeploy.
 
-- `max_slot_wal_keep_size` is set on the primary (it is: 4GB on AWS, 256MB
-  local).
+**Prerequisites for going past one standby, all shipped:**
+
+- `max_slot_wal_keep_size` is set on the primary (4GB on AWS, 256MB local).
 - `PostgresReplicationSlotRetainedBytes` and `PostgresReplicationSlotOrphaned`
-  are deployed and firing correctly.
-- On **ec2 only**: the DataVolume has room and a PV exists for the new ordinal.
-  Only one standby PV is declared there. In this order — grow
-  `DataVolumeSize` (and its `MinValue`) by 20 GiB, add a PV with a **distinct**
-  `hostPath`, then raise `replicas`. Raise replicas first and the pod sits
-  Pending forever with the PVC's description the only clue. eks needs none of
-  this: `pb-ebs` provisions dynamically.
+  are deployed.
+- On **ec2**, a hostPath PV exists for each ordinal. Two are declared
+  (`postgres-replica-0`, `postgres-replica-1`, each with a **distinct** path), and
+  the DataVolume floor (`MinValue` 520 GiB) already counts both claims. Raising
+  `PG_READ_REPLICA_MAX` past the declared PVs is refused at deploy by
+  `pb_read_replica_env`; add a PV with a distinct `hostPath` and grow
+  `DataVolumeSize` by 20 GiB first. eks needs none of this, because `pb-ebs`
+  provisions dynamically.
 
-Then:
-
-```bash
-kubectl scale statefulset postgres-replica -n pipeline-builder --replicas=2
-```
-
-**One at a time, and watch the primary.** A new standby is seeded with
-`pg_basebackup`, which takes minutes and loads the primary *while it is already
-under pressure*. This is why scaling is operator-approved rather than a KEDA
-`ScaledObject`: automatic scale-up at peak can deepen the incident it is
-reacting to.
-
-Verify it is actually streaming, not merely Ready:
+Verify a new standby is actually streaming, not merely Ready:
 
 ```bash
 kubectl exec -n pipeline-builder deploy/postgres -c postgres -- \
   psql -U "$POSTGRES_USER" -d postgres -c "SELECT client_addr, state, sync_state FROM pg_stat_replication"
 ```
 
-**Scaling down**: one at a time on sustained low utilisation, never below 1 —
-and **drop the slot afterwards**, or it retains WAL forever (see
-`PostgresReplicationSlotOrphaned`).
+**Scaling down** is KEDA's too: one pod per 30 minutes after a 30-minute
+stabilization window, never below `PG_READ_REPLICA_MIN`. Each standby's slot is
+permanent, so **drop the slot of a removed ordinal**, or it retains WAL forever
+(see `PostgresReplicationSlotOrphaned`).
 
 ### At the replica ceiling
 
@@ -410,8 +421,9 @@ finishes — follow them, then drop the old slots.
 | `DB_READ_WRITE_PIN_TTL_SECONDS` | `10` | Cross-request read-after-write. Needs Redis |
 | `DB_REPLICATION_USER` / `_PASSWORD` | `pb_replicator` / *(generated)* | The standbys' login. [Rotation](secret-rotation.md#db_replication_password-read-replicas) has no overlap window |
 | `PG_READ_REPLICA_MIN` / `_MAX` | `1` / `2` AWS, `1` local | The KEDA floor and ceiling. **Not** the StatefulSet's `replicas`, which the AWS manifests omit so a redeploy cannot fight the HPA. `MAX` may not exceed the declared standby PVs on the hostPath targets — `pb_read_replica_env` refuses the deploy |
-| `POSTGRES_RUNG_ENABLED` | `false` | Automatic vertical scaling. A rung change restarts the container |
-| `POSTGRES_RUNG_MAX` | `2` | Top rung index; `2` is the LimitRange's container max exactly |
+| `POSTGRES_RUNG_ENABLED` | `true` eks/ec2, `false` minikube/docker | Automatic vertical scaling. A rung change restarts the container |
+| `POSTGRES_RUNG_MAX` | `2` | Top rung index for the primary; `2` is the LimitRange's container max exactly |
+| `POSTGRES_RUNG_MAX_REPLICA` | `1` | Top rung index for each standby. The primary is held to it as well, so a standby can always match it |
 | `POSTGRES_RUNG_COOLDOWN_SECONDS` | `1800` | Hold after a decision; Alertmanager re-sends on its repeat interval |
 
 Design rationale, decisions and what this does **not** buy:

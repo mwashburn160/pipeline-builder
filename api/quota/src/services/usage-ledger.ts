@@ -279,8 +279,8 @@ export async function queryUsage(q: UsageQuery): Promise<UsageGroup[]> {
         denied: sumWhen('denied'),
         overshoot: sumWhen('overshoot'),
         refunded: sumWhen('refunded'),
-        tokensIn: { $sum: { $ifNull: ['$tokensIn', 0] } },
-        tokensOut: { $sum: { $ifNull: ['$tokensOut', 0] } },
+        tokensIn: { $sum: '$tokensIn' },
+        tokensOut: { $sum: '$tokensOut' },
         ...(q.groupBy === 'principal' ? { keys: { $addToSet: '$keyId' } } : {}),
       },
     },
@@ -317,7 +317,7 @@ export async function aiTokensSince(rootOrgId: string, since: Date): Promise<num
         keySource: { $nin: ['org', 'request'] },
       },
     },
-    { $group: { _id: null, tokens: { $sum: { $add: [{ $ifNull: ['$tokensIn', 0] }, { $ifNull: ['$tokensOut', 0] }] } } } },
+    { $group: { _id: null, tokens: { $sum: { $add: ['$tokensIn', '$tokensOut'] } } } },
   ]);
   return rows[0]?.tokens ?? 0;
 }

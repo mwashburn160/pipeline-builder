@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 19380f637285379000b6d9ee6fb6726135e4996ca666a990dd5cb99065d909ff
+// SOURCE-SHA256: e882abaf1b917f1dd83bd588e9bf2f0097e83512fdd6c153bd6ebea15470fa30
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -84,8 +84,8 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Get the entitlement. Included in Enterprise and Unlimited; a $30/month add-on on Pro and Team. See Plans. On a billing-disabled install every org runs as the unlimited tier, so it is simply on.",
-            "Grant the permissions deliberately. reports:write to compose, reports:publish to publish and mint links, reports:rollup to let a report cover descendant teams. The built-in Team Lead role carries author and share, and deliberately not rollup.",
+            "Get the entitlement. Included in Enterprise and Unlimited; a $30/month add-on on Pro, Team and Business. See Plans. On a billing-disabled install every org runs as the unlimited tier, so it is simply on.",
+            "Grant the permissions deliberately. reports:write to compose, reports:publish to publish and mint links, reports:rollup to let a report cover descendant teams. The Team Lead role template (an org admin creates a custom role from it) carries reports:write and reports:publish, and deliberately not rollup.",
             "Set the organization policy (needs org_settings:write):",
             "the allowed-domain list for external recipients — an empty list means members only, not \"anyone\";",
             "whether an external address needs administrator approval;",
@@ -202,7 +202,7 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "author and share are split because publishing is a different risk from writing: a lead can be trusted to build reports without being trusted to mail them outside the company. The built-in Team Lead role carries both, and deliberately not reports:rollup — downward visibility across the org tree is granted, not inherited."
+          "content": "reports:write and reports:publish are split because publishing is a different risk from writing: a lead can be trusted to build reports without being trusted to mail them outside the company. The Team Lead role template carries both, and deliberately not reports:rollup — downward visibility across the org tree is granted, not inherited."
         },
         {
           "type": "text",
@@ -769,7 +769,7 @@ export const stakeholderReportsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Included in Enterprise and Unlimited; sold as a $30/month add-on to Pro and Team. Not offered on Developer — a single developer has nobody to report upward to. It also rides the Analytics Suite combo alongside Advanced Reporting and Team Usage Analytics, at ~30% off the three list prices. See Billing Bundles."
+          "content": "Included in Enterprise and Unlimited; sold as a $30/month add-on to Pro, Team and Business. Not offered on Developer — a single developer has nobody to report upward to. It also rides the Analytics Suite combo alongside Advanced Reporting and Team Usage Analytics, at ~30% off the three list prices. See Billing Bundles."
         },
         {
           "type": "text",

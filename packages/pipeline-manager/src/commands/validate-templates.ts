@@ -117,13 +117,18 @@ function validatePluginDoc(core: PluginTemplateEngine, doc: unknown): Array<{ fi
   }));
 }
 
-function validatePipelineDoc(core: Record<string, any>, doc: unknown): Array<{ field?: string; message: string; code?: string }> {
-  const isTpl = (f: string) =>
-    f === 'projectName' ||
-    f.startsWith('metadata.') || f.startsWith('metadata[') ||
-    f.startsWith('vars.') || f.startsWith('vars[');
-  const isKnown = core.allowedScopeRoots(['metadata', 'vars']);
-  const { errors } = core.validateTemplates(doc, isTpl, isKnown);
-  const cycles = core.detectCycles(doc, isTpl, (f: string) => isTpl(f) ? f : null);
-  return [...errors, ...cycles];
+/**
+ * The pipeline props contract the API's create/update applies (pipeline-core's
+ * `validatePipelineProps`): `project`, `vars`, the metadata layers `global` /
+ * `defaults.metadata` / `synth.metadata`, and no template in a `synth.source`
+ * identity field. `doc` is BuilderProps (a `--file` pipeline properties JSON,
+ * or a fetched pipeline's `props`).
+ */
+function validatePipelineDoc(core: typeof import('@pipeline-builder/pipeline-core'), doc: unknown): Array<{ field?: string; message: string; code?: string }> {
+  const props = doc && typeof doc === 'object' ? doc : {};
+  return core.validatePipelineProps(props).map((e) => ({
+    field: e.line !== undefined ? `${e.field}:${e.line}:${e.col}` : e.field,
+    message: e.message,
+    code: e.code,
+  }));
 }

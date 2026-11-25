@@ -61,7 +61,7 @@ export function PlanGrid({
                 {plan.name}
               </span>
               <p className="mt-4 text-4xl font-bold text-fg">
-                {formatPrice(price)}
+                {formatPrice(price, plan.currency)}
               </p>
               {price > 0 && (                    <p className="text-sm text-fg-muted">
                   per {billingInterval === 'annual' ? 'year': 'month'}

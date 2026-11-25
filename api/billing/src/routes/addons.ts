@@ -23,6 +23,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { Request, RequestHandler } from 'express';
 import { getBillingConfig } from '../config/billing-config.js';
+import { BILLING_CURRENCY } from '../config/currency.js';
 import { effectiveEntitlements } from '../config/entitlements.js';
 import { config } from '../config.js';
 import {
@@ -67,6 +68,11 @@ const ADMIN_MFA = requireOrgAdminAssurance({ machines: 'allow' }) as RequestHand
 
 /** Billing is owned by the account ROOT — a team org can't mutate it (see refuseTeamBilling). */
 const ROOT_ONLY = refuseTeamBilling as RequestHandler;
+
+/** {@link priceBreakdown}, naming the currency its amounts are in. */
+function chargedBreakdown(...args: Parameters<typeof priceBreakdown>): ReturnType<typeof priceBreakdown> & { currency: string } {
+  return { ...priceBreakdown(...args), currency: BILLING_CURRENCY };
+}
 
 /** Emit a `combo_expired` billing event + audit record for each combo a bundle
  *  change dropped. Shared by the add and remove handlers (was copy-pasted). */
@@ -225,7 +231,7 @@ export function createAddonRoutes(): Router {
     if (!loaded) return sendSuccess(res, 200, { priceBreakdown: null });
     const { subscription, plan } = loaded;
     return sendSuccess(res, 200, {
-      priceBreakdown: priceBreakdown(
+      priceBreakdown: chargedBreakdown(
         plan,
         (subscription.addons ?? []) as Addon[],
         getBundleCatalog(),
@@ -268,6 +274,7 @@ export function createAddonRoutes(): Router {
         plans,
         bundles: getBundleCatalog(),
       }),
+      currency: BILLING_CURRENCY,
     });
   }));
 
@@ -345,6 +352,7 @@ export function createAddonRoutes(): Router {
         /** The whole recurring total the move lands on. */
         totalCents: Math.max(0, listCents - discountCents) + survivingAddonCents,
         discountName: subscription.recurringDiscount?.discountId ?? null,
+        currency: BILLING_CURRENCY,
       },
     });
   }));
@@ -365,7 +373,8 @@ export function createAddonRoutes(): Router {
       const unmet = tier
         ? bundleUnmetRequirement(b, applyAddon(current, b.id, Math.max(1, current.find((a) => a.bundleId === b.id)?.quantity ?? 0)), catalog, tier)
         : null;
-      return unmet ? { ...b, unmetRequirement: unmet } : b;
+      // Each bundle names the currency of its `prices`.
+      return { ...b, currency: BILLING_CURRENCY, ...(unmet ? { unmetRequirement: unmet } : {}) };
     });
     // Only advertise a combo whose every member is purchasable on this tier —
     // otherwise the "pair them to save" nudge points at a bundle the account
@@ -382,6 +391,7 @@ export function createAddonRoutes(): Router {
           monthly: comboSavings(c, bundles, 'monthly'),
           annual: comboSavings(c, bundles, 'annual'),
         },
+        currency: BILLING_CURRENCY,
       }));
     // selfService=false for Marketplace-billed accounts: the catalog is still
     // returned (so the UI can explain add-ons are managed in AWS) but the
@@ -462,7 +472,7 @@ export function createAddonRoutes(): Router {
       addons: next,
       cascaded,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval, plan.tier, subscription.supportFloorOverride),
+      priceBreakdown: chargedBreakdown(plan, next, bundles, subscription.interval, plan.tier, subscription.supportFloorOverride),
       ...comboDelta(current, next, bundles, subscription.interval),
     });
   }));
@@ -556,7 +566,7 @@ export function createAddonRoutes(): Router {
       subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, committed.interval, plan.tier, committed.supportFloorOverride),
+      priceBreakdown: chargedBreakdown(plan, next, bundles, committed.interval, plan.tier, committed.supportFloorOverride),
       ...delta,
     });
   }));
@@ -684,7 +694,7 @@ export function createAddonRoutes(): Router {
       subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, committed.interval, plan.tier, committed.supportFloorOverride),
+      priceBreakdown: chargedBreakdown(plan, next, bundles, committed.interval, plan.tier, committed.supportFloorOverride),
       ...delta,
     });
   }));
@@ -761,7 +771,7 @@ export function createAddonRoutes(): Router {
       subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval, plan.tier, subscription.supportFloorOverride),
+      priceBreakdown: chargedBreakdown(plan, next, bundles, subscription.interval, plan.tier, subscription.supportFloorOverride),
       ...delta,
     });
   }));

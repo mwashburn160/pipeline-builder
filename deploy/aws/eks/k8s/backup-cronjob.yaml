@@ -10,9 +10,9 @@
 # seeded from postgres-init.sql and are disposable, and `deploy/bin/backup.sh`
 # covers the rare time someone wants one by hand.
 #
-# It is deliberately kept OUT of k8s/kustomization.yaml — the eks deploy applies `kubectl kustomize k8s/`,
-# which only includes manifests listed in `resources:`, so this template can't
-# break a deploy. Enable it explicitly: `kubectl apply -f backup-cronjob.yaml`.
+# It is listed in k8s/kustomization.yaml, so the deploy applies it with everything
+# else (`BACKUP_ENABLED=true` by default). Don't `kubectl apply -f` it by hand: the
+# rendered manifest carries deploy tokens — re-run startup.sh to change it.
 #
 # TARGET: RUSTFS, the IN-CLUSTER object store — a deliberate operator choice,
 # and the one thing to understand before relying on this.

@@ -281,10 +281,14 @@ Shared across all providers:
 **Provider-specific notes:**
 
 - **Microsoft** (Entra / Azure AD v2, OIDC) — `OAUTH_MICROSOFT_TENANT` scopes the
-  authority and defaults to `common` (any organizational or personal account);
-  set it to a specific tenant id or domain to restrict to one directory. The
-  tenant is interpolated into the authorize/token URLs; userinfo is the
-  tenant-agnostic Microsoft Graph endpoint.
+  authority and **must be pinned** to one directory (its tenant id or a verified
+  domain). It defaults to `common`, and with `common`, `organizations` or
+  `consumers` the button still appears but sign-in is refused with 400
+  `OAUTH_MICROSOFT_TENANT_NOT_PINNED`: Graph's `email` claim is a mutable,
+  unverified directory attribute, so in a shared tenant anyone with their own
+  Azure AD tenant could claim a victim's address (nOAuth). The tenant is
+  interpolated into the authorize/token URLs; userinfo is the tenant-agnostic
+  Microsoft Graph endpoint.
 - **GitLab** (OIDC) — `OAUTH_GITLAB_BASE_URL` defaults to `https://gitlab.com`;
   point it at a self-hosted GitLab instance to authenticate against that. The
   email must be verified (`email_verified === true`).
@@ -358,16 +362,16 @@ OAUTH_FACEBOOK_CLIENT_SECRET=your-app-secret
 #### Microsoft (Entra / Azure AD)
 
 1. [Microsoft Entra admin center](https://entra.microsoft.com) → **App registrations → New registration**.
-2. **Supported account types** decides who can sign in and maps to `OAUTH_MICROSOFT_TENANT`: *any org + personal* → `common`; *single directory* → that tenant's ID/domain.
+2. **Supported account types** → *Accounts in this organizational directory only* (single tenant). Multi-tenant and personal-account registrations can't be used: the shared tenants (`common`, `organizations`, `consumers`) are refused.
 3. **Redirect URI** → platform **Web** → `<base>/auth/callback/microsoft`.
-4. **Certificates & secrets → New client secret** → copy the **Value** (not the ID) → `OAUTH_MICROSOFT_CLIENT_SECRET`. **Overview → Application (client) ID** → `OAUTH_MICROSOFT_CLIENT_ID`. Set `OAUTH_MICROSOFT_TENANT` (`common` unless you scoped to one directory).
+4. **Certificates & secrets → New client secret** → copy the **Value** (not the ID) → `OAUTH_MICROSOFT_CLIENT_SECRET`. **Overview → Application (client) ID** → `OAUTH_MICROSOFT_CLIENT_ID`; **Directory (tenant) ID** → `OAUTH_MICROSOFT_TENANT`.
 
 Requested scopes: `openid email profile`.
 
 ```bash
 OAUTH_MICROSOFT_CLIENT_ID=your-application-client-id
 OAUTH_MICROSOFT_CLIENT_SECRET=your-client-secret-value
-OAUTH_MICROSOFT_TENANT=common
+OAUTH_MICROSOFT_TENANT=your-directory-tenant-id
 ```
 
 #### GitLab
@@ -470,11 +474,6 @@ and the step-up provider re-auth that shares their helpers — is protected with
   documents `code_challenge` only for its separate OIDC code flow, not the
   Graph-API flow used here. Those two keep `state` as their CSRF protection;
   nothing else about them changes.
-
-> **Cutover:** there is no compatibility path. Any sign-in, SSO login or step-up
-> re-auth that is mid-flight when the new build rolls out fails with an
-> invalid-state error; the user retries and gets a PKCE-protected flow. Nothing
-> needs to be configured, and no identity-provider settings change.
 
 ### Providers reachable via generic OIDC
 
@@ -735,10 +734,10 @@ for how the issuer's advertised methods are honoured.
 > **Multi-replica:** the OAuth/SSO CSRF `state`, the OIDC `nonce`, the PKCE
 > `code_verifier`, and SAML's `RelayState`, request ids, spent assertion ids and
 > sign-in handoff are held in the shared Redis, so the `authorize` and the
-> callback (or the assertion POST) can land on different replicas. Without Redis
-> they fall back to per-pod memory (single-replica only) — and a SAML replay
-> guard is then only as wide as one pod, so a multi-replica SAML deployment
-> **needs** Redis.
+> callback (or the assertion POST) can land on different replicas. Production
+> refuses to boot without Redis ([Redis dependency](#redis-dependency)); only
+> dev and test fall back to per-process memory, where a SAML replay guard is
+> only as wide as one process.
 
 ### Supported IdP providers
 
@@ -1321,7 +1320,7 @@ so the `requireStepUp` gate on every service is identical.
 | **Passkey** | `POST /auth/step-up/webauthn/options` → `/verify` | Anyone who has added one. Offered first — it is the strongest of the four and takes a touch rather than a typed secret. |
 | **Authenticator app** | `POST /auth/step-up/totp` `{ code }` | Anyone with a TOTP enrolment. Offered second: it proves possession of a device, and it is the one factor that works on a machine with no passkey. A recovery code satisfies it too. |
 | **Password** | `POST /auth/step-up` `{ password }` | Accounts created with email + password. |
-| **Provider re-auth** | `POST /auth/step-up/reauth` → `POST /auth/step-up/reauth/callback` | Accounts with a linked social provider or org SSO — including the Google/GitHub/SSO accounts that have **no password at all** and previously could not pass step-up. |
+| **Provider re-auth** | `POST /auth/step-up/reauth` → `POST /auth/step-up/reauth/callback` | Accounts with a linked social provider or org SSO — including the Google/GitHub/SSO accounts that have **no password at all**. |
 
 **Changing the sign-in email** (`PATCH /user/profile` with a new `email`) is
 step-up gated because the email is where `POST /auth/password/reset-request`
@@ -1411,7 +1410,7 @@ Passkeys do three jobs here:
 - **Sign in** without a password, including from the browser's autofill dropdown.
 - **Step up** before a sensitive action — the passkey path is offered first.
 - Give the Google/GitHub/SSO accounts that have **no password** a factor of their
-  own, so they no longer depend on a provider round trip.
+  own, so they don't depend on a provider round trip.
 
 ### Adding one
 
@@ -1777,6 +1776,8 @@ is for administrative actions that need `aal: 2` only while the org's
 | Loosen the impersonation policy (less strict mode, self-approval on) | `PATCH /organization/:id/impersonation-policy` | Always, checked in the handler — tightening stays open | 403 |
 | Create a service account / issue its key | `POST /organization/:id/service-accounts`, `…/:accountId/keys`, `…/provision-key` | Always, + step-up — with ONE exemption, the [bootstrap-administrator window](#the-bootstrap-administrator-exception) (`assurance_exempted_total{reason="bootstrap-setup"}`) | 403 |
 | Transfer ownership | `PATCH /organization/:id/transfer-owner` | Always, + step-up | 403 |
+| Update, delete, move or re-tier an organization | `PUT/DELETE /organization/:id`, `POST /organization/:id/move`, `PATCH /organization/:id/tier` | Always, + step-up | 403 |
+| Operator consoles and fleet reads (sysadmin) | `GET /organizations`, `GET /admin/summary`, `GET /admin/cascade`, `/admin/console-check`, `POST /admin/console-session`; with step-up: `POST /admin/cascade/:id/redrive`, `GET /admin/orgs/:orgId/k8s-namespace.yaml` | Always | 403 |
 | Edit / delete / re-entitle another user (sysadmin) | `PUT/DELETE /users/:id`, `PUT /users/:id/features`, `POST /users/bulk-delete` | Always, + step-up | 403 |
 | Request / approve an MFA reset; sysadmin direct reset | `/organization/:id/mfa-resets`, `/admin/users/:id/mfa-reset` | Always, + step-up (approval & direct: second-factor step-up) | 403 |
 | Roles: create / update / delete, add / remove members | `/organization/:id/roles…` | By policy | allowed |
@@ -1914,8 +1915,8 @@ narrow, self-closing and audited:
   service account, issue and revoke its keys). Every other service refuses such a
   token outright with **403 `MFA_ENROLLMENT_REQUIRED`**; the dashboard sends them
   straight to Security → Factors.
-- Two of those setup routes — creating the `setup` service account and issuing its
-  key — are also **always `aal: 2`** routes, which this session can never be: the
+- Three of those setup routes — creating the `setup` service account, issuing its
+  key, and the one-call `provision-key` — are also **always `aal: 2`** routes, which this session can never be: the
   install has no factor to be MFA-grade with yet. So the assurance gate carries one
   **named exemption**, `bootstrap-setup`, which requires the
   `mfaEnrollmentPending` flag, a path the allowlist already admits, AND a live
@@ -2088,8 +2089,8 @@ team the caller may open on inherited authority, marked `viaAncestor: true` with
 
 Separate from SSO, an org can let people with a **verified company email domain**
 discover and join it — so coworkers land in one org instead of many one-person
-orgs. Requires the **Team or Enterprise** tier. The design and threat model are
-covered in the sections below.
+orgs. Requires a tier that includes `sso` (Team, Business, Enterprise, or the
+billing-off `unlimited` tier), read at the account root.
 
 ### Admin setup (Settings → Domain-based join)
 
@@ -2153,9 +2154,8 @@ starts working without a restart), briefly negative-caches a failed fetch, and
 **fails closed**: a token it cannot verify is answered `503` (retry), never
 allowed through.
 
-Why it matters: before this, all ten services shared one HMAC secret, so **any
-one of them could mint a platform-admin token**. Now a service compromise cannot
-produce a user identity at all.
+Why it matters: no other service holds a key that can sign a user token, so a
+service compromise cannot produce a user identity at all.
 
 | Token | Signed by | Algorithm | Verified by |
 |---|---|---|---|
@@ -2187,7 +2187,7 @@ breaks. Operator steps: [Secret Rotation](runbooks/secret-rotation.md#user-token
 
 ### Install — signing keys must exist before anything starts
 
-Signing keys are **install prerequisites**, not a migration step. Platform is the
+Signing keys are **install prerequisites**. Platform is the
 only minter of user tokens and refuses to start without a key, and every service
 signs its own internal tokens, so a target that skipped these steps comes up
 dead rather than degraded. There is no shared-secret fallback to land on: no
@@ -2205,10 +2205,10 @@ dead rather than degraded. There is no shared-secret fallback to land on: no
 3. The gateway receives no signing secret: each target's `nginx/jwt.js` decodes
    claims for the access log and the `x-org-id` / `x-user-id` hints and verifies
    nothing (ES256 verification needs an async JWKS fetch, which a synchronous
-   njs `js_set` handler cannot make). Nothing is lost that was enforcing: the
-   gateway never rejected a request, and each service re-derives the request's
-   tenant identity from the token it verified itself. The anti-spoof property
-   also survives — nginx still OVERWRITES those headers on every proxied request,
+   njs `js_set` handler cannot make). The gateway never rejects a request:
+   each service derives the request's
+   tenant identity from the token it verified itself. nginx
+   OVERWRITES those headers on every proxied request,
    so a client cannot inject an org id of its choosing.
 4. Check `GET /.well-known/jwks.json` through the gateway before announcing the
    deploy done: every verifier depends on it, and a target whose nginx does not
@@ -2220,10 +2220,8 @@ Inter-service calls (billing → message, platform → compliance, every service
 quota's usage counters) carry their own token, minted by `signServiceToken` with
 `principalType: 'service'` and `sub: service:<name>`, and living 5 minutes.
 
-Each service signs those with **its own ES256 key**. Before this, all ten shared
-one `JWT_SECRET`, which meant any service could mint a token naming any other —
-"billing said so" was unfalsifiable, and one compromised workload spoke for the
-whole fleet. Now:
+Each service signs those with **its own ES256 key**, so no service can mint a
+token naming another and one compromised workload cannot speak for the fleet:
 
 - the token's `kid` is the thumbprint of the signing key, and the verifier looks
   the key up by that `kid`, which also tells it **which service owns it**;
@@ -2330,8 +2328,7 @@ so one rule takes all of them off the external surface. They go through one shar
 - **refuses every user token outright** — not a member's, not a superadmin's, not
   an access key's. "A sufficiently privileged human" is not an acceptable caller
   for a peer-service API; that equivalence is how a browser-reachable path
-  becomes a tenant-boundary bug. (This replaced several `|| isSystemAdmin(req)`
-  escape hatches that had grown around the individual routes.)
+  becomes a tenant-boundary bug.
 - **admits only the named callers**, and since the name is bound to the signing
   key this is an identity check rather than a claim check.
 
@@ -2345,7 +2342,7 @@ whose path contains `/internal/` must carry the gate — with no exception list.
 
 On minikube, EC2 and EKS an Istio `AuthorizationPolicy` per internal route names
 the same calling service accounts, as a second, independent refusal
-(`deploy/*/k8s/istio-internal-routes.yaml`). It is defence in depth, never the
+(`deploy/*/*/k8s/istio-internal-routes.yaml`). It is defence in depth, never the
 enforcement: docker compose runs no mesh at all, so the token check has to hold
 on its own there — which
 `packages/api-core/test/internal-route-mesh-less.test.ts` proves by running the
@@ -2440,12 +2437,10 @@ same claims.
 What this buys, and what it costs:
 
 - **Revocation works everywhere.** A revoked key can no longer be exchanged, so
-  it stops working on every service within one token lifetime (5 minutes). The
-  old JWT PAT was only checked at platform and kept working elsewhere for up to
-  365 days.
+  it stops working on every service within one token lifetime (5 minutes).
 - **Claims are never stale.** Role, permissions, tier, features and `isSuperAdmin`
   are re-derived from the user and their membership on *every* exchange, so a
-  demotion reaches the key in the same 5 minutes. A JWT PAT baked them at mint.
+  demotion reaches the key in the same 5 minutes.
 - **Accurate last-used.** The exchange is what stamps `lastUsedAt`, so the keys
   page is right no matter which service the key was actually used against.
 - **Platform down is a 503, not a pass.** A service that cannot reach platform
@@ -2543,7 +2538,7 @@ ingest, the setup scripts. The point is that it does not belong to anyone:
 | Rule | What it means in practice |
 |------|---------------------------|
 | **Org-owned, never orphaned** | The creator is recorded for attribution only. When they leave, the account keeps working; only the org purge deletes it (with every key). |
-| **Roles, through the same machinery** | It holds the org's Roles via `role_assignments`, and the assignment ceiling is identical: you can never create an account more powerful than yourself. Only a platform superadmin may grant a `superadmin`-granting Role. |
+| **Roles, through the same machinery** | It holds the org's Roles via `role_assignments`, and the assignment ceiling is identical: you can never create an account more powerful than yourself. Only a platform superadmin may grant a `superadmin`-granting Role. Minting a key for, re-enabling or deleting an existing account passes the same ceiling against the Roles it holds (403 otherwise); disabling it and revoking a key do not. |
 | **Never impersonated** | Impersonation acts on user accounts; a service account has no user record to assume. |
 | **SSO enforcement does not apply** | SSO governs how PEOPLE sign in. A service account never signs in, so an org's SSO requirement neither blocks nor covers it — revoke its keys to cut it off. |
 | **Never satisfies assurance** | Its token carries `amr: []` and `aal: 1`, and `requireStepUp` refuses the principal outright — so a key can never be used to mint another key, delete an org, or pass any human-presence gate. |
@@ -2552,11 +2547,11 @@ ingest, the setup scripts. The point is that it does not belong to anyone:
 | **Keys expire, and are capped** | At most 5 active keys per account, each at most 365 days, with an optional per-key IP allowlist. |
 | **Rate-limited per account** | Platform buckets an account's traffic under its own key (`sa:<id>`, or the presented key's hash pre-auth), and `rateLimitByOrg` does the same, so one noisy account cannot exhaust the window its org's people share. |
 
-Creation and key management live at **Dashboard → Settings → Service Accounts**.
+Creation and key management live at **Dashboard → Security → Service accounts**.
 Every route — the listing included — requires `service_accounts:manage`, and
 every write is **step-up gated** exactly like creating a personal access key
-(revoking a key is not, so a compromised credential can be killed immediately). The keys also appear on **Dashboard → API
-Tokens**, in the same list as personal keys, labelled with their owning account.
+(revoking a key is not, so a compromised credential can be killed immediately). The keys also appear on **Dashboard → Security →
+Access keys**, in the same list as personal keys, labelled with their owning account.
 
 ### The IP allowlist, precisely
 
@@ -2685,9 +2680,8 @@ stored:
 | `pipeline-builder/{orgId}/registry-push` | `registry-push` | none | `registry:push` | CodeBuild's `secretsManagerCredentials` (Basic auth to image-registry) |
 | `pipeline-builder/{orgId}/reporting-ingest` | `reporting-ingest` | none | `reporting:ingest` | the event-ingestion Lambda |
 
-The secret's schema is unchanged in shape — `{ username, password, platformUrl, … }`
-— and `password` is still the canonical field. What changed is its VALUE: a
-`pb_sa_…` key instead of a JWT. Nothing downstream verifies it, because there is
+The secret is `{ username, password, platformUrl, … }`, and `password` is the
+canonical field, holding a `pb_sa_…` key. Nothing downstream verifies it, because there is
 nothing in an opaque key to verify: image-registry and every service exchange it
 (api-core's cached exchange client), and the events Lambda exchanges it itself.
 The secret additionally records `keyId`, `serviceAccountId` and `scope`, which is
@@ -2753,7 +2747,8 @@ same [bootstrap-administrator](#the-bootstrap-administrator-exception) exemption
 `403` without `service_accounts:manage`, outside the org, or over the Role / scope
 ceiling, `400` on the body, `409 SA_LIMIT` / `SA_KEY_LIMIT` (still at the cap after
 one retirement), and `409 SA_BUILTIN_ROLE_MISSING` when the org has no built-in
-Role for `role` (restart / upgrade the platform so its startup backfill seeds it).
+Role for `role` (every org is seeded with them at creation, so one was removed
+outside the API — recreate it, then retry).
 
 The gate is the ordinary any-factor `requireStepUp`, so **any** step-up token
 works — password, passkey, authenticator code, provider re-auth, or the
@@ -2818,8 +2813,7 @@ trail joins up without recording either live code. The metric is
 `platform_device_authorizations_total{result}`.
 
 **`auth pat` uses the same flow.** Creating an access key is step-up gated
-server-side, which used to force the CLI to hold a password and POST it twice
-(sign-in, then step-up). Now the CLI sets `step_up: true` on `/auth/device/code`,
+server-side, so the CLI sets `step_up: true` on `/auth/device/code`,
 the browser approval supplies the step-up, and the approved poll returns a
 short-lived `step_up_token` alongside the session — spent immediately on
 `POST /user/keys`. No password is typed into a terminal at any point.
@@ -2856,7 +2850,7 @@ The browser's access token is held **in memory only** — there is no
 access token and silently trades the cookie for a new one
 (`ApiCore.restoreSession()`); a non-secret `pb.session` marker in `localStorage`
 records only *that* a session exists, so an anonymous visitor isn't made to
-probe the refresh endpoint. An XSS that runs in the page can no longer walk off
+probe the refresh endpoint. An XSS that runs in the page cannot walk off
 with a 30-day credential; the worst it can reach is a 15-minute access token.
 
 Because the cookie is ambient authority, `POST /auth/refresh` and
@@ -2873,8 +2867,8 @@ session (login, the OAuth and SSO callbacks, `tokens/revoke-all`) uses the same
 split (`switch-org` returns an access token only and leaves the cookie alone); logout, `/auth/refresh`'s rejection and account deletion all
 clear the cookie, because only the server can.
 
-Cross-tab: tabs can no longer read the refresh token, so they coordinate over a
-`BroadcastChannel` (`pipeline-builder:auth`) plus the existing Web Lock. The
+Cross-tab: tabs cannot read the refresh token, so they coordinate over a
+`BroadcastChannel` (`pipeline-builder:auth`) plus a Web Lock. The
 tab that wins the lock refreshes and **broadcasts the new access token**; the
 others adopt it instead of rotating the shared cookie again. A sign-out in one
 tab is broadcast too. The Web Lock is load-bearing: it guarantees a sibling's
@@ -2899,11 +2893,7 @@ would read as reuse and answer by revoking the slot).
 
 > **Where these live.** Everything that can sign in as you — password, passkeys,
 > authenticator app, sessions and access keys — is on **Dashboard → Security**,
-> in four tabs (Factors · Sessions · Access keys · Service accounts). It replaces
-> Settings → Security, the "API Tokens" page (which carried a second, conflicting
-> sessions list) and Settings → Service Accounts. The old addresses forward to the
-> matching tab, so saved links and CLI docs still land; nothing of the old pages
-> runs behind them.
+> in four tabs (Factors · Sessions · Access keys · Service accounts).
 
 
 **Dashboard → Security → Sessions** lists the account's live sessions. Each refresh-session
@@ -2928,11 +2918,10 @@ Sessions come in two kinds:
   **least recently used** dropped first, so a credential renewed daily is never
   evicted and abandoned ones are.
 
-  > **Not what stored credentials use any more.** `pipeline-manager infra
+  > **Not what stored credentials use.** `pipeline-manager infra
   > store-token`, the AWS rotation Lambda and CI all hold
-  > [service-account keys](#stored-machine-credentials-aws) now — a machine
-  > session was still a *person's* credential, and that is the thing #12 / #N2
-  > removed. A machine session is what remains for a person who deliberately wants
+  > [service-account keys](#stored-machine-credentials-aws) — a machine
+  > session is a *person's* credential. It is for a person who deliberately wants
   > a long-lived token of their own.
 
 **Dashboard → Security → Access keys → Generate machine token** mints one: the

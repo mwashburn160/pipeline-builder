@@ -84,6 +84,23 @@ describe('compactCreditLedger', () => {
     expect(totals(out, 'combo:y')).toEqual({ cents: 1200, grants: 6 });
   });
 
+  it('keeps the campaign on the carry row, folding each campaign separately (campaign spend stays exact)', () => {
+    const summer = Array.from({ length: 5 }, (_, i) => ({ ...periodic('promo:x', i + 1, 100), campaign: 'summer26' }));
+    const winter = Array.from({ length: 5 }, (_, i) => ({ ...periodic('promo:x', i + 10, 50), campaign: 'winter26' }));
+    const out = compactCreditLedger([...summer, ...winter], 2);
+
+    const campaignSpend = (c: string) => out.filter((r) => r.campaign === c)
+      .reduce((acc, r) => ({ cents: acc.cents + r.cents, grants: acc.grants + (r.grantCount ?? 1) }), { cents: 0, grants: 0 });
+    expect(campaignSpend('summer26')).toEqual({ cents: 500, grants: 5 });
+    expect(campaignSpend('winter26')).toEqual({ cents: 250, grants: 5 });
+    const carries = out.filter((r) => r.dedupeKey?.startsWith('compacted:'));
+    expect(carries).toHaveLength(2);
+    expect(carries.map((r) => r.discountId)).toEqual(['promo:x', 'promo:x']);
+    // The promotion's own (discountId) spend is unchanged too, and a re-pass is a no-op.
+    expect(totals(out, 'promo:x')).toEqual({ cents: 750, grants: 10 });
+    expect(compactCreditLedger(out, 2)).toEqual(out);
+  });
+
   it('exposes a sane default keep window (bounded but well beyond a redelivery window)', () => {
     expect(DEFAULT_KEEP_RECENT).toBeGreaterThanOrEqual(6);
     const rows = Array.from({ length: DEFAULT_KEEP_RECENT }, (_, i) => periodic('promo:x', i + 1));

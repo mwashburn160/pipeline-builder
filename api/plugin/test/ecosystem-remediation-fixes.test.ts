@@ -127,7 +127,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   securityNotices.setNoticeDedupeStoreForTests(dedupe);
   fixes.setRemediationPipelineClientForTests({ post: pipelinePost } as never);
-  fixes.setSuggestedPatchReaderForTests(async () => '--- a/Dockerfile\n+++ b/Dockerfile\n-RUN apt-get install -y openssl\n+RUN apt-get install -y openssl=3.0.2\n');
 });
 
 afterEach(() => {
@@ -345,9 +344,9 @@ describe('a listed third-party plugin', () => {
     expect(fixes.remediationOwnership({ kind: 'plugin', orgId: 'org-acme' })).toBe('org');
   });
 
-  it('sends its publisher the findings and the suggested patch (N40) and tells its installers — once per findings set', async () => {
+  it('sends its publisher the findings and their fixed versions (N40) and tells its installers — once per findings set', async () => {
     const { listing } = thirdParty();
-    await fixes.sendPublisherFixRequest({ listingId: listing.id, version: '2.0.0', remaining: [remaining('CVE-2026-0100', { reason: 'third_party_listing' })], suggestedPatchKey: 'k/patch.diff' });
+    await fixes.sendPublisherFixRequest({ listingId: listing.id, version: '2.0.0', remaining: [remaining('CVE-2026-0100', { reason: 'third_party_listing' })] });
 
     const calls = h.notify.mock.calls.filter((c: any[]) => c[0] === 'N40');
     expect(calls).toHaveLength(2);
@@ -355,32 +354,28 @@ describe('a listed third-party plugin', () => {
     expect(toPublisher).toEqual([{ kind: 'org_permission', orgId: 'org-acme', permission: 'publishers:manage' }]);
     expect(publisherContent.subject).toBe('Fix request: 1 vulnerability in acme/scan 2.0.0');
     expect(publisherContent.text).toContain('CVE-2026-0100 (critical) in golang.org/x/net 0.1.0 [go-module]: fixed in 0.17.0');
-    expect(publisherContent.text).toContain('Suggested patch:\n--- a/Dockerfile');
     expect(publisherContent.text).toContain('never rebuilt');
     expect(publisherOpts).toEqual({ immediate: true });
     const [, toInstallers, installerContent] = calls[1] as any[];
     expect(toInstallers).toEqual([{ kind: 'org_permission', orgId: 'org-user', permission: 'plugin_installs:manage', inheritFromRoot: true }]);
     expect(installerContent.text).toContain('sent its publisher a fix request');
-    expect(installerContent.text).not.toContain('Suggested patch');
 
     // The same findings again: deduplicated; a new finding: a new request.
-    await fixes.sendPublisherFixRequest({ listingId: listing.id, version: '2.0.0', remaining: [remaining('CVE-2026-0100', { reason: 'third_party_listing' })], suggestedPatchKey: null });
+    await fixes.sendPublisherFixRequest({ listingId: listing.id, version: '2.0.0', remaining: [remaining('CVE-2026-0100', { reason: 'third_party_listing' })] });
     expect(h.notify.mock.calls.filter((c: any[]) => c[0] === 'N40')).toHaveLength(2);
-    await fixes.sendPublisherFixRequest({ listingId: listing.id, version: '2.0.0', remaining: [remaining('CVE-2026-0101')], suggestedPatchKey: null });
+    await fixes.sendPublisherFixRequest({ listingId: listing.id, version: '2.0.0', remaining: [remaining('CVE-2026-0101')] });
     expect(h.notify.mock.calls.filter((c: any[]) => c[0] === 'N40')).toHaveLength(4);
   });
 
-  it('still sends the request without an unreadable patch, and sends none for an Official listing or while remediation is off', async () => {
+  it('sends none for an Official listing or while remediation is off', async () => {
     const { listing, official } = thirdParty();
-    fixes.setSuggestedPatchReaderForTests(async () => { throw new Error('NoSuchKey'); });
-    await fixes.sendPublisherFixRequest({ listingId: listing.id, version: '2.0.0', remaining: [remaining('CVE-2026-0100')], suggestedPatchKey: 'gone' });
+    await fixes.sendPublisherFixRequest({ listingId: listing.id, version: '2.0.0', remaining: [remaining('CVE-2026-0100')] });
     expect(h.notify.mock.calls.filter((c: any[]) => c[0] === 'N40')).toHaveLength(2);
-    expect((h.notify.mock.calls[0] as any[])[2].text).not.toContain('Suggested patch');
 
     const officialListing = db.seed('plugin_listings', { publisherId: official.id, name: 'lint', latestVersion: '1.0.0' });
-    await fixes.sendPublisherFixRequest({ listingId: officialListing.id, version: '1.0.0', remaining: [remaining('CVE-2026-0102')], suggestedPatchKey: null });
+    await fixes.sendPublisherFixRequest({ listingId: officialListing.id, version: '1.0.0', remaining: [remaining('CVE-2026-0102')] });
     process.env.PLUGIN_REMEDIATION_ENABLED = 'false';
-    await fixes.sendPublisherFixRequest({ listingId: listing.id, version: '2.0.0', remaining: [remaining('CVE-2026-0103')], suggestedPatchKey: null });
+    await fixes.sendPublisherFixRequest({ listingId: listing.id, version: '2.0.0', remaining: [remaining('CVE-2026-0103')] });
     expect(h.notify.mock.calls.filter((c: any[]) => c[0] === 'N40')).toHaveLength(2);
   });
 });

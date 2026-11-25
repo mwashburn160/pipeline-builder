@@ -83,6 +83,21 @@ describe('fetchOrgDescendants', () => {
     await expect(fetchOrgDescendants('self', { ...OPTS, throwOnHttpError: true })).rejects.toThrow(/HTTP 503/);
   });
 
+  // Regression: a strict caller read a malformed 200 (no orgIds array) as "no
+  // descendants", so a scoped rollout silently covered only the scope org.
+  it('throws on a malformed 200 body when throwOnHttpError is set', async () => {
+    for (const body of [{}, { data: {} }, { data: { orgIds: 'self' } }, null]) {
+      mockGet.mockResolvedValue({ statusCode: 200, body, headers: {} });
+      await expect(fetchOrgDescendants('self', { ...OPTS, throwOnHttpError: true }))
+        .rejects.toThrow('descendant-org lookup failed for self: malformed body');
+    }
+  });
+
+  it('keeps a malformed 200 body as undefined for non-strict callers', async () => {
+    mockGet.mockResolvedValue({ statusCode: 200, body: { data: { orgIds: 'self' } }, headers: {} });
+    await expect(fetchOrgDescendants('self', OPTS)).resolves.toBeUndefined();
+  });
+
   it('propagates a transport failure so the caller can degrade to its safe default', async () => {
     // Matches fetchParentOrgId's contract: unreachable/timeout throws here; the
     // caller (reporting/compliance) catches and falls back to single-org.

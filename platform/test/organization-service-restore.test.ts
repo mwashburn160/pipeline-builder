@@ -88,7 +88,7 @@ describe('organizationService.restore', () => {
     const doc: any = { _id: { toString: () => 'org-acme' }, name: 'Acme', deletedAt: new Date(), purgeAfter: new Date(), save };
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
 
-    const result = await organizationService.restore('org-acme');
+    const result = await organizationService.restore('org-acme', undefined, false);
 
     // Only soft-deleted orgs are targeted.
     expect(mockOrgFindOne).toHaveBeenCalledWith({ _id: 'org-acme', deletedAt: { $ne: null } });
@@ -107,7 +107,7 @@ describe('organizationService.restore', () => {
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
 
     // u1 is the actor performing the restore.
-    const result = await organizationService.restore('org-acme', 'u1');
+    const result = await organizationService.restore('org-acme', 'u1', false);
 
     // Only the OTHER member (u2) is invalidated; u1's session stays valid.
     expect(mockUserUpdateMany).toHaveBeenCalledWith({ _id: { $in: ['u2'] } }, { $inc: { claimsVersion: 1 } });
@@ -121,7 +121,7 @@ describe('organizationService.restore', () => {
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
     mockPrepareTeamRestore.mockResolvedValue({ tier: 'enterprise', featureEntitlements: ['sso'] });
 
-    await organizationService.restore('team-1', 'admin-1');
+    await organizationService.restore('team-1', 'admin-1', false);
 
     expect(mockPrepareTeamRestore).toHaveBeenCalledWith('team-1', 'root-1', expect.anything());
     expect(set).toHaveBeenCalledWith({ tier: 'enterprise', featureEntitlements: ['sso'] });
@@ -135,7 +135,7 @@ describe('organizationService.restore', () => {
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
     mockPrepareTeamRestore.mockRejectedValue(new Error('ORG_SEAT_LIMIT'));
 
-    await expect(organizationService.restore('team-1', 'admin-1')).rejects.toThrow('ORG_SEAT_LIMIT');
+    await expect(organizationService.restore('team-1', 'admin-1', false)).rejects.toThrow('ORG_SEAT_LIMIT');
     expect(doc.deletedAt).not.toBeNull();
     expect(save).not.toHaveBeenCalled();
   });
@@ -143,14 +143,14 @@ describe('organizationService.restore', () => {
   it('a ROOT restore does not run the team checks', async () => {
     const doc: any = { _id: { toString: () => 'org-acme' }, name: 'Acme', deletedAt: new Date(), purgeAfter: new Date(), save: jest.fn<AnyFn>() };
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
-    await organizationService.restore('org-acme');
+    await organizationService.restore('org-acme', undefined, false);
     expect(mockPrepareTeamRestore).not.toHaveBeenCalled();
   });
 
   it('returns null when there is no soft-deleted org (already purged / never deleted)', async () => {
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(null) });
 
-    const result = await organizationService.restore('gone');
+    const result = await organizationService.restore('gone', undefined, false);
     expect(result).toBeNull();
     expect(mockUserUpdateMany).not.toHaveBeenCalled();
   });

@@ -37,7 +37,8 @@ describe('billing config env parsing', () => {
 
   it('derives the public Stripe webhook URL from PLATFORM_BASE_URL and reads the endpoint id', async () => {
     const config = await loadConfig({ PLATFORM_BASE_URL: 'https://pb.example.com/', STRIPE_WEBHOOK_ENDPOINT_ID: ' we_123 ' });
-    expect(config.stripe.webhookUrl).toBe('https://pb.example.com/billing/stripe/webhook');
+    // Public path: nginx serves billing under /api/billing/*, which is what Stripe calls.
+    expect(config.stripe.webhookUrl).toBe('https://pb.example.com/api/billing/stripe/webhook');
     expect(config.stripe.webhookEndpointId).toBe('we_123');
     const bare = await loadConfig({});
     expect(bare.stripe.webhookUrl).toBe('');

@@ -77,8 +77,12 @@ function validateStripe(): void {
     }
   }
   // Every priced bundle × interval too, or its line item is silently skipped
-  // (granted but not charged — see stripe-provider.syncAddons).
+  // (granted but not charged — see stripe-provider.syncAddons). Only ACTIVE
+  // bundles: one a deployment switch has withdrawn (SUPPORT_ENABLED=false takes
+  // out the whole support ladder) cannot be bought, so demanding its Price only
+  // raises a false price_map_incomplete warning.
   for (const bundle of billing.bundles ?? []) {
+    if (!bundle.isActive) continue;
     for (const iv of INTERVALS) {
       if ((bundle.prices?.[iv] ?? 0) > 0 && !priceMap[`${bundle.id}_${iv}`]) missing.push(`${bundle.id}_${iv}`);
     }

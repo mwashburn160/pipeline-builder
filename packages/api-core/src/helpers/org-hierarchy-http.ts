@@ -47,7 +47,8 @@ export interface OrgHierarchyHttpOptions {
   /** Per-request timeout override in ms (falls back to the client default). */
   timeout?: number;
   /**
-   * When true, a non-2xx response THROWS instead of resolving to `undefined`.
+   * When true, a non-2xx response (and, for descendants, a 200 without an
+   * `orgIds` array) THROWS instead of resolving to `undefined`.
    * Default false (a 4xx/5xx maps to `undefined`, the fail-soft policy the
    * message/reporting root-resolution callers rely on). A caller for whom a
    * failed lookup must fail-CLOSED — e.g. a compliance scan, where treating a
@@ -124,7 +125,11 @@ export async function fetchOrgDescendants(orgId: string, opts: OrgHierarchyHttpO
     return undefined;
   }
   const ids = res.body?.data?.orgIds;
-  if (!Array.isArray(ids)) return undefined;
+  if (!Array.isArray(ids)) {
+    // A strict caller must not read a malformed answer as "no descendants".
+    if (opts.throwOnHttpError) throw new Error(`descendant-org lookup failed for ${orgId}: malformed body`);
+    return undefined;
+  }
   const orgIds = ids.filter((id): id is string => typeof id === 'string');
   // Only meaningful when the (validated) subtree is larger than the org itself.
   return orgIds.length > 1 ? orgIds : undefined;

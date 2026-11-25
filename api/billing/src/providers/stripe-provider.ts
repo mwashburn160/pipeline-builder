@@ -266,8 +266,17 @@ export class StripeProvider implements PaymentProvider {
     const paymentIntent = typeof payment?.payment_intent === 'string' ? payment.payment_intent : payment?.payment_intent?.id;
     const charge = typeof payment?.charge === 'string' ? payment.charge : payment?.charge?.id;
     if (!paymentIntent && !charge) return null;
+    const target = paymentIntent ? { payment_intent: paymentIntent } : { charge };
+    // Stripe keeps an idempotency key for 24 hours only. A duplicate handled
+    // again later (a redelivery, or the paid-after-cancel pass after `.created`
+    // already refunded) would otherwise refund a refunded payment — refused by
+    // Stripe, and counted as a refund FAILURE that tells an operator to refund
+    // by hand. The refund this method made carries the invoice id: reuse it.
+    const prior = await tracked('refunds.list', () => this.stripe.refunds.list({ ...target, limit: 100 }));
+    const done = prior.data.find((r) => r.metadata?.invoiceId === first.id && r.status !== 'failed' && r.status !== 'canceled');
+    if (done) return { invoiceId: first.id, refundId: done.id };
     const refund = await tracked('refunds.create', () => this.stripe.refunds.create(
-      { ...(paymentIntent ? { payment_intent: paymentIntent } : { charge }), reason: 'duplicate', metadata: { invoiceId: first.id!, subscriptionId: externalId } },
+      { ...target, reason: 'duplicate', metadata: { invoiceId: first.id!, subscriptionId: externalId } },
       { idempotencyKey: `duplicate-subscription-refund-${first.id}` },
     ));
     logger.warn('Refunded a duplicate Stripe subscription\'s first invoice', { externalId, invoiceId: first.id, refundId: refund.id });

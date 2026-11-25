@@ -88,3 +88,31 @@ describe('put — production fails closed', () => {
     s._stopSweepForTests();
   });
 });
+
+describe('increment — atomic counter (device-flow poll ceiling)', () => {
+  it('counts every concurrent call in the local map (no lost increments)', async () => {
+    const s = store();
+    const counts = await Promise.all(Array.from({ length: 20 }, () => s.increment('c-1', 60_000)));
+    expect([...counts].sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+    s._stopSweepForTests();
+  });
+
+  it('increments in ONE server-side step through Redis (INCR + PEXPIRE on first use)', async () => {
+    const evalFn = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(3);
+    redis = { set: jest.fn(), eval: evalFn } as never;
+    const s = store();
+    await expect(s.increment('c-2', 5_000)).resolves.toBe(3);
+    expect(evalFn).toHaveBeenCalledWith(expect.stringContaining('INCR'), 1, 't:c-2', 5_000);
+  });
+
+  it('THROWS PENDING_STATE_UNAVAILABLE in production when Redis cannot count', async () => {
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      redis = { set: jest.fn(), eval: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockRejectedValue(new Error('down')) } as never;
+      await expect(store().increment('c-3', 5_000)).rejects.toThrow(PENDING_STATE_UNAVAILABLE);
+    } finally {
+      process.env.NODE_ENV = prevEnv;
+    }
+  });
+});

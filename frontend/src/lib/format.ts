@@ -20,14 +20,24 @@ export function fmtNum(n: number): string {
 }
 
 /**
- * Render a minor-unit amount in `currency` (default USD; locale-grouped, two
- * decimals), e.g. 123450 → "$1,234.50", (3000, 'eur') → "€30.00". The single
- * money formatter shared by every billing surface, so large amounts render
- * consistently (thousands separators included). `currency` is the ISO 4217
- * code in either case, as the billing ledger reports it (`usd`, `eur`).
+ * Currencies whose provider amount is NOT hundredths (Stripe's minor-unit
+ * table): zero-decimal ones are already whole units, three-decimal ones are
+ * thousandths. Every other currency is cents.
+ */
+const ZERO_DECIMAL = new Set(['bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga', 'pyg', 'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf']);
+const THREE_DECIMAL = new Set(['bhd', 'jod', 'kwd', 'omr', 'tnd']);
+
+/**
+ * Render a minor-unit amount in `currency` (default USD; locale-grouped), e.g.
+ * 123450 → "$1,234.50", (3000, 'eur') → "€30.00", (3000, 'jpy') → "¥3,000".
+ * The single money formatter shared by every billing surface, so large amounts
+ * render consistently (thousands separators included). `currency` is the ISO
+ * 4217 code in either case, as the billing ledger reports it (`usd`, `eur`).
  */
 export function formatCents(cents: number, currency = 'USD'): string {
-  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: currency.toUpperCase() });
+  const code = currency.toLowerCase();
+  const exponent = ZERO_DECIMAL.has(code) ? 0 : THREE_DECIMAL.has(code) ? 3 : 2;
+  return (cents / 10 ** exponent).toLocaleString('en-US', { style: 'currency', currency: code.toUpperCase() });
 }
 
 

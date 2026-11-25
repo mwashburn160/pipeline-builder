@@ -19,6 +19,7 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { setGauge } from './metrics.js';
 import { config } from '../config/index.js';
+import { ACTIVE_KMS_CONFIG_FILTER } from '../helpers/org-kms-config.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
 
 const logger = createLogger('platform-scraper');
@@ -48,9 +49,7 @@ async function scrapeOnce(): Promise<void> {
     // tells "is this turned on at all". Compound index on (kmsConfig.keyId)
     // would help if the gauge ever lags Mongo; today's org count makes
     // the full scan acceptable.
-    const perOrgKmsCount = await Organization.countDocuments({
-      'kmsConfig.keyId': { $exists: true, $ne: null },
-    });
+    const perOrgKmsCount = await Organization.countDocuments({ ...ACTIVE_KMS_CONFIG_FILTER });
     setGauge('secret_encryption_per_org_kms_orgs', {}, perOrgKmsCount);
 
     // Sysadmin headcount — operationally useful when reviewing the audit

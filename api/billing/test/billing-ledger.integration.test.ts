@@ -152,6 +152,23 @@ suite('Billing ledger (real Mongo)', () => {
     expect(await row()).toMatchObject({ status: 'refunded', amountPaidCents: 3000 });
   });
 
+  it('a reversal landing while a re-ingest is in flight is kept (no read-then-write window)', async () => {
+    await ledger.ingestStripeInvoice('org-1', invoice());
+    // The dispute lands after the re-ingest decided what to write, just before its write.
+    const realUpdateOne = BillingInvoice.updateOne.bind(BillingInvoice);
+    const spy = jest.spyOn(BillingInvoice, 'updateOne').mockImplementationOnce((async (...args: unknown[]) => {
+      await ledger.reverseLedgerInvoice('in_1', 'disputed', 0);
+      return realUpdateOne(...args);
+    }) as never);
+    try {
+      await ledger.ingestStripeInvoice('org-1', invoice({ total: 4800 }));
+    } finally {
+      spy.mockRestore();
+    }
+    // The reversal stands; everything else still re-synced.
+    expect(await row()).toMatchObject({ status: 'disputed', amountPaidCents: 0, totalCents: 4800 });
+  });
+
   // ── 2. summaries leave out uncollected invoices ───────────────────────────
 
   it('the account and admin summaries leave out void and uncollectible invoices', async () => {

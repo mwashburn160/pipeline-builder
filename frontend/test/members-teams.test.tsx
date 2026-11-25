@@ -13,7 +13,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 import type { UserOrgMembership } from '@/types';
 import MembersPage from '../pages/dashboard/members';
-import { StepUpRequiredError } from '../src/lib/api/errors';
+import { ApiError, StepUpRequiredError } from '../src/lib/api/errors';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
@@ -252,7 +252,7 @@ describe('Teams row actions', () => {
 });
 
 describe('Recently deleted teams', () => {
-  const deleted = { orgId: 't9', orgName: 'Legacy', deletedAt: '2026-09-10T00:00:00.000Z', purgeAfter: '2026-10-10T00:00:00.000Z' };
+  const deleted = { orgId: 't9', orgName: 'Legacy', deletedAt: '2026-09-10T00:00:00.000Z', purgeAfter: '2026-10-10T00:00:00.000Z', deletedByPlatform: false, restorable: true };
 
   it('shows even when no live team remains, with the purge date, and restores after step-up', async () => {
     mockOrganizations = [root({ childOrgCount: 0 })];
@@ -269,6 +269,38 @@ describe('Recently deleted teams', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
     await waitFor(() => expect(mockApi.restoreOrganization).toHaveBeenCalledWith('t9', 'step-up-token'));
     await waitFor(() => expect(refreshUser).toHaveBeenCalled());
+  });
+});
+
+describe('Recently deleted teams: platform takedowns', () => {
+  const base = { orgId: 't9', orgName: 'Legacy', deletedAt: '2026-09-10T00:00:00.000Z', purgeAfter: '2026-10-10T00:00:00.000Z' };
+
+  it('a team a platform operator deleted cannot be restored here, and says why', async () => {
+    mockOrganizations = [root({ childOrgCount: 0 })];
+    mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [{ ...base, deletedByPlatform: true, restorable: false }] } });
+    render(<MembersPage />);
+    const restore = await screen.findByRole('button', { name: 'Restore Legacy' });
+    expect(restore).toBeDisabled();
+    expect(screen.getByText('Deleted by a platform operator — contact support to restore')).toBeInTheDocument();
+  });
+
+  it('a restorable team keeps Restore enabled', async () => {
+    mockOrganizations = [root({ childOrgCount: 0 })];
+    mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [{ ...base, deletedByPlatform: false, restorable: true }] } });
+    render(<MembersPage />);
+    expect(await screen.findByRole('button', { name: 'Restore Legacy' })).toBeEnabled();
+    expect(screen.queryByText(/Deleted by a platform operator/)).not.toBeInTheDocument();
+  });
+
+  it('a restore refused as a platform takedown says so and re-reads the list', async () => {
+    mockOrganizations = [root({ childOrgCount: 0 })];
+    mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [{ ...base, deletedByPlatform: false, restorable: true }] } });
+    mockApi.restoreOrganization = jest.fn<AnyFn>().mockRejectedValue(new ApiError('Forbidden', 403, 'ORG_RESTORE_PLATFORM_DELETED'));
+    render(<MembersPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore Legacy' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(pageToast.error).toHaveBeenCalledWith('Legacy was deleted by a platform operator — contact support to restore it'));
+    await waitFor(() => expect(mockApi.listDeletedTeams.mock.calls.length).toBeGreaterThan(1));
   });
 });
 

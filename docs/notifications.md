@@ -16,7 +16,7 @@ Every way Pipeline Builder tells a human something: email, Slack, outbound webho
 
 - **The two halves are not connected in the product.** An org admin can fill in every notification setting — recipients, digests, an external security address — and have all of it deliver nothing, because `EMAIL_ENABLED` is `false` on the instance. Nothing in the org-facing UI says so.
 - **Email is off out of the box on a laptop install.** Both local targets ship `EMAIL_ENABLED=false`; both AWS targets ship `true`.
-- **Only the platform service holds mail credentials.** Compliance and plugin send through an internal relay that accepts exactly two callers.
+- **Only the platform service holds mail credentials.** Every other service that sends mail goes through platform's internal relay, which accepts a fixed caller list and resolves recipients itself.
 - **In-app is the source of truth for ecosystem notices**; email is the courtesy copy. Turning email off never loses an in-app message.
 - **Leave `SES_ACCESS_KEY_ID` blank on AWS.** A non-empty value overrides the instance role or Pod Identity and sending fails with `InvalidClientTokenId`.
 - **The AWS provision fails on a placeholder Slack webhook, on purpose** — so nobody discovers at 3am that alerts were going nowhere.
@@ -37,8 +37,8 @@ Two people configure this, and they configure different halves:
 ## How it works
 
 1. **The operator sets one master switch and one sender identity.** `EMAIL_ENABLED` plus `EMAIL_PROVIDER` (`smtp` or `ses`) are read by the **platform** service only.
-2. **Other services relay through platform.** Compliance and plugin call `POST /internal/notify-email`, which is service-token-only and accepts exactly two callers, `compliance` and `plugin`. No other service holds SMTP or SES credentials.
-3. **Alerts split on tenancy.** Alertmanager routes `tenancy: platform` (or unlabelled) alerts to the ops-team Slack channels, and `tenancy: org` alerts to the platform service instead, which fans them out to that org's own destinations. The org route sets `continue: false`, so a per-org alert never reaches the ops channels.
+2. **Other services relay through platform.** They call `POST /internal/notify-email`, which is service-token-only and accepts exactly six callers — `billing`, `compliance`, `ops-center`, `plugin`, `quota` and `reporting` — each limited to its own request shape (tenant email, report email, quota notice, offer notice, alert email, ecosystem notice). No other service holds SMTP or SES credentials.
+3. **Alerts split on tenancy.** Alertmanager routes `tenancy: platform` (or unlabelled) alerts to the ops-team Slack channels, and `tenancy: org` alerts to the ops-center service instead, which fans them out to that org's own destinations. The org route sets `continue: false`, so a per-org alert never reaches the ops channels.
 4. **Per-org destinations are the org admin's choice** — Slack, an HTTPS webhook, in-app, or email — and the alert relay needs `ALERT_WEBHOOK_INSTANCE_TOKEN` wired on both sides.
 5. **Plugin-security and compliance webhooks bypass all of that**, sent by those services directly to the org's configured URL.
 6. **The in-app inbox is always on**, so it is the one channel that cannot be misconfigured into silence.
@@ -87,9 +87,10 @@ Turning email off never loses an in-app message.
 
 One switch, one sender identity, one provider. All of it is read by the
 **platform** service only — no other service holds SMTP or SES credentials.
-Compliance and plugin send through platform's internal relay
+Other services send through platform's internal relay
 (`POST /internal/notify-email`), which is service-token-only and accepts exactly
-two callers, `compliance` and `plugin`.
+six callers: `billing`, `compliance`, `ops-center`, `plugin`, `quota` and `reporting`. `GET /internal/notify-email/status` lets
+`ask-agent`, `ops-center`, `plugin` and `reporting` ask whether email is on.
 
 | Variable | Default (code) | Notes |
 |---|---|---|
@@ -101,6 +102,7 @@ two callers, `compliance` and `plugin`.
 | `SMTP_USER` / `SMTP_PASS` | empty | An empty `SMTP_USER` means the transport is built with **no auth** rather than with empty credentials. |
 | `SES_REGION` | `AWS_REGION`, else `us-east-1` | SES identities are regional. |
 | `SES_ACCESS_KEY_ID` / `SES_SECRET_ACCESS_KEY` | empty | **Leave these blank on AWS.** A non-empty access key id makes the SES client use static credentials, overriding the instance role or Pod Identity association — sending then fails with `InvalidClientTokenId`. `deploy/aws/ec2/bin/bootstrap.sh` blanks them defensively for exactly this reason. |
+| `EMAIL_SEND_TIMEOUT_MS` | `10000` | Upper bound on one send, per transport phase. Sends are awaited inline on request paths, so a stalled mail server fails fast instead of holding the request for minutes; a timeout counts on `platform_email_send_total{outcome="failure"}`. |
 | `SES_CONFIGURATION_SET` | empty | Applied to every SES send. Empty means no configuration set; sends still work, but bounces and complaints go nowhere you can see. |
 
 ### Where it is off, and where it is on
@@ -204,7 +206,7 @@ It skips when `EMAIL_ENABLED` is not `true`, and skips when neither
 Platform-wide alerts (`tenancy: platform`, or no `tenancy` label) go to the
 ops-team Slack channels — `#ops-pager` for `severity: critical`, `#ops-warnings`
 for `severity: warning`. Per-org alerts (`tenancy: org` + an `org_id` label) are
-relayed to the platform service instead and never reach the ops channels; the
+relayed to the ops-center service instead and never reach the ops channels; the
 route sets `continue: false`.
 
 ### The two Slack webhooks
@@ -290,7 +292,7 @@ both ends:
 With no instances configured the relay answers **503** and no per-org alert
 destination ever fires. An unknown instance id or a mismatched token is rejected.
 `ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS` exists only for a rotation overlap —
-platform accepts both while it is set, so Alertmanager can be restarted on the
+ops-center accepts both while it is set, so Alertmanager can be restarted on the
 new token without dropping alerts. See
 [Secret Rotation](runbooks/secret-rotation.md).
 
@@ -311,7 +313,7 @@ Four channels:
 | `slack` | Slack incoming-webhook URL | Rendered as a coloured attachment — red critical, yellow warning, plus a ✅ on resolve |
 | `webhook` | any HTTPS endpoint | Receives the Alertmanager payload unchanged |
 | `in-app` | none | Appends a row to the org's `/dashboard/messages` inbox, authored by the system org |
-| `email` | an address | Goes through platform's `EmailService` — **only works when `EMAIL_ENABLED=true`** |
+| `email` | an address | ops-center hands it to platform's relay (the alert-email leg) — **only works when `EMAIL_ENABLED=true`**. A retried webhook does not re-send an identical (alert, recipient) email inside the dedupe window |
 
 Each destination carries a `minSeverity` and an enabled flag. Targets are
 **masked on read-back** because a webhook URL is itself a credential: a Slack or
@@ -320,6 +322,12 @@ of the path, query or userinfo, where the secret lives), and an email address as
 `••••` plus its last 12 characters (the last 4 for a very short one). The API
 never returns the raw value after creation. Both
 webhook transports resolve and pin the target address and refuse redirects.
+
+Deleting a destination is a soft delete: deleted ones are listed separately and
+can be **restored** or **purged**, both of which need `observability:write` plus a
+fresh [step-up](authentication.md#step-up-re-authentication-every-account). Every
+write is audited (`alert.destination.create`, `.update`, `.delete`, `.restore`,
+`.purge`, `.test`).
 
 **Send test** delivers a real `info`-severity test alert to one destination with a
 bounded timeout (`ALERT_DELIVERY_TIMEOUT_MS`, 5 s). This is the only place in the
@@ -333,7 +341,12 @@ Out of the box, four shipped rules in
 `deploy/*/config/prometheus/alert-rules.yml` carry `tenancy: org` and an `org_id`
 label, and therefore reach org destinations: `LokiRateCapBreach`,
 `PluginBuildFailureRateHigh`, `PipelineDeployFailed` and
-`PipelineStageFailureRateHigh`.
+`PipelineStageFailureRateHigh`. An org rule must keep `org_id` through every
+aggregation (or re-derive it with `label_replace`, as `LokiRateCapBreach` does):
+the org route ends `continue: false`, so an org alert without one would reach no
+destination at all — `test/deploy-contracts` checks this. A platform-side fault
+that tenants feel, such as `PooledQuotaResolutionDenying`, is `tenancy: platform`
+and pages the ops channels.
 
 **Dashboard → Observability → Alert rules** lets an org author its own rules
 (`observability:read` to view, `observability:write` to change). A PromQL matcher
@@ -366,29 +379,49 @@ Two notices are routed here:
   floor) and nothing was stored. **Always sent immediately**, regardless of the
   digest setting.
 - **N31 — a rescan found new Critical/High findings** in a version already
-  stored. Honours the org's *Rescan findings* toggle and digest mode, and is
-  deduplicated per (version, CVE) for 180 days.
+  stored (or a known finding newly listed on CISA KEV). Honours the org's
+  *Rescan findings* toggle and digest mode, and is deduplicated per (version,
+  CVE, KEV status) for 180 days. When the org's pipelines run the version, its
+  pipeline owners hear it too (`notifyPipelineOwners`).
 
-The four remediation notices follow the same recipients, external address and
-digest setting (the sender batches them like N31). All are transactional:
+Two more go to the org's **pipeline owners** (`pipelines:write`) rather than the
+plugin security recipients, while `notifyPipelineOwners` is on (the default):
+
+- **N32 — a pipeline is running a vulnerable plugin.** A lookup or runtime
+  check graded a pipeline's plugin version `error` or louder. Immediate,
+  deduplicated per (pipeline, version) per 24 hours.
+- **N33 — a risk acceptance lapsed**, so the pipeline's findings are live again.
+
+The remediation notices (see [Automatic remediation](plugin-publishing.md#automatic-remediation))
+are all transactional and also go to the org's security webhook. N36, N37 and
+N39 follow the same recipients, external address and digest setting as N31 (the
+sender batches them like N31):
 
 - **N36 — a fixed version was published**, or is awaiting approval in propose
   mode.
 - **N37 — a remediation rollout finished or paused.** Also sent to the pipeline
-  owners (`pipelines:write`) of affected organizations when `notifyPipelineOwners`
-  is on. It is also sent ("Rollout paused", with the reason and how many
-  attempts were made) when a published fix's rollout never started and is no
-  longer retried — the pipeline service refused it, or 5 attempts failed; Retry
-  on the remediation starts it again.
-- **N38 — a pipeline was rolled back** off a fix version, to that pipeline's
-  organization's pipeline owners (`notifyPipelineOwners`).
+  owners (`pipelines:write`) of affected organizations when their
+  `notifyPipelineOwners` is on. It is also sent ("Rollout paused", with the
+  reason and how many attempts were made) when a published fix's rollout never
+  started and is no longer retried — the pipeline service refused it, or 5
+  attempts failed; Retry on the remediation starts it again. Not sent when the
+  give-up follows a manual Retry: the person who pressed it sees the answer.
 - **N39 — the owner request**: the findings a remediation couldn't fix, each with
   its package, CVE, fixed version, reason and the upgrade level it would need.
+  Sent once per remediation.
+
+**N38 — a pipeline was rolled back** off a fix version, or couldn't be because
+its previous version is gone. It goes only to that pipeline's organization's
+pipeline owners (when `notifyPipelineOwners` is on), always immediately.
+
+Every remediation notice is deduplicated for 90 days, so a retried job or a
+redelivered rollout report notifies nobody twice.
 
 **N40** is not routed here: it is the fix request sent to a third-party listing's
-publisher (`publishers:manage`), with the findings and a suggested patch, and the
-note to its installers (`plugin_installs:manage`) that it was sent. It never
-takes a raw address. See [Automatic remediation](plugin-publishing.md#automatic-remediation).
+publisher (`publishers:manage`), with the findings and their fixed versions, and
+the note to its installers (`plugin_installs:manage`) that it was sent. It is
+sent once per (version, findings set), immediately, and never to an owner-less
+(community) publisher. It never takes a raw address. See [Automatic remediation](plugin-publishing.md#automatic-remediation).
 
 **N41 — unused plugin versions went stale** (automatic tidying). One digest per
 organization, at most once a week, to the same recipients and verified external
@@ -405,6 +438,7 @@ Settings, stored one row per org in `plugin_security_notification_prefs`
 | Recipients | `recipient_mode` | `writers` | `writers` = the uploader (while still a member) plus every member holding `plugins:write`; `users` = only the members you pick |
 | Chosen members | `target_users` | `{}` | Resolved at send time against **active** membership — a stale id, or someone who left, receives nothing |
 | Rescan findings | `notify_rescan` | `true` | Turns N31 off entirely |
+| Pipeline owners | `notify_pipeline_owners` | `true` | Whether the org's pipeline writers (`pipelines:write`) hear about the versions their pipelines run: the pipeline lines of N31, N32, N33, and the remediation notices N37 (as an affected organization) and N38 |
 | Rescan delivery | `digest_mode` | `immediate` | `immediate`, `daily` or `weekly`. Applies to N31 only |
 | Webhook URL | `webhook_url` | none | **https only**, validated in the browser and again on the server |
 | Webhook signing secret | `webhook_secret` | none | Encrypted under the org's key, never returned — the UI shows only "set" / "not set". Each delivery is signed `X-PB-Signature: sha256=…` |
@@ -416,7 +450,7 @@ its owner opens `/notifications/confirm` and presses the button — an explicit
 click, so a mail scanner following the link cannot burn the token. Until then the
 badge reads *Pending confirmation* (or *Confirmation link expired*), and **Resend
 confirmation** issues a fresh link. The catalog permits a raw `address` recipient
-on N30, N31, the remediation notices N36–N39 and the tidying digest N41 only; the relay rejects it on
+on N30–N33, the remediation notices N36–N39 and the tidying digest N41 only; the relay rejects it on
 every other event.
 
 The webhook is sent by the **plugin** service itself, not through the platform
@@ -570,7 +604,7 @@ For an org admin, once the operator says email works:
 | External security address stuck on *Pending confirmation* | The confirmation link is itself an email (an N30 `address` notice). With email off it never arrives; the link also expires after 24 h. | Enable email, then **Resend confirmation**. |
 | Org has email notifications configured, nothing is delivered | The platform switch is off. Nothing in the org UI shows this. | Ask the operator. Meanwhile, `Send test` on an `email` alert destination returns `email-disabled` — that is the diagnostic. |
 | An alert destination test succeeds but real alerts never arrive | The destination is fine; the alert is not routed. Either the rule has no `tenancy: org` + `org_id` labels, or it is an org-authored rule that Prometheus is not loading (see [What actually fires per-org](#what-actually-fires-per-org)). | Check the rule's labels, and check that Prometheus' `rule_files` actually includes the document holding your rule. |
-| Per-org destinations dead everywhere, relay logs 503 | `ALERT_WEBHOOK_INSTANCES` is empty on platform — usually `ALERT_WEBHOOK_INSTANCE_TOKEN` was never generated into `.env`, or the k8s Secret was not updated. | Re-run `gen-env-secrets`, recreate the `alertmanager-relay` Secret, restart platform **and** alertmanager. |
+| Per-org destinations dead everywhere, relay logs 503 | `ALERT_WEBHOOK_INSTANCES` is empty on ops-center — usually `ALERT_WEBHOOK_INSTANCE_TOKEN` was never generated into `.env`, or the k8s Secret was not updated. | Re-run `gen-env-secrets`, recreate the `alertmanager-relay` Secret, restart ops-center **and** alertmanager. |
 | Deploy aborts on `SLACK_CRITICAL_WEBHOOK_URL` | Deliberate. A placeholder webhook 404s into nothing at 03:00 and looks exactly like a healthy pipeline. | Set both to real webhooks, or set **both** to empty to run without ops Slack. `SKIP_ALERT_TEST_SEND=1` skips only the live test post, not the format check. |
 | Deploy aborts saying `alertmanager.yml` carries an inline webhook URL | Somebody pasted a URL into the ConfigMap, which is readable by anyone with namespace read access. | Remove it; the receivers read `api_url_file` from the `alertmanager-slack` Secret. |
 | SES returns `AccessDenied` on send | `EMAIL_FROM` does not match the `ses:FromAddress` condition in the IAM policy — commonly after changing the sender on an EKS re-run, which **reuses** the existing policy. | Align the two, or delete the `<cluster>-eks-ses` policy and re-run setup. |

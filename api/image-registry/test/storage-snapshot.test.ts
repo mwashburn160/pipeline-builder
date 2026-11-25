@@ -257,6 +257,21 @@ describe('fail-closed reads', () => {
     expect(await readOrgStorageUsage('beta')).toMatchObject({ bytes: 0, incomplete: true });
   });
 
+  it('one org\'s sequence draw failing (a Redis blip on INCR) does not lose the run: that org reads unknown, the rest are current', async () => {
+    await run();
+    let calls = 0;
+    const realNext = store.nextSeq;
+    // Draw 1 is the run's id, then one per org in order: acme, beta.
+    store.nextSeq = async () => {
+      if (++calls === 3) throw new Error('redis down');
+      return realNext();
+    };
+    const second = await run();
+    expect(second).toMatchObject({ incompleteOrgIds: ['beta'] });
+    expect(await readOrgStorageUsage('acme')).toMatchObject({ bytes: 1030, incomplete: false });
+    expect(await readOrgStorageUsage('beta')).toMatchObject({ bytes: 0, incomplete: true });
+  });
+
   it('a store write failure for the marker itself still throws (nothing marked current)', async () => {
     const first = (await run())!;
     const realSet = store.set;

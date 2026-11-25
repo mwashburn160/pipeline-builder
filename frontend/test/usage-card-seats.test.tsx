@@ -20,7 +20,7 @@ const baseRollup = (seats: UsageRollup['seats']): UsageRollup => ({
     pipelines: { used: 2, limit: 5, remaining: 3, percentOfLimit: 40, resetAt: '2026-08-01T00:00:00Z' },
   },
   seats,
-  cost: { subscriptionCents: 0, currency: 'USD' },
+  cost: { subscriptionCents: 0, currency: 'usd' },
 });
 
 describe('UsageCard — seats', () => {
@@ -40,5 +40,19 @@ describe('UsageCard — seats', () => {
   it('omits the seats row when seat usage is unavailable (null)', () => {
     render(<UsageCard rollup={baseRollup(null)} />);
     expect(screen.queryByText('Seats')).not.toBeInTheDocument();
+  });
+});
+
+describe('UsageCard — cost currency', () => {
+  it('formats the plan price in the billing currency, not always dollars', () => {
+    const rollup: UsageRollup = {
+      ...baseRollup(null),
+      subscription: { planId: 'pro', planName: 'Pro', tier: 'pro', interval: 'monthly', priceCents: 3000 },
+      cost: { subscriptionCents: 3000, currency: 'jpy' },
+    };
+    render(<UsageCard rollup={rollup} />);
+    // JPY has no minor unit: 3000 is ¥3,000, never "$30.00".
+    expect(screen.getByText(/¥3,000/)).toBeTruthy();
+    expect(screen.queryByText(/\$30/)).toBeNull();
   });
 });

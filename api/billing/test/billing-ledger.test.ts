@@ -77,6 +77,9 @@ const mockUpdateOne = jest.fn(async (filter: any, update: any, _opts: any) => {
   // Handle $set (stripe ingest) + $setOnInsert/$inc (marketplace consumption accumulate).
   const key = filter.externalInvoiceId;
   const existing = store.get(key);
+  // A conditional ingest upsert whose filter misses an existing row: the insert
+  // trips the unique externalInvoiceId, as Mongo's would.
+  if (existing && filter.status?.$nin?.includes(existing.status)) throw Object.assign(new Error('dup'), { code: 11000 });
   const base = existing ?? { externalInvoiceId: key, ...(update.$setOnInsert ?? {}) };
   const merged: any = { ...base, ...(update.$set ?? {}) };
   for (const [k, v] of Object.entries(update.$inc ?? {})) merged[k] = (merged[k] ?? 0) + (v as number);
@@ -178,8 +181,7 @@ jest.unstable_mockModule('../src/models/billing-invoice.js', () => ({
   BillingInvoice: {
     updateOne: mockUpdateOne,
     find: mockFind,
-    // ingestStripeInvoice reads the existing row (to preserve a prior reversal)
-    // before upserting — return the stored row via a lean()-able handle.
+    // A reversal without an amount reads the row it could not move.
     findOne: (filter: any) => ({ lean: async () => store.get(filter.externalInvoiceId) ?? null }),
     // reverseLedgerInvoice flips an already-ingested row's status in place and
     // returns the updated document (`{ new: true }`), or null when absent.

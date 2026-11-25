@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { validatePipelineTemplates, resolvePipeline } from '../src/helpers/pipeline-template-validator.js';
+import { validatePipelineTemplates } from '../src/helpers/pipeline-template-validator.js';
 
 describe('validatePipelineTemplates', () => {
   it('validates tokens in `project`', () => {
@@ -56,37 +56,24 @@ describe('validatePipelineTemplates', () => {
   });
 });
 
-describe('resolvePipeline', () => {
-  it('expands self-references in `project`', () => {
-    const pipeline = {
-      props: { project: '{{ vars.service }}-{{ metadata.env }}', global: { env: 'prod' }, vars: { service: 'checkout' } },
-    };
-    resolvePipeline(pipeline);
-    expect(pipeline.props.project).toBe('checkout-prod');
+// Resolution itself (`GET ?resolve=true`, synth, `--show-resolved`) is
+// pipeline-core's `resolvePipelineProps` — see its suite (test/template/pipeline-props.test.ts).
+
+describe('validatePipelineTemplates — synth.source is the repository identity', () => {
+  const templated = { props: { project: 'app', synth: { source: { type: 'github', options: { repo: '{{ vars.repo }}', branch: 'main' } } }, vars: { repo: 'acme/app' } } };
+
+  it('refuses `{{ … }}` in a pipeline source field — it would reach CodePipeline as literal text', () => {
+    expect(() => validatePipelineTemplates(templated)).toThrow(/synth\.source\.options\.repo[\s\S]*source must name a real repository/);
   });
 
-  it('resolves metadata across layers and writes each key back to the layer synth takes it from', () => {
-    const pipeline = {
-      props: {
-        project: '{{ metadata.env }}-app',
-        global: { env: 'dev', region: 'us-east-1', stack: '{{ metadata.env }}-{{ metadata.region }}' },
-        synth: { metadata: { env: 'prod' } },
-        vars: {},
-      },
-    };
-    resolvePipeline(pipeline);
-    expect(pipeline.props.project).toBe('prod-app');
-    expect(pipeline.props.global.stack).toBe('prod-us-east-1');
-    // The overridden lower-layer value is left as written.
-    expect(pipeline.props.global.env).toBe('dev');
-    expect(pipeline.props.synth.metadata.env).toBe('prod');
+  it('allows `{{ vars.* }}` there in a TEMPLATE body (instantiate bakes it), and nothing else', () => {
+    expect(() => validatePipelineTemplates(templated, { template: true })).not.toThrow();
+    expect(() => validatePipelineTemplates({ props: { project: 'app', synth: { source: { type: 'github', options: { repo: '{{ metadata.repo }}' } } } } }, { template: true }))
+      .toThrow(/Pipeline template validation failed/);
   });
 
-  it('leaves `{{ ... }}` under `projectName` unresolved (stored templates on the old key stop resolving)', () => {
-    const pipeline = {
-      props: { projectName: '{{ vars.service }}', global: {}, vars: { service: 'checkout' } },
-    };
-    resolvePipeline(pipeline as never);
-    expect(pipeline.props.projectName).toBe('{{ vars.service }}');
+  it('leaves the token alone (it resolves at synth against the pipeline scope)', () => {
+    expect(() => validatePipelineTemplates({ props: { project: 'app', synth: { source: { type: 'github', options: { repo: 'acme/app', token: 'secretsmanager:pb/{{ pipeline.vars.orgId }}/t' } } } } }))
+      .not.toThrow();
   });
 });

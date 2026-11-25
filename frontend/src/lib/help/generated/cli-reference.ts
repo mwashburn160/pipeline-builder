@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c170e28685606f7618b4af3d6d2cd3dc93e1ef7907c61e8ceee2359e51c6db65
+// SOURCE-SHA256: 345ebb62bc7fbcda6da7281d06aa2abdb98346aaa07bac119f7d8d0a8d9bb0ff
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -30,8 +30,8 @@ export const cliReferenceTopic: HelpTopic = {
           "items": [
             "It does two jobs. It installs the platform itself, and it manages pipelines and plugins against a running one.",
             "infra provision is the recommended installer — and it does more than deploy: it also registers the initial admin and can load the catalogs and wire event reporting.",
-            "--plan is the only non-executing mode. Everything else acts.",
-            "Tearing down an AWS target makes you type the cluster id. There is no --force shortcut past it.",
+            "--json is the only non-executing mode of infra provision. It prints the plan; everything else acts.",
+            "Tearing down an AWS target makes you type the stack/cluster id. Only --force (for CI) skips it; --yes does not.",
             "PLATFORM_TOKEN beats the stored session everywhere, which is what makes the CLI usable in CI.",
             "Every gate is the server's. The CLI checks nothing itself and prints refusals as the server worded them.",
             "Exit codes are stable and specific, so CI can fail on the right things rather than on \"non-zero\"."
@@ -79,7 +79,7 @@ export const cliReferenceTopic: HelpTopic = {
           "items": [
             "You sign in — device authorization prints a code and opens your browser, storing a session — or export an access key as PLATFORM_TOKEN.",
             "Commands call the platform's REST API, which applies every permission, quota and compliance gate.",
-            "Deploy commands shell out to cdk, then register the resulting stack with the platform by name and region.",
+            "Deploy commands shell out to cdk, then register the resulting stack with the platform by name and region. The stack name derives from the pipeline's project and organization — see Pipeline stack names.",
             "The process exits with a specific code so a CI job fails on the right thing."
           ]
         },
@@ -253,6 +253,38 @@ export const cliReferenceTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Only the managed cdk-synth comes from --toolchain-file. A local-spec deploy looks up no other plugin, and every plugin must resolve before synth, so each stage plugin (and a synth plugin other than cdk-synth) must already be in the spec's resolvedPlugins, keyed by its alias. A plugin that isn't there fails the synth naming the plugin and the step."
+        },
+        {
+          "type": "text",
+          "content": "Pipeline stack names"
+        },
+        {
+          "type": "text",
+          "content": "pipeline synth / pipeline deploy name the CloudFormation stack after the pipeline's project and organization, and record the same name in the registry, so the deployed stack and its registry row always agree (pipelineStackName in src/config/cli.constants.ts):"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Plain name — <project>-<organization>, lowercased — only when the"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "organization contains no hyphen and the result already meets CloudFormation's rule (starts with a letter; letters, digits and - only; at most 128 characters): spring-boot / system → spring-boot-system. The hyphen rule keeps the name unambiguous: a-b / c and a / b-c would otherwise both be a-b-c."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Otherwise a sanitized base plus -<hash>. Every disallowed character"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "becomes -, a leading non-letter gets pb-, the base is truncated to fit, and -<8 hex> of the raw pair (pipelineIdentityDigest: sha256 of the lowercased [project, organization]) is appended: my.app / acme → my-app-acme-<hash>, spring_boot / system → spring-boot-system-<hash>. The hash keeps rewritten names distinct from each other and from every plain name."
+        },
+        {
+          "type": "text",
+          "content": "Only the stack name is derived; project and organization keep their values everywhere else."
         }
       ]
     },
@@ -266,8 +298,8 @@ export const cliReferenceTopic: HelpTopic = {
             "Install the CLI — see Install.",
             "Sign in, or set a token. pipeline-manager auth login for a person; PLATFORM_TOKEN for CI, which takes precedence over a stored session everywhere.",
             "Point it at your platform with the base URL, and at AWS with a region — precedence is documented in Configuration precedence.",
-            "For installs, start with --plan to inspect what would happen before anything runs.",
-            "Add --yes for non-interactive CI, and expect AWS teardowns to still demand the typed cluster id.",
+            "For installs, start with infra provision --json to inspect the plan before anything runs.",
+            "Add --yes for non-interactive CI, and expect AWS teardowns to still demand the typed stack/cluster id unless you also pass --force.",
             "Wire CI on the exit codes rather than on non-zero alone."
           ]
         }
@@ -429,7 +461,7 @@ export const cliReferenceTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Deploy (gated) or teardown. It shows the plan, then deploys — refusing on failed prerequisites or missing inputs, confirming before it runs (--yes auto-accepts for CI), then verifying health and running init-platform. --json prints the plan and runs nothing. --teardown removes a deployment: local/minikube stop the stack; EC2 deletes its CloudFormation stack and EKS runs bin/shutdown.sh (cluster + EFS + ACM + Route 53), both irreversibly and require typing the stack/cluster id to confirm (--force skips it for CI).",
+            "Deploy (gated) or teardown. It shows the plan, then deploys — refusing on failed prerequisites or missing inputs, confirming before it runs (--yes auto-accepts for CI), then verifying health and running init-platform. --json prints the plan and runs nothing. --teardown removes a deployment: docker/minikube stop the stack; EC2 deletes its CloudFormation stack and EKS runs bin/shutdown.sh (cluster + EFS + ACM + Route 53), both irreversibly and require typing the stack/cluster id to confirm (--force skips it for CI).",
             "Prerequisites, handled. The checks mirror each target's setup.sh exactly — local: Docker, Docker Compose, yq, openssl; minikube: Docker, minikube, kubectl, openssl (+ yq with --with-plugins); ec2: AWS CLI + working credentials; eks: AWS CLI + credentials, kubectl, openssl, envsubst (+ yq with --with-plugins). eksctl is auto-installed by setup.sh when not on PATH. Missing single-binary tools (yq, kubectl, minikube) are offered as an on-demand fetch into ~/.pipeline-manager/tools and put on PATH — no brew/apt, no system change. For local/minikube it also creates the target's .env from .env.example, generating the CHANGE_ME secrets.",
             "Self-healing. On a failed deploy it matches known CloudFormation issues (cause + fix) and can auto-fix + retry a few — e.g. an existing SES identity → re-run with --skip-ses-identity. Gated and bounded by --retries (the scripts are idempotent, so a re-run resumes).",
             "AI-optional. Set ANTHROPIC_API_KEY (or AI_PROVIDER + its key) to parse a natural-language --prompt and add free-form failure diagnosis; without a key it falls back to the deterministic issue matcher.",
@@ -580,6 +612,16 @@ export const cliReferenceTopic: HelpTopic = {
               "Yank one plugin version (--id, required --reason): ranges, latest and the default stop resolving to it; exact pins still resolve with a warning. Yanking the default promotes the next version. A version published to the ecosystem is refused (409)"
             ],
             [
+              "plugin verify",
+              "Report, at run time, what the platform now knows about a pipeline's pinned plugin images (a CVE, a KEV listing or a policy change since the synth): --pipeline-id, plus --manifest <pb-step-manifest.json> or --steps-file <json>; --store-tokens in CodeBuild. Vulnerability state is reported, never enforced — it exits 0 whatever the verdict, and warns and exits 0 when the check cannot run unless --strict. The synthesized pipeline runs it per stage when aws:cdk:operations:runtimevulncheck is on. --json for scripts"
+            ],
+            [
+              "security-report upload",
+              "Upload one scan report produced inside a pipeline (--pipeline-id, --file, --tool, `--format sarif\\",
+              "trivy-json\\",
+              "grype-json, optional --execution-id (default PIPELINE_EXECUTION_ID) and --stage; --store-tokens` in CodeBuild), so its findings land on the platform beside the plugin-image findings"
+            ],
+            [
               "template instantiate",
               "Render a golden-path pipeline template into concrete pipeline props — resolve it by --name (or --id), supply its declared inputs with repeatable --input k=v / --inputs-file, and write the result to --output (or stdout). Creates nothing: feed the props to pipeline create --file, which is where compliance and quota apply"
             ],
@@ -618,11 +660,15 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "infra store-token",
-              "Provision the org's machine identity — a service account plus one pb_sa_… key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the events Lambda and --store-tokens). Add --schedule to also deploy a daily key-rotation stack (rotate → store → revoke) so the key never lapses. Re-run per scope (--scope reporting:ingest, --scope registry:push) — each is its own least-privilege account. With PLATFORM_SECRET_NAME set, the platform key is written to exactly that name and a --scope key to its sibling (…/registry-push, …/reporting-ingest), so running every scope in one shell never overwrites the platform secret. --dry-run prints the plan without signing in or calling the platform. Needs PLATFORM_PASSWORD: both writes are step-up gated"
+              "Provision the org's machine identity — a service account plus one pb_sa_… key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the events Lambda and --store-tokens). Add --schedule to also deploy a daily key-rotation stack (rotate → store → revoke; --cron <5-field expr>, default TOKEN_RENEW_SCHEDULE or 0 0 * * *) so the key never lapses. Each secret gets its own rotation stack, pipeline-builder-token-renew-<leaf>-<hash> (<leaf> is the secret name's last path segment, <hash> the first 8 hex of the sha256 of the full secret name; the Lambda is named the same), so every scope's stack, and another org's with the same leaf in the same account, coexists. Re-run per scope (--scope reporting:ingest, --scope registry:push) — each is its own least-privilege account. With PLATFORM_SECRET_NAME set, the platform key is written to exactly that name and a --scope key to its sibling (…/registry-push, …/reporting-ingest), so running every scope in one shell never overwrites the platform secret. --expires-days sets the key lifetime (default 30, max 365). --dry-run prints the plan without signing in or calling the platform. Both writes (account and key) are step-up gated: `--step-up auto\\",
+              "password\\",
+              "totp\\",
+              "browser (auto uses PLATFORM_PASSWORD/-p when set, else browser approval; a non-interactive run needs the password). An account with no password can issue the key in the web UI and pass it with --from-key <file\\",
+              "->` instead"
             ],
             [
               "infra setup-runner",
-              "Install a pipeline runner in the AWS account your credentials point at. Runners are the only way the platform starts and stops pipelines (Run and Stop in the dashboard, plugin-upgrade redeploys), and the platform holds no AWS access to any account; every org can install them, with no feature flag. One runner per AWS account per organization: the command lists the account's runner stacks in every enabled region of the account (EC2 DescribeRegions, opt-in regions not opted into excluded; all regions read in parallel, the stack region and --regions must be readable, any other unreadable region, such as one an SCP denies, is warned about and skipped; the credentials need ec2:DescribeRegions and cloudformation:ListStacks / DescribeStacks) and reads each one's RUNNER_ID, refuses a second runner of your org there (update the existing one instead: same --label and --region), and installs beside another org's runner with a warning that a shared AWS account is a shared trust boundary (anyone with AWS access there can reach both orgs' pipelines), recommending distinct --pipeline-prefix values per org. If a parent organization's shared runner is already in the account, it warns that the team already reaches it and asks first (--yes to skip). It registers a pending runner (step-up), deploys pipeline-builder-runner-<runnerId> (the label is kept as the stack tag pb.runner-label) once with that runner's id, then sends the endpoint (a Lambda Function URL, or with --api-gateway --allow-ip <cidr>... an API Gateway that admits only the platform's egress IPs, rate-limited per source IP by an AWS WAF web ACL: --waf-rate-limit <n> requests per 5 minutes, default 1000, or --no-waf to leave it out) to the platform (step-up), which pings it and activates it on pong. --regions <csv> (default: the stack region) and --pipeline-prefix <csv> (default: your org's prefix, from its registered pipeline names) are the runner's local allowlist and scope its IAM role; --pipeline-prefix '*' covers every pipeline and requires --yes. It warns when the region has no pipeline-builder-events stack; --with-events runs infra setup-events --scoped-ingest afterwards. It prints the deployed bundle's SHA-256. Re-running updates the stack in place (and finishes a pending install). --delete finds the runner by the same all-region scan, revokes it on the platform, then deletes the stack (re-run with the --region it names if its stack is in another region; with no stack of it in any enabled region of the account it revokes only a still-pending runner of that label). --dry-run prints the plan and the exact IAM without calling AWS or the platform; --json for scripts. The endpoint URL is never printed. After registering it prints the runner's own JWKS URL (<platform>/api/pipelines/runner/runners/<runnerId>/jwks.json). A runner signing key is created with the first runner registered under an org that has none (a team's first runner creates its top-level org's key when that org has none); if your org has none, --generate-key generates it (same step-up) instead of stopping. See Cross-account pipeline runner"
+              "Install a pipeline runner in the AWS account your credentials point at. Runners are the only way the platform starts and stops pipelines (Run and Stop in the dashboard, plugin-upgrade redeploys), and the platform holds no AWS access to any account; every org can install them, with no feature flag. One runner per AWS account per organization: the command lists the account's runner stacks in every enabled region of the account (EC2 DescribeRegions, opt-in regions not opted into excluded; all regions read in parallel, the stack region and --regions must be readable, any other unreadable region, such as one an SCP denies, is warned about and skipped; the credentials need ec2:DescribeRegions and cloudformation:ListStacks / DescribeStacks) and reads each one's RUNNER_ID, refuses a second runner of your org there (update the existing one instead: same --label and --region), and installs beside another org's runner with a warning that a shared AWS account is a shared trust boundary (anyone with AWS access there can reach both orgs' pipelines), recommending distinct --pipeline-prefix values per org. If a parent organization's shared runner is already in the account, it warns that the team already reaches it and asks first (--yes to skip). It registers a pending runner (step-up), deploys pipeline-builder-runner-<runnerId> (the label is kept as the stack tag pb.runner-label) once with that runner's id, then sends the endpoint (a Lambda Function URL, or with --api-gateway --allow-ip <cidr>... an API Gateway that admits only the platform's egress IPs, rate-limited per source IP by an AWS WAF web ACL: --waf-rate-limit <n> requests per 5 minutes, default 1000, or --no-waf to leave it out) to the platform (step-up), which pings it and activates it on pong. --regions <csv> (default: the stack region) and --pipeline-prefix <csv> (default: your org's prefix, from its registered pipeline names) are the runner's local allowlist and scope its IAM role; --pipeline-prefix '*' covers every pipeline and requires --yes. It warns when the region has no pipeline-builder-events stack; --with-events runs infra setup-events --scoped-ingest afterwards. It prints the deployed bundle's SHA-256. Re-running updates the stack in place (and finishes a pending install). --delete finds the runner by the same all-region scan, revokes it on the platform, then deletes the stack (re-run with the --region it names if its stack is in another region; with no stack of it in any enabled region of the account it revokes only a still-pending runner of that label). --dry-run prints the plan and the exact IAM without calling AWS or the platform; --json for scripts. The endpoint URL is never printed. After registering it prints the runner's own JWKS URL (<platform>/api/pipelines/runner/runners/<runnerId>/jwks.json). The org's signing key is checked before anything is created. An org with no key gets one when its first runner registers: its own key for a top-level org or a team using its own key, or the parent's key for a team that inherits it. --generate-key generates the org's own key first (same step-up). Updating an existing runner when there is no key is refused: generate one under Settings → Organization → Pipeline runners, or, for an inheriting team, ask the parent's admins or switch to its own key. An unreadable key is refused. See Cross-account pipeline runner"
             ],
             [
               "`runner signing-key status\\",
@@ -650,7 +696,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The add-on's six verbs. Two jobs the dashboard is the wrong shape for: backfilling a run of past periods (a loop in a shell versus five careful clicks), and unattended operation — a team producing its report from its own scheduler, or gating a publish on a release finishing, needs a command with an exit code."
+          "content": "The add-on's seven verbs. Two jobs the dashboard is the wrong shape for: backfilling a run of past periods (a loop in a shell versus five careful clicks), and unattended operation — a team producing its report from its own scheduler, or gating a publish on a release finishing, needs a command with an exit code."
         },
         {
           "type": "text",
@@ -841,7 +887,7 @@ export const cliReferenceTopic: HelpTopic = {
           "items": [
             "Built-in defaults",
             "User config file — ~/.pipeline-manager/config.yml",
-            "Project config file — CLI_CONFIG_PATH, else ./config.yml",
+            "Project config file — CLI_CONFIG_PATH, else the config.yml shipped in the CLI package (not the current directory)",
             "The platform auth login signed in to (base URL only) — so auth login --url X is followed by commands that talk to X, where its session is stored. auth login, auth logout and auth pat default --url to the resolved base URL too."
           ]
         },
@@ -899,7 +945,7 @@ export const cliReferenceTopic: HelpTopic = {
             [
               "CLI_CONFIG_PATH",
               "No",
-              "Override the project config file path (default ./config.yml)"
+              "Project config file path (default: the config.yml shipped in the CLI package)"
             ],
             [
               "UPLOAD_TIMEOUT_MS",

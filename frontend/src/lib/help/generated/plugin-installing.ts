@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8872cf1f43525a25b1594aa4f9c541814db46bd9524a118ad64bb88fe06df5da
+// SOURCE-SHA256: 9400ec84f02f7395d6f82ae87bed18b153875da681cd061a659b469e159ee0b2
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -486,7 +486,7 @@ export const pluginInstallingTopic: HelpTopic = {
           "type": "list",
           "items": [
             "--remediation-upgrades on the command, when given.",
-            "remediationUpgrades in the definition, when present. Either one is written on every create and deploy, with the same rules as the dashboard: opting out is always allowed, apply is refused with 403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED when the organization forbids it (the CLI exits non-zero and nothing is created or deployed), and a change is audited as pipeline.remediation-upgrades.update — re-sending the stored value records nothing.",
+            "remediationUpgrades in the definition, when present, on pipeline create (a pipeline deploy --id deploys the definition stored on the platform, so only its flag sets the election). Whichever applies is written on every create and deploy, with the same rules as the dashboard: opting out is always allowed, apply is refused with 403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED when the organization forbids it (the CLI exits non-zero and nothing is created or deployed), and a change is audited as pipeline.remediation-upgrades.update — re-sending the stored value records nothing.",
             "Neither → the stored value stands. A deploy whose definition omits it never resets the pipeline to inherit, so a choice made in the dashboard survives redeploys. A new pipeline starts at inherit."
           ]
         },
@@ -505,7 +505,7 @@ export const pluginInstallingTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Canary: up to 5 pipelines, preferring ones that ran successfully in the last 7 days. The rollout waits for each canary run; if one fails on a step using the new version, the rollout stops.",
+            "Canary: up to 5 pipelines, preferring ones that ran successfully in the last 7 days. The rollout waits for each canary run; if one fails on a step using the new version, that pipeline is rolled back and the rollout pauses (the remediation is marked needs review).",
             "Batches of 50, within your organization's run limits, each waiting for the previous batch's runs to start."
           ]
         },
@@ -525,7 +525,7 @@ export const pluginInstallingTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Two rollbacks in one rollout pause it, and the remediation is marked needs review. The version stays published, so owners can still choose it.",
-            "Rollback only goes to a live version. If the previous version has been deleted since, that pipeline's rollout pauses and its owners are told, with the live versions they can choose.",
+            "Rollback only goes to a live version. If the previous version has been deleted since, the pipeline stays on the fix, the rollout pauses (the remediation is marked needs review), and that pipeline's owners are told (N38), with the live versions they can choose.",
             "Rollback never restores a version with a KEV-listed Critical unless a risk acceptance covers it."
           ]
         },
@@ -913,29 +913,29 @@ export const pluginInstallingTopic: HelpTopic = {
               "N36",
               "A fixed version of one of your plugins was published, or is awaiting approval in propose mode",
               "Your plugin security recipients",
-              "In-app + email; follows your digest setting"
+              "In-app + email + webhook; follows your digest setting"
             ],
             [
               "N37",
-              "A remediation rollout finished or paused",
+              "A remediation rollout finished or paused, or never started and is no longer retried",
               "Your plugin security recipients, plus the pipeline owners of affected organizations (notifyPipelineOwners)",
-              "In-app + email"
+              "In-app + email + webhook; follows the digest setting"
             ],
             [
               "N38",
-              "A pipeline was rolled back off a remediation fix",
+              "A pipeline was rolled back off a remediation fix, or couldn't be because its previous version is gone",
               "That pipeline's owners (notifyPipelineOwners)",
-              "In-app + email"
+              "In-app + email + webhook, immediate"
             ],
             [
               "N39",
               "A remediation left findings it couldn't fix — each with its package, CVE, fixed version, reason and the upgrade level it would need",
               "Your plugin security recipients",
-              "In-app + email"
+              "In-app + email + webhook; follows your digest setting"
             ],
             [
               "N40",
-              "A fix request was sent to a third-party listing's publisher (with the findings and a suggested patch); installers are told it was sent",
+              "A fix request was sent to a third-party listing's publisher (with the findings and their fixed versions); installers are told it was sent",
               "The publisher's publishers:manage members; installers' plugin_installs:manage members",
               "In-app + email"
             ]

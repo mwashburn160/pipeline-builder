@@ -44,7 +44,7 @@ Publisher-facing behaviour, and the reasoning behind the governance model, is in
 1. **Switch your active org to the system organization**, then go to Dashboard → Admin → **Ecosystem**.
 2. **Sign in at aal2.** Suspensions, yanks, rule changes, re-signs, review removals, reserved-name changes and every `publishers:verify` decision will also step you up.
 3. **Assign both ecosystem roles** to at least three people each. Only a superadmin can assign them. **Ecosystem Manager** grants `plugins:moderate` (the publish queue, yanks, advisories, rules, reserved names, review moderation); **Publisher Verifier** grants `publishers:verify` (Verified, suspend, unsuspend). They are separate roles so triaging the queue does not also carry the power to award Verified status.
-4. **Set the SLAs** if the defaults do not fit — see [Queues and SLAs](#queues-and-slas).
+4. **Know the SLAs** — 48 hours standard, 4 hours security. They are fixed in code (`REQUEST_SLA_HOURS` in api-core), not configurable — see [Queues and SLAs](#queues-and-slas).
 5. **Configure auto-approval rules** deliberately, and watch their caps — see [Auto-approval rules](#auto-approval-rules).
 6. **Know where the kill switches are** before you need them — see [Kill switches](#kill-switches).
 7. **Wire the alerts.** The Grafana **Plugin ecosystem** dashboard and the `Ecosystem*` alert rules are in every target; see [Alerts and SLA breaches](#alerts-and-sla-breaches).
@@ -74,7 +74,7 @@ Publisher-facing behaviour, and the reasoning behind the governance model, is in
 
 | Lane | Contents | Target |
 |------|----------|--------|
-| Standard | New listings, new versions, listing updates, unpauses, publisher-level requests | 2 business days (48 h) |
+| Standard | New listings, new versions, listing updates, unpauses, publisher-level requests | 48 hours (wall clock) |
 | Security | A version or yank linked to an advisory on the listing | 4 hours; managers are told at once (N24) |
 | Second approval | Requests with one approval, waiting for a different manager | same as the lane |
 
@@ -150,7 +150,7 @@ when you decide (both the first approval and the second, executing one), and
 also when you start a *Make Verified* from the Publisher verification tab:
 
 - **Plan**: the organization's plan includes Verified publishing (Team,
-  Enterprise, or a self-hosted instance);
+  Business, Enterprise, or the unlimited tier of a billing-disabled instance);
 - **Verified domain**: its root organization has a DNS-verified domain
   (platform's domain verification); a domain named in the application must be
   one of them;
@@ -433,7 +433,7 @@ switches; these turn a whole surface off.
 
 | Flag | Default | Off means |
 |---|---|---|
-| `PUBLIC_DIRECTORY_ENABLED` | on | `/plugins` and `/api/public/plugins*` return 404 |
+| `PUBLIC_DIRECTORY_ENABLED` | on (and effective only while `ECOSYSTEM_PUBLIC_READER_PASSWORD` is set) | `/plugins` and `/api/public/plugins*` return 404 |
 | `PLUGIN_PUBLISHING_ENABLED` | on when billing is on (hosted), off otherwise | tenants can't submit requests; existing listings still resolve |
 | `PLUGIN_REVIEWS_ENABLED` | on | reviews are read-only |
 | `ANONYMOUS_SUBMISSIONS_ENABLED` | **off** | the submission API returns 404; Submit becomes a sign-in link |

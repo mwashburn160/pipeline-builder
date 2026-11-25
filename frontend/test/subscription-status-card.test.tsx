@@ -28,6 +28,7 @@ function makeSub(overrides: Partial<Subscription> = {}): Subscription {
     currentPeriodStart: '2026-07-01T00:00:00Z',
     currentPeriodEnd: '2026-08-01T00:00:00Z',
     cancelAtPeriodEnd: false,
+    currency: 'usd',
     dunning: null,
     createdAt: '2026-07-01T00:00:00Z',
     updatedAt: '2026-07-01T00:00:00Z',

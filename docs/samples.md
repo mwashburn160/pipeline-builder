@@ -111,7 +111,7 @@ Or pick the template from the dashboard's golden-path catalog and fill in the in
 - **Platform auth:** `PLATFORM_BASE_URL`, `PLATFORM_TOKEN` (an access key from `pipeline-manager auth pat` or the dashboard), and `PB_ORG_ID` (your org's UUID, passed as the template's `orgId` input).
 - **AWS auth:** each platform's OIDC federation assumes a deploy role whose ARN is stored as a CI secret (`AWS_DEPLOY_ROLE_ARN`), never committed. Each sample notes the one-line swap to static access keys.
 - **Region:** `AWS_REGION` (or `--region`); otherwise resolves `AWS_REGION` → `CDK_DEFAULT_REGION` → `us-east-1`.
-- **Toolchain** (every sample installs it): Node 24+, plus `pipeline-manager` and `aws-cdk` on `PATH` — `--deploy` shells out to `cdk deploy`. The instantiate step needs nothing extra.
+- **Toolchain** (every sample installs it): Node 26.13+ (what `pipeline-manager` requires), plus `pipeline-manager` and `aws-cdk` on `PATH` — `--deploy` shells out to `cdk deploy`. The instantiate step needs nothing extra.
 
 ## Pipeline template samples
 
@@ -210,9 +210,9 @@ All three are **idempotent**: re-running with the same config upserts the record
 
 ### Exit codes
 
-`pipeline-manager` returns [standard exit codes](pipeline-manager.md) so CI fails on the right things:
+`pipeline-manager` returns [standard exit codes](pipeline-manager.md#exit-codes) so CI fails on the right things:
 
-`0` success · `2` validation · `3` API request · `4` authentication · `5` authorization · `6` not found · `7` network · `8` configuration · `10` timeout
+`0` success · `1` general · `2` validation · `3` API request · `4` authentication · `5` authorization · `6` not found · `7` network · `8` configuration · `9` file system · `10` timeout
 
 If create succeeds but the deploy fails, the command exits non-zero and prints `pipeline-manager pipeline deploy --id <id>` so you can retry the deploy without recreating the record.
 

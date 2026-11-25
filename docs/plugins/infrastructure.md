@@ -1,14 +1,16 @@
 ---
 layout: default
 title: Infrastructure Plugins
-description: Infrastructure plugins — AWS CDK synth and pipeline utilities (approval gates, S3 cache, raw shell step).
+description: Infrastructure plugins — pipeline utilities (approval gates, S3 cache, raw shell step), plus the managed CDK synth step.
 ---
 
 # Infrastructure Plugins
 
-AWS CDK synthesis/deployment and pipeline utility plugins.
+Four pipeline utility plugins, plus the CDK synthesis step every pipeline runs.
 
 ## CDK Synthesis
+
+`cdk-synth` is not one of the 118 catalog plugins: it is half of the managed pipeline toolchain release (with `pipeline-bootstrap`), built from [`deploy/toolchain/`](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/toolchain).
 
 | Plugin | Purpose | Compute | Secrets | Key Env Vars |
 |--------|---------|---------|---------|--------------|

@@ -26,6 +26,8 @@ const mockSaFindOne = jest.fn<(...a: unknown[]) => unknown>();
 
 const mockCreateForSa = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({ key: 'pb_sa_x', view: { id: 'k1' } }));
 const mockSaUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
+const mockSaDeleteOne = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
+const mockDeleteKeys = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => 0);
 
 const mockPublishSaKeys = jest.fn(async (..._a: unknown[]) => 0);
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
@@ -38,6 +40,7 @@ jest.unstable_mockModule('../src/services/api-key-service.js', () => ({
     countActiveForServiceAccount: async () => activeKeys,
     createForServiceAccount: (...a: unknown[]) => mockCreateForSa(...a),
     listForServiceAccount: async () => [],
+    deleteForServiceAccounts: (...a: unknown[]) => mockDeleteKeys(...a),
   },
 }));
 jest.unstable_mockModule('../src/services/service-account-roles.js', () => ({
@@ -64,10 +67,11 @@ jest.unstable_mockModule('../src/models/service-account.js', () => ({
       return { lean: async () => (accountFound ? { _id: new Types.ObjectId(ACCOUNT_ID), name: 'deploy', organizationId: 'org-1', createdAt: new Date(0), ...accountDoc } : null) };
     },
     updateOne: (...a: unknown[]) => mockSaUpdateOne(...a),
+    deleteOne: (...a: unknown[]) => mockSaDeleteOne(...a),
   },
 }));
 
-const { createServiceAccountKey, updateServiceAccount, findServiceAccountByName } =
+const { createServiceAccountKey, updateServiceAccount, deleteServiceAccount, findServiceAccountByName } =
   await import('../src/services/service-account-service.js');
 
 const delegate = (permissions: string[]) => ({ isSuperAdmin: false, isOrgAdmin: false, permissions });
@@ -135,6 +139,32 @@ describe('re-enabling an account — the same ceiling as issuing a key for it', 
     await updateServiceAccount('org-1', ACCOUNT_ID, { disabled: true }, delegate(['service_accounts:manage']));
     // Inside the update's transaction, with the Role replace it may carry.
     expect(mockSaUpdateOne).toHaveBeenCalledWith(expect.anything(), { $set: { disabled: true } }, { session: txSession });
+  });
+});
+
+describe('deleting an account — the same strip ceiling as removing its Roles', () => {
+  // Deleting drops every Role the account holds; `setServiceAccountRoles`
+  // refuses a delegate removing a Role they could not grant, so delete must too.
+  it('REFUSES a delegate deleting an account whose Roles exceed them, and deletes nothing', async () => {
+    accountRoles = [{ id: 'r1', name: 'Admin', grantsRole: 'admin', permissions: ['members:manage'] }];
+    await expect(deleteServiceAccount('org-1', ACCOUNT_ID, delegate(['service_accounts:manage'])))
+      .rejects.toThrow('RL_ASSIGN_EXCEEDS_CEILING');
+    expect(mockDeleteKeys).not.toHaveBeenCalled();
+    expect(mockSaDeleteOne).not.toHaveBeenCalled();
+  });
+
+  it('refuses a superadmin-granting account to anyone but a platform superadmin', async () => {
+    accountRoles = [{ id: 'r1', name: 'Super', grantsRole: 'superadmin', permissions: [] }];
+    await expect(deleteServiceAccount('org-1', ACCOUNT_ID, ADMIN)).rejects.toThrow('RL_REQUIRES_SUPERADMIN');
+    expect(mockSaDeleteOne).not.toHaveBeenCalled();
+  });
+
+  it('lets a delegate holding what the account grants, and an org admin, delete it', async () => {
+    accountRoles = [{ id: 'r1', name: 'Deployer', grantsRole: 'member', permissions: ['pipelines:write'] }];
+    await expect(deleteServiceAccount('org-1', ACCOUNT_ID, delegate(['service_accounts:manage', 'pipelines:write'])))
+      .resolves.toMatchObject({ id: ACCOUNT_ID });
+    await expect(deleteServiceAccount('org-1', ACCOUNT_ID, ADMIN)).resolves.toMatchObject({ id: ACCOUNT_ID });
+    expect(mockSaDeleteOne).toHaveBeenCalledTimes(2);
   });
 });
 

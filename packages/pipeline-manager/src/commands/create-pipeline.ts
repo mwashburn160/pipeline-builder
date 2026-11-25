@@ -15,8 +15,8 @@ import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handle
 import { ensureOutputDirectory, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { fetchPipelineProps } from '../utils/pipeline-config.js';
 import { resolveRegistrationClient } from '../utils/registration-client.js';
-import { extractSingleResponse } from '../utils/response-utils.js';
 import { liftRemediationUpgrades, REMEDIATION_UPGRADES_OPTION_HELP, resolveRemediationUpgrades } from '../utils/remediation-upgrades.js';
+import { extractSingleResponse } from '../utils/response-utils.js';
 import { relaxTlsForCli } from '../utils/tls.js';
 
 const { bold, cyan, dim, green } = pico;
@@ -115,7 +115,15 @@ function buildCreatePayload(options: CreatePipelineOptions, definition: Record<s
   // The plugin security fixes election is a platform setting, not a synth prop:
   // lifted out of the definition (validated), the flag winning over the file.
   const lifted = liftRemediationUpgrades(definition);
-  const props = lifted.props;
+  // A flag overrides the file in the PROPS too: the synth names the CodePipeline
+  // and the stack from props, so a flag applied only to the record would deploy
+  // a pipeline the record does not name.
+  const props = {
+    ...lifted.props,
+    ...(options.project ? { project: options.project } : {}),
+    ...(options.organization ? { organization: options.organization } : {}),
+    ...(options.name ? { pipelineName: options.name } : {}),
+  };
   const remediationUpgrades = resolveRemediationUpgrades(options.remediationUpgrades, lifted.remediationUpgrades);
   const resolvedProject = options.project ?? (props.project as string | undefined);
   const resolvedOrganization = options.organization ?? (props.organization as string | undefined);

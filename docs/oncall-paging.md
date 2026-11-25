@@ -29,7 +29,7 @@ The **per-case leg** is a sweep in the message service, and it is the valuable o
 
 The **fleet leg** is `SupportPremiumFirstResponseAtRisk`: p90 first response over six hours exceeding six hours, against a target of eight. It fires early on purpose, to leave two hours to act.
 
-The **meta leg** is the alerts about delivery itself — `AlertmanagerNotificationsFailing`, `AlertDeliveryDisabled`, `OnCallEnabledButUnconfigured` — labelled `delivery_meta: "true"` on the rule.
+The **meta leg** is the alerts about delivery itself — `AlertmanagerNotificationsFailing`, `AlertDeliveryDisabled`, `OnCallRotaUnreadable`, `OnCallDispatchFailing`, `OnCallEnabledButUnconfigured` — labelled `delivery_meta: "true"` on the rule.
 
 The last two route through Alertmanager to ops-center's `POST /observability/oncall-webhook`, which re-checks the labels and forwards a matching alert to Events v2. The first calls the same client directly.
 
@@ -55,7 +55,7 @@ Route **order** is load-bearing: the pager route precedes the severity routes, w
 
 An alert reporting that delivery is broken must not depend on delivery working. With the Slack receivers unconfigured, `AlertmanagerNotificationsFailing` fires, is sent to the Slack receiver, fails, and increments the very counter it watches — retrying forever while nobody reads it. Its own description admits the trap: *"You are reading THIS one only because some other receiver still works."*
 
-So `delivery_meta` alerts also route to `meta-alerts`, which is platform's webhook and answers 200 whatever the knobs say. With paging configured they page, because alerting being broken is the one condition that makes every other alert meaningless. With paging off they are logged and counted — still strictly more than vanishing into a failing webhook.
+So `delivery_meta` alerts also route to `meta-alerts`, which is ops-center's `oncall-webhook` and answers 200 whatever the knobs say. With paging configured they page, because alerting being broken is the one condition that makes every other alert meaningless. With paging off they are logged and counted — still strictly more than vanishing into a failing webhook.
 
 ### The per-case sweep keeps no state
 
@@ -77,7 +77,7 @@ It runs whatever `ONCALL_ENABLED` says. Paging is dropped when off, but `oncall_
 - **resolution** — `resolve` on the same key closes it, so no local state machine is needed.
 - **contact methods, verification, the rota and escalation.**
 
-One thing it does **not** give: a dead-man switch. PagerDuty heartbeat monitoring is an Event Orchestration pattern rather than a native Events v2 feature and is documented as AIOps-powered, so that gap is still open.
+One thing it does **not** give: a dead-man switch. PagerDuty heartbeat monitoring is an Event Orchestration pattern rather than a native Events v2 feature and is documented as AIOps-powered, so the product sends its own: with `ONCALL_DEADMAN_URL` set, every ops-center replica POSTs `{}` to it every `ONCALL_DEADMAN_INTERVAL_MS` (counted on `oncall_deadman_total{outcome="sent"|"failed"}`, never logged per beat), and the external service — PagerDuty orchestration, a dead-man service or an uptime monitor — alerts on the silence. It is deliberately not leader-locked, so silence means *every* replica stopped. Unset by default; `ONCALL_ENABLED=true` without it is a deploy-time warning, not an error.
 
 ### The inbound leg answers the two questions the outbound one cannot
 
@@ -107,20 +107,25 @@ A 202 means PagerDuty **has** the event. It says nothing about whether a phone r
 |---|---|---|
 | `ONCALL_ENABLED` | `false` | Opt-in, against the usual opt-out grain — like `BILLING_METERING_ENABLED`, a feature needing an external credential defaults off. A pager with no key would page nobody while reporting success. |
 | `PAGERDUTY_ROUTING_KEY` | — | **Per-service integration key.** Not a REST API key. Classified into the app Secret automatically by the `_KEY` suffix rule, never the world-readable ConfigMap. |
-| `ONCALL_EVENTS_URL` | `https://events.pagerduty.com/v2/enqueue` | Overridable for Opsgenie's compatible endpoint, which keeps the provider swappable without touching four `alertmanager.yml` copies. |
+| `ONCALL_EVENTS_URL` | — (`https://events.pagerduty.com/v2/enqueue` when `ONCALL_PROVIDER=pagerduty`) | An override wins over the provider's endpoint; required with `ONCALL_PROVIDER=custom` for another Events-v2-compatible service, which keeps the provider swappable without touching four `alertmanager.yml` copies. |
 | `ONCALL_EVENTS_TIMEOUT_MS` | `5000` | A hung pager must not hold an Alertmanager connection open. |
 | `SLACK_ALERTS_ENABLED` | `false` | Whether ops-team Slack is declared on. Opt-in, matching `ONCALL_ENABLED`, so a deployment states which destinations it wants rather than inheriting a channel it may not have. |
-| `SLACK_ALERTS_CONFIGURED` | `false` | **Derived at deploy time**, not authored: `pb_check_alert_delivery` sets it from whether the webhook URLs are real. It exists because the URLs never enter the platform process, and it is what keeps `AlertDeliveryDisabled` keyed on reality rather than on the declaration. |
+| `SLACK_ALERTS_CONFIGURED` | `false` | **Derived at deploy time**, not authored: `pb_check_alert_delivery` sets it from whether the webhook URLs are real. It exists because the URLs never enter the ops-center process, and it is what keeps `AlertDeliveryDisabled` keyed on reality rather than on the declaration. |
 | `ONCALL_CASE_LEAD_MINUTES` | `120` | How long before `response_due_at` the per-case trigger starts paging. |
-| `ONCALL_SWEEP_INTERVAL_MS` | `300000` | Sweep cadence. A tick is idempotent, so a missed one costs lead time and nothing else. |
+| `ONCALL_SWEEP_INTERVAL_MS` | `300000` | Sweep cadence (min `10000`). A tick is idempotent, so a missed one costs lead time and nothing else. |
+| `ONCALL_SWEEP_BATCH_SIZE` | `100` | Cap on cases paged per tick; a tick past it is an incident, which the fleet alert covers. |
 | `ONCALL_PROVIDER` | `pagerduty` | `pagerduty` \| `custom`. `custom` **requires** `ONCALL_EVENTS_URL` and does not fall back. There is no `opsgenie` value: nothing documents Opsgenie accepting the Events v2 shape, and naming a provider this client cannot talk to would be discovered at 3am. |
 | `PAGERDUTY_WEBHOOK_SECRET` | — | Verifies the inbound leg. Empty ⇒ the ack route refuses everything. |
 | `PAGERDUTY_API_TOKEN` | — | REST token for the rota check. Account-wide, so deliberately separate from the routing key. Empty ⇒ no coverage gauge. |
-| `ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS` | `48` | How far ahead the coverage check looks. |
+| `ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS` | `48` | How far ahead the coverage check looks (1–2160). |
+| `PAGERDUTY_ESCALATION_POLICY_IDS` | — | Comma-separated; narrows the rota check to these escalation policies. Empty ⇒ every policy the token can see. |
+| `ONCALL_ROTA_INTERVAL_MS` | `900000` | How often ops-center refreshes the coverage gauge (min `60000`). Leader-locked. |
+| `ONCALL_DEADMAN_URL` | — | Dead-man heartbeat target. Empty ⇒ no heartbeat. |
+| `ONCALL_DEADMAN_INTERVAL_MS` | `60000` | Heartbeat cadence (min `1000`). |
 
 **On-call requires support.** With `SUPPORT_ENABLED=false` paging stays off whatever `ONCALL_ENABLED` says, because there is then no case, no response target and nothing to page about — only a per-seat bill for a pager wired to nothing. The conflict is reported once and only when paging was actually asked for: a validator that checked inactive features is what once crashed billing at boot.
 
-**`oncall:manage`** is a system-org-only permission in no built-in Role, so Super Admins are its only holders. It reads the posture (`GET /observability/oncall-status`, booleans only — never a credential, since reading a routing key back would turn a read permission into a credential grant) and sends a test page (`POST /observability/oncall-test`, audited because it rings a phone, keyed `test:<timestamp>` so it can never collapse onto or resolve a real incident). The test page always answers 200 with `{ sent, skipped, status?, error? }`: `sent: false` with the provider's `error` when the provider refused or was unreachable, `skipped: true` when paging is off.
+**`oncall:manage`** is a system-org-only permission carried by the seeded **Platform Operator** Role and no other named Role (Super Admins hold it implicitly; a custom system-org Role can too). It reads the posture (`GET /observability/oncall-status`, booleans only — never a credential, since reading a routing key back would turn a read permission into a credential grant) and sends a test page (`POST /observability/oncall-test`, audited because it rings a phone, keyed `test:<timestamp>` so it can never collapse onto or resolve a real incident). The test page always answers 200 with `{ sent, skipped, status?, error? }`: `sent: false` with the provider's `error` when the provider refused or was unreachable, `skipped: true` when paging is off.
 
 `ONCALL_ENABLED=true` with an empty routing key is **refused at deploy time**, not warned: somebody asked for paging and would not be getting it. Setting both `SLACK_ALERTS_ENABLED=false` and `ONCALL_ENABLED=false` is permitted and fires `AlertDeliveryDisabled` — reachable today by setting two booleans, with nothing else objecting.
 
@@ -132,13 +137,15 @@ Ops Slack is deliberately **not** routed through the product the way the pager i
 
 ## Observability
 
-`alert_delivery_enabled{channel}` and `alert_delivery_configured{channel}` are published once per process at platform boot. Before them, answering "does this deployment tell anyone when something breaks?" meant reading `.env`, two Secrets and four copies of `alertmanager.yml`.
+`alert_delivery_enabled{channel}` and `alert_delivery_configured{channel}` are published once per process at ops-center boot. Before them, answering "does this deployment tell anyone when something breaks?" meant reading `.env`, two Secrets and four copies of `alertmanager.yml`.
 
 Both are gauges because they are **states** of the deployment, and both posture alerts read them through `max_over_time(...[1h])` rather than instantaneously — the gauge is set once at boot, so a rolling restart would otherwise blink it absent and resolve the alert while nothing had changed.
 
 `oncall_pages_total{action,trigger,outcome}` separates `accepted`, `rejected`, `redirected`, `error`, `unconfigured` and `disabled`. The last is what keeps an always-present Alertmanager route from reading as a failure, and `trigger` separates the per-case sweep from the Alertmanager leg — without it a dead sweep is invisible for as long as the fleet alert still fires.
 
 `oncall_cases_due` is a gauge, written on every tick including the ticks that find nothing: a gauge reports a state only if it is written when the state is zero. `OnCallCasesBreachingUnpaged` reads it against `alert_delivery_configured{channel="pager"}` and fires when cases are inside the window and nothing is configured to page — the obligation existing without the coverage, which is the failure this whole feature is about.
+
+The rest of the alert set: `OnCallEnabledButUnconfigured` (paging on, no routing key), `OnCallDispatchFailing` (any `rejected|error|redirected|unconfigured` send in the last hour), `OnCallScheduleGap` (`oncall_schedule_uncovered_seconds > 0`), `OnCallRotaUnreadable` (the rota read returned only `unknown` for an hour), and `OnCallPageUnacknowledged` (a warning: pages accepted in the last 6h and no `acknowledged` webhook). The inbound leg is counted on `oncall_ack_webhook_total{outcome}` (`acknowledged`, `escalated`, `resolved`, `unacknowledged`, `bad_signature`, `no_secret`, `malformed`, `unrecognized`, `ignored`) and escalations also on `oncall_escalations_total`; non-pageable alerts the webhook receives (including every `info`/`none` alert, routed there so they are not silently dropped) on `oncall_alerts_ignored_total{severity}`.
 
 All of it is on the **Product health** dashboard, under *Alert delivery*.
 

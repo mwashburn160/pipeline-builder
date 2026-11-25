@@ -85,6 +85,21 @@ function refuseBlocked(state: Pick<OrgListingState, 'block'>): void {
 // Reads
 // -----------------------------------------------------------------------------
 
+/**
+ * Whether `publisher` belongs to the caller's own org. Its listings were
+ * published FROM that org's plugins (the system org's catalog rows ARE the
+ * Official listings), so a same-named own plugin is the listing's source, not
+ * something overriding it, and is never reported as shadowing it.
+ */
+function isOwnPublisher(caller: Caller, publisher: { ownerOrgId: string | null }): boolean {
+  return !!publisher.ownerOrgId && publisher.ownerOrgId.toLowerCase() === caller.orgId.toLowerCase();
+}
+
+/** Whether a same-named own plugin would shadow this listing: an Official one, published by another org. */
+function shadowableOfficial(caller: Caller, publisher: { handle: string; ownerOrgId: string | null }): boolean {
+  return publisher.handle === OFFICIAL_PUBLISHER_HANDLE && !isOwnPublisher(caller, publisher);
+}
+
 /** Own-org plugin ids that shadow each listing name (unqualified refs resolve them first). */
 async function shadowMap(caller: Caller, names: string[]): Promise<Map<string, string[]>> {
   const rows = await ownPluginsNamed([...new Set(names)], { orgId: caller.orgId, parentOrgId: caller.parentOrgId, userId: caller.userId });
@@ -117,11 +132,11 @@ export async function catalog(caller: Caller, query: Record<string, unknown>) {
   const { limit, offset } = parsePage(query, { def: CATALOG_PAGE_DEFAULT, max: CATALOG_PAGE_MAX });
   const total = states.length;
   states = states.slice(offset, offset + limit);
-  const shadows = await shadowMap(caller, states.filter((s) => s.publisher.handle === OFFICIAL_PUBLISHER_HANDLE).map((s) => s.listing.name));
+  const shadows = await shadowMap(caller, states.filter((s) => shadowableOfficial(caller, s.publisher)).map((s) => s.listing.name));
   const stats = await statsFor(states.map((s) => s.listing.id));
   return {
     listings: states.map((s) => ({
-      ...catalogEntry(caller, s, ctx.policy, s.publisher.handle === OFFICIAL_PUBLISHER_HANDLE ? shadows.get(s.listing.name) ?? [] : []),
+      ...catalogEntry(caller, s, ctx.policy, shadowableOfficial(caller, s.publisher) ? shadows.get(s.listing.name) ?? [] : []),
       ...(stats.get(s.listing.id) ?? NO_STATS),
     })),
     ...paginationMeta({ total, offset, limit, returned: states.length }),
@@ -142,7 +157,7 @@ export async function installState(caller: Caller, handle: string, name: string)
   const ctx = await loadOrgInstallContext(listingSource, scope);
   const [state] = await orgListingStates(listingSource, scope, { ids: [listing.id] }, ctx);
   if (!state) throw new EcosystemError(ErrorCode.NOT_FOUND, `${handle}/${name} is not in the directory.`);
-  const shadows = state.publisher.handle === OFFICIAL_PUBLISHER_HANDLE ? (await shadowMap(caller, [name])).get(name) ?? [] : [];
+  const shadows = shadowableOfficial(caller, state.publisher) ? (await shadowMap(caller, [name])).get(name) ?? [] : [];
   const stats = (await statsFor([listing.id])).get(listing.id) ?? NO_STATS;
   return {
     entry: { ...catalogEntry(caller, state, ctx.policy, shadows), ...stats },
@@ -211,7 +226,7 @@ export async function shadowingDecision(caller: Caller, name: string): Promise<{
 async function shadowedBy(caller: Caller, name: string): Promise<string[]> {
   const out: string[] = [];
   const states = (await orgListingStates(listingSource, scopeOf(caller)))
-    .filter((s) => s.resolved !== null && s.listing.name === name);
+    .filter((s) => s.resolved !== null && s.listing.name === name && !isOwnPublisher(caller, s.publisher));
   for (const s of states) out.push(`listing:${s.publisher.handle}/${s.listing.name}`);
   const parents = await parentShadowedNames({ orgId: caller.orgId, parentOrgId: caller.parentOrgId, userId: caller.userId });
   if (parents.some((p) => p.name === name)) out.push('parent-org-plugin');
@@ -240,7 +255,7 @@ async function shadowedBy(caller: Caller, name: string): Promise<string[]> {
  */
 export async function shadowing(caller: Caller) {
   const states = (await orgListingStates(listingSource, scopeOf(caller)))
-    .filter((s) => s.resolved !== null);
+    .filter((s) => s.resolved !== null && !isOwnPublisher(caller, s.publisher));
   const shadows = await shadowMap(caller, states.map((s) => s.listing.name));
   return {
     shadowing: states

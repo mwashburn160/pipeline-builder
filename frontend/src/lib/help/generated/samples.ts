@@ -1,6 +1,6 @@
 // GENERATED FROM docs/samples.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e2a452c981d430da42f759858eb2162c33c95732c3d87f209403e267388f6006
+// SOURCE-SHA256: dbad6614c641fdf0dbb62c640556bec25ca12f34a53ca24e3899ec52eb3e835a
 // SPDX-License-Identifier: Apache-2.0
 import { FolderGit2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -188,7 +188,7 @@ export const samplesTopic: HelpTopic = {
             "Platform auth: PLATFORM_BASE_URL, PLATFORM_TOKEN (an access key from pipeline-manager auth pat or the dashboard), and PB_ORG_ID (your org's UUID, passed as the template's orgId input).",
             "AWS auth: each platform's OIDC federation assumes a deploy role whose ARN is stored as a CI secret (AWS_DEPLOY_ROLE_ARN), never committed. Each sample notes the one-line swap to static access keys.",
             "Region: AWS_REGION (or --region); otherwise resolves AWS_REGION → CDK_DEFAULT_REGION → us-east-1.",
-            "Toolchain (every sample installs it): Node 24+, plus pipeline-manager and aws-cdk on PATH — --deploy shells out to cdk deploy. The instantiate step needs nothing extra."
+            "Toolchain (every sample installs it): Node 26.13+ (what pipeline-manager requires), plus pipeline-manager and aws-cdk on PATH — --deploy shells out to cdk deploy. The instantiate step needs nothing extra."
           ]
         }
       ]
@@ -492,7 +492,7 @@ export const samplesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "0 success · 2 validation · 3 API request · 4 authentication · 5 authorization · 6 not found · 7 network · 8 configuration · 10 timeout"
+          "content": "0 success · 1 general · 2 validation · 3 API request · 4 authentication · 5 authorization · 6 not found · 7 network · 8 configuration · 9 file system · 10 timeout"
         },
         {
           "type": "text",

@@ -83,7 +83,7 @@ export function QuotasReadOnly({
   // What a limit costs (F2) and whether the account's spend already argues for a
   // tier move (F3). Both INFORMATION rather than solicitation, and both fail
   // open: a page about running out must render whether or not billing answers.
-  const { bundles, interval, crossover } = useSalesContext();
+  const { bundles, interval, crossover, crossoverCurrency } = useSalesContext();
   const tierPreset = TIER_PRESETS[tier];
   return (
     <DashboardLayout
@@ -203,7 +203,7 @@ export function QuotasReadOnly({
         {/* The crossover sits ABOVE the capacity cards: it is about the whole
             account's bill rather than one dimension, and it is the one thing on
             this page that can make every limit on it larger at once. */}
-        {!loading && orgData ? <div className="mt-4"><CrossoverCard crossover={crossover} /></div> : null}
+        {!loading && orgData ? <div className="mt-4">{crossoverCurrency && <CrossoverCard crossover={crossover} currency={crossoverCurrency} />}</div> : null}
 
         {!loading && orgData ? (
           <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">

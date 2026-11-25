@@ -22,8 +22,8 @@
  *    maintainers to merge into the repository. No pull request, no GitHub
  *    token: system-org admins download it (`GET /plugins/remediations/:id/export`).
  *  - **Third-party listings** are never rebuilt. {@link sendPublisherFixRequest}
- *    sends the publisher a fix request (N40, with the findings and the
- *    suggested patch) and tells the listing's installers it was sent.
+ *    sends the publisher a fix request (N40, with the findings and their
+ *    fixed versions) and tells the listing's installers it was sent.
  *  - An org plugin that is ALSO listed reaches its listing installers only
  *    through the publisher's normal new-version request: nothing here
  *    publishes it.
@@ -31,7 +31,6 @@
  * Nothing happens while the operator knob `PLUGIN_REMEDIATION_ENABLED` is off.
  */
 
-import { GetObjectCommand } from '@aws-sdk/client-s3';
 import {
   callInternal,
   createLogger,
@@ -49,7 +48,6 @@ import {
   type RemediationClearedFinding,
   type RemediationRemainingFinding,
 } from '@pipeline-builder/api-core';
-import { s3Client } from '@pipeline-builder/api-core/s3';
 import { incCounter } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { OFFICIAL_PUBLISHER_HANDLE, schema, type PluginPublishRequest, type PluginRemediation } from '@pipeline-builder/pipeline-data';
@@ -58,13 +56,9 @@ import { eq } from 'drizzle-orm';
 import { type Caller } from './context.js';
 import { submitRemediationFix } from './requests.js';
 import { elevated, listings, plugins, publishers, requests } from './store.js';
-import { remediationConfig } from '../../config.js';
 import { remediationNoticesEnabled, sendRemediationNotice } from '../remediation-notices.js';
 
 const logger = createLogger('ecosystem-remediation-fixes');
-
-/** The largest suggested patch read into a fix request. */
-export const SUGGESTED_PATCH_MAX_BYTES = 64 * 1024;
 
 const R = () => schema.pluginRemediation;
 
@@ -317,45 +311,18 @@ export async function storeOfficialExport(remediationId: string, diff: string, p
 // Third-party listings: the publisher fix request
 // -----------------------------------------------------------------------------
 
-/** Reads a suggested patch's text from plugin-sources (swappable in tests). */
-export type PatchReader = (key: string) => Promise<string | null>;
-
-const livePatchReader: PatchReader = async (key) => {
-  const out = await s3Client().send(new GetObjectCommand({
-    Bucket: remediationConfig().sourcesBucket,
-    Key: key,
-    Range: `bytes=0-${SUGGESTED_PATCH_MAX_BYTES - 1}`,
-  }));
-  return out.Body ? out.Body.transformToString('utf-8') : null;
-};
-
-let patchReader: PatchReader = livePatchReader;
-
-/** Test hook: replace the suggested-patch reader (pass nothing to restore the live one). */
-export function setSuggestedPatchReaderForTests(reader?: PatchReader): void {
-  patchReader = reader ?? livePatchReader;
-}
-
 /**
  * A listed third-party version has fixable findings: the platform never
- * rebuilds it. Send its publisher a fix request (N40) with the findings and
- * the suggested patch, and tell its installers the request was sent.
+ * rebuilds it, so no patch is ever computed for it: send its publisher a fix
+ * request (N40) with the findings and their fixed versions, and tell its
+ * installers the request was sent.
  * Deduplicated per (listing, version, findings). An Official listing is
  * remediated through its system-org row instead, so it gets no request. Never
  * throws.
  */
-export async function sendPublisherFixRequest(input: { listingId: string; version: string; remaining: RemediationRemainingFinding[]; suggestedPatchKey: string | null }): Promise<void> {
+export async function sendPublisherFixRequest(input: { listingId: string; version: string; remaining: RemediationRemainingFinding[] }): Promise<void> {
   if (!remediationNoticesEnabled() || input.remaining.length === 0) return;
-  let suggestedPatch: string | null = null;
-  if (input.suggestedPatchKey) {
-    try {
-      suggestedPatch = await patchReader(input.suggestedPatchKey);
-    } catch (err) {
-      // The request still goes out, with the findings and their fixed versions.
-      logger.warn('Suggested patch unreadable; sending the fix request without it', { listingId: input.listingId, error: errorMessage(err) });
-    }
-  }
-  await sendRemediationNotice({ code: 'N40', listingId: input.listingId, version: input.version, remaining: input.remaining, suggestedPatch });
+  await sendRemediationNotice({ code: 'N40', listingId: input.listingId, version: input.version, remaining: input.remaining });
 }
 
 /**

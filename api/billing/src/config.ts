@@ -3,6 +3,7 @@
 
 import { envBool, envInt, envStr, serviceEndpoint } from '@pipeline-builder/api-core';
 import { DEFAULT_BUNDLE_DIMENSION_MAP } from './config/billing-config.js';
+import { BILLING_CURRENCY } from './config/currency.js';
 
 export type BillingProviderType = 'stub' | 'aws-marketplace' | 'stripe';
 
@@ -70,7 +71,7 @@ export interface StripeConfig {
   /** The webhook endpoint (`we_…`) whose subscribed events billing keeps complete
    *  (`STRIPE_WEBHOOK_ENDPOINT_ID`). Empty = find it by {@link webhookUrl}. */
   webhookEndpointId: string;
-  /** Billing's public webhook URL, `${PLATFORM_BASE_URL}/billing/stripe/webhook`.
+  /** Billing's public webhook URL, `${PLATFORM_BASE_URL}/api/billing/stripe/webhook` (the public path: nginx serves billing under `/api/billing/*`).
    *  Empty when PLATFORM_BASE_URL is unset. */
   webhookUrl: string;
 }
@@ -282,10 +283,10 @@ const promotionsEnabled = envBool('BILLING_PROMOTIONS_ENABLED', true) && discoun
 // `marketplace.meteringEnabled` (credit-drawdown gate + provider invariant) MUST be
 // the same value, so they read this single const rather than re-parsing the env.
 const meteringEnabled = envBool('BILLING_METERING_ENABLED', false);
-/** Parsed once and used in TWO places — `config.currency` (provider-agnostic,
- *  for the usage DTO) and `config.stripe.currency` (what the provider posts) —
- *  so the figure a customer is shown and the figure Stripe is sent cannot drift. */
-const billingCurrency = envStr('BILLING_CURRENCY', 'usd').trim().toLowerCase();
+/** One constant behind `config.currency`, `config.stripe.currency` and every
+ *  priced response (see config/currency.ts), so the figure a customer is shown
+ *  and the figure Stripe is sent cannot drift. */
+const billingCurrency = BILLING_CURRENCY;
 const automaticTax = envBool('BILLING_AUTOMATIC_TAX', false);
 
 if (billingEnabled && !process.env.MONGODB_URI) {
@@ -411,7 +412,7 @@ export const config: AppConfig = {
     automaticTax,
     webhookEndpointId: (process.env.STRIPE_WEBHOOK_ENDPOINT_ID || '').trim(),
     webhookUrl: process.env.PLATFORM_BASE_URL
-      ? `${process.env.PLATFORM_BASE_URL.trim().replace(/\/+$/, '')}/billing/stripe/webhook`
+      ? `${process.env.PLATFORM_BASE_URL.trim().replace(/\/+$/, '')}/api/billing/stripe/webhook`
       : '',
   },
   discounts: {

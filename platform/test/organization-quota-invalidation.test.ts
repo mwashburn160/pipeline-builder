@@ -86,6 +86,7 @@ jest.unstable_mockModule('../src/middleware/quota.js', () => ({
 
 const mockOrgFindById = jest.fn<AnyFn>();
 const mockOrgUpdateOne = jest.fn<(...a: unknown[]) => Promise<{ matchedCount: number }>>();
+const mockOrgFindOneAndUpdate = jest.fn<AnyFn>();
 const mockOrgUpdateMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserUpdateMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserOrgDistinct = jest.fn<(...a: unknown[]) => { session: (s?: unknown) => Promise<unknown[]> }>();
@@ -97,6 +98,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     findById: (...a: unknown[]) => mockOrgFindById(...a),
     updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a),
+    findOneAndUpdate: (...a: unknown[]) => mockOrgFindOneAndUpdate(...a),
     updateMany: (...a: unknown[]) => mockOrgUpdateMany(...a),
   },
   User: { updateMany: (...a: unknown[]) => mockUserUpdateMany(...a) },
@@ -111,7 +113,7 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishUsersRevocation: mockPublishUsersRevocation,
 }));
 
-const { setTier, setSeatLimit, tierBaseQuotaSet } = await import('../src/services/organization-quota.js');
+const { setTier, setSeatLimit, setAccountSeats, tierBaseQuotaSet } = await import('../src/services/organization-quota.js');
 
 /** A Mongoose-shaped org doc for setTier (awaited directly by findById). */
 function makeOrgDoc(initial: { _id: string; tier?: string; parentOrgId?: string; quotas?: unknown }) {
@@ -517,6 +519,31 @@ describe('setSeatLimit — root-only', () => {
     await expect(setSeatLimit('team-7', 5, ['sso'], 'pro', 2, 1)).rejects.toThrow(ORG_SEAT_LIMIT_NOT_ROOT);
     expect(mockOrgUpdateOne).not.toHaveBeenCalled();
     expect(mockOrgUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('setAccountSeats — operator seat override', () => {
+  it('writes ONLY quotas.seats on the root and reports the cap it replaced', async () => {
+    mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
+    mockOrgFindOneAndUpdate.mockReturnValue({ lean: async () => ({ quotas: { seats: 3 } }) });
+
+    await expect(setAccountSeats('root-1', 9)).resolves.toEqual({ rootOrgId: 'root-1', seats: 9, previous: { seats: 3 } });
+    expect(mockOrgFindOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'root-1' }, { $set: { 'quotas.seats': 9 } }, expect.objectContaining({ new: false }),
+    );
+    // No entitlement or tier change: nothing propagates, no token is invalidated.
+    expect(mockOrgUpdateMany).not.toHaveBeenCalled();
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a TEAM id and answers null for a missing org', async () => {
+    const { ORG_SEAT_LIMIT_NOT_ROOT } = await import('../src/services/org-errors.js');
+    mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
+    await expect(setAccountSeats('team-7', 5)).rejects.toThrow(ORG_SEAT_LIMIT_NOT_ROOT);
+    expect(mockOrgFindOneAndUpdate).not.toHaveBeenCalled();
+
+    mockOrgFindOneAndUpdate.mockReturnValue({ lean: async () => null });
+    await expect(setAccountSeats('root-1', 5)).resolves.toBeNull();
   });
 });
 

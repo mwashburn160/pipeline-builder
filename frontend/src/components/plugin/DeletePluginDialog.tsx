@@ -170,9 +170,18 @@ export function DeletePluginDialog({ name, onClose, onDeleted, onContinueInBackg
   const deleteCount = (preview?.deletable.length ?? 0) + (force ? listedSkips.length : 0);
   const shownSkips = preview ? preview.skipped.filter((s) => !(force && s.reason === 'listed')) : [];
 
-  // The latest callback, without restarting the poll when the parent re-renders.
+  // The latest callbacks, without restarting the poll when the parent re-renders.
   const onDeletedRef = useRef(onDeleted);
   onDeletedRef.current = onDeleted;
+  const onContinueRef = useRef(onContinueInBackground);
+  onContinueRef.current = onContinueInBackground;
+  // Set once the dialog is gone: a delete the server accepts after that is
+  // handed to the page instead of being dropped with the unmounted state.
+  const unmountedRef = useRef(false);
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => { unmountedRef.current = true; };
+  }, []);
 
   // Poll the accepted job until it settles.
   useEffect(() => {
@@ -199,11 +208,16 @@ export function DeletePluginDialog({ name, onClose, onDeleted, onContinueInBackg
     setError(null);
     try {
       const res = await api.deletePluginByName(name, { force, stepUpToken });
+      if (unmountedRef.current) {
+        if (res.data) onContinueRef.current?.(name, res.data.jobId);
+        return;
+      }
       if (res.data) setJob(res.data);
+      else setError('The delete was not accepted; check Recently deleted before trying again');
     } catch (err) {
-      setError(pluginByNameError(err, 'Failed to delete the plugin'));
+      if (!unmountedRef.current) setError(pluginByNameError(err, 'Failed to delete the plugin'));
     } finally {
-      setConfirming(false);
+      if (!unmountedRef.current) setConfirming(false);
     }
   };
 

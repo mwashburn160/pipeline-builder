@@ -4,7 +4,7 @@
 import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { parsePlatformBaseUrl, STEP_MANIFEST_FILE, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
+import { parsePlatformBaseUrl, resolvePipelineProps, STEP_MANIFEST_FILE, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
 import { resolveAwsRegion } from './aws-env.js';
 import { printInfo } from './output-utils.js';
 import { defaultPipelineName, pipelineStackName } from '../config/cli.constants.js';
@@ -92,6 +92,39 @@ export interface PipelineForRegistry {
   pipelineName?: string;
   project: string;
   organization: string;
+  /**
+   * The synth props (`pipeline.props`). The synth app names the CodePipeline
+   * and the stack from THESE raw values, while the record's `project` /
+   * `organization` are stored sanitized (`spring-boot` -> `spring_boot`), so
+   * the registry names are derived from them whenever they are present.
+   */
+  props?: Record<string, unknown>;
+}
+
+const nonEmpty = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : undefined);
+
+/**
+ * The CodePipeline and CloudFormation stack names the synth app deploys for
+ * `pipeline`: the same derivation as boilerplate.ts (stack) and pipeline-core's
+ * PipelineConfiguration (pipeline), applied to the props it is handed. Falls
+ * back to the record when the props carry no project / organization.
+ */
+export function deployedNames(pipeline: PipelineForRegistry): { pipelineName: string; stackName: string } {
+  // Resolved exactly as the synth resolves them (PipelineBuilder →
+  // resolvePipelineProps): a templated `project` names the stack by its VALUE.
+  const props = resolvePipelineProps(pipeline.props ?? {});
+  const project = nonEmpty(props.project);
+  const organization = nonEmpty(props.organization);
+  if (project && organization) {
+    return {
+      pipelineName: nonEmpty(props.pipelineName) ?? defaultPipelineName(organization, project),
+      stackName: pipelineStackName(project, organization),
+    };
+  }
+  return {
+    pipelineName: pipeline.pipelineName || defaultPipelineName(pipeline.organization, pipeline.project),
+    stackName: pipelineStackName(pipeline.project, pipeline.organization),
+  };
 }
 
 /** Where pending registration intents are persisted between CLI invocations. */
@@ -109,9 +142,7 @@ export async function buildRegistryPayload(
 ): Promise<RegistryPayload> {
   const region = resolveAwsRegion(regionOverride);
 
-  const pipelineName = pipeline.pipelineName
-    || defaultPipelineName(pipeline.organization, pipeline.project);
-  const stackName = pipelineStackName(pipeline.project, pipeline.organization);
+  const { pipelineName, stackName } = deployedNames(pipeline);
 
   return {
     pipelineId: pipeline.id,

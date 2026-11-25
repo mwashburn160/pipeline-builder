@@ -118,7 +118,7 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
     .map((t) => `${t.minQuantity}+: ${t.discountPercent}% off`)
     .join(' · ');
   // Volume tiers price the line below list, so the running total is an upper bound.
-  const total = `${formatCents(unit * target)}/${per}${tiers ? ' before discounts' : ''}`;
+  const total = `${formatCents(unit * target, bundle.currency)}/${per}${tiers ? ' before discounts' : ''}`;
   /** A pack count, rendered in whatever unit this field uses. The parameter is
    *  `count`, not `packs`: `packs` is the parsed field value in this scope, and
    *  shadowing it here made the two readable as the same number. */
@@ -293,15 +293,15 @@ export function AddonGrid({
   // (packing means overlapping combos won't both pay out).
   const minQty = (combo: ComboDiscount, id: string) => combo.minQuantities?.[id] ?? 1;
   const comboNudge = (bundleId: string): string | null => {
-    let best: { name: string; save: number } | null = null;
+    let best: { name: string; save: number; currency: string } | null = null;
     for (const combo of comboDiscounts) {
       if (!combo.bundleIds.includes(bundleId) || addonQty(bundleId) >= minQty(combo, bundleId)) continue;
       const others = combo.bundleIds.filter((id) => id !== bundleId);
       if (others.length === 0 || !others.every((id) => addonQty(id) >= minQty(combo, id))) continue;
       const save = billingInterval === 'annual' ? combo.savings.annual : combo.savings.monthly;
-      if (save > 0 && (!best || save > best.save)) best = { name: combo.name, save };
+      if (save > 0 && (!best || save > best.save)) best = { name: combo.name, save, currency: combo.currency };
     }
-    return best ? `Completes the ${best.name} — save ${formatCents(best.save)}/${billingInterval === 'annual' ? 'yr' : 'mo'}` : null;
+    return best ? `Completes the ${best.name} — save ${formatCents(best.save, best.currency)}/${billingInterval === 'annual' ? 'yr' : 'mo'}` : null;
   };
   // Deep-link target for `?highlight=<key>`: match a bundle by the feature it
   // grants (e.g. `advanced_reporting`), OR directly by bundle id / name — so a
@@ -366,7 +366,7 @@ export function AddonGrid({
               <div className="flex items-start justify-between">
                 <h3 className="font-medium text-fg">{b.name}</h3>
                 <span className="text-sm text-fg-muted whitespace-nowrap">
-                  {formatCents(price)}/{billingInterval === 'annual' ? 'yr': 'mo'}{b.stackable ? ' ea': ''}
+                  {formatCents(price, b.currency)}/{billingInterval === 'annual' ? 'yr': 'mo'}{b.stackable ? ' ea': ''}
                 </span>
               </div>
               <p className="text-sm text-fg-muted mt-1 flex-1">{b.description}</p>

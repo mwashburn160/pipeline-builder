@@ -121,8 +121,12 @@ export async function resetPassword(rawToken: string, newPassword: string): Prom
   // Single use: only the submission that deletes the row proceeds.
   if (!await PasswordResetToken.findOneAndDelete(live)) throw new Error(PASSWORD_RESET_TOKEN_INVALID);
 
+  // `$inc`, not read+1: a sign-out-everywhere that lands between the read above
+  // and this write must still advance the version past both.
+  await User.updateOne({ _id: user._id }, { $inc: { tokenVersion: 1 } });
+  // `save()` (for the password-hashing hook) writes only modified paths, so it
+  // never puts the stale tokenVersion back.
   user.password = newPassword;
-  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
   await user.save();
   await deleteAllSlots(user._id);
   const userId = user._id.toString();

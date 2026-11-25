@@ -137,15 +137,11 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  pipelineScopeMetadata: (p: Record<string, any>) => ({ ...(p.global ?? {}), ...(p.defaults?.metadata ?? {}), ...(p.synth?.metadata ?? {}) }),
   replaceNonAlphanumeric: jest.fn((str: string, replacement: string) =>
     str.replace(/[^a-zA-Z0-9]/g, replacement),
   ),
-  // Template-validator dependencies  minimal stubs that accept any input
-  allowedScopeRoots: () => () => true,
-  validateTemplates: () => ({ valid: true, errors: [] }),
-  detectCycles: () => [],
-  resolveSelfReferencing: () => ({ errors: [] }),
+  // Template-validator dependency — a stub that accepts any input
+  validatePipelineProps: () => [],
   tokenize: () => [],
   // CDK-free derivations the create + validate responses return. Stubbed to the
   // right SHAPE, not the real logic: the derivations have their own tests in

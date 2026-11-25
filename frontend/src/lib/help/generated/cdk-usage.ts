@@ -1,6 +1,6 @@
 // GENERATED FROM docs/cdk-usage.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 87754862ea4e75bbfade81e54f502b8175fc9a4d72504fec6eee9cea7e219a95
+// SOURCE-SHA256: 31f1db01e8969335a21de5af506222fd3ccf160844a5781e97defed85bf69ba4
 // SPDX-License-Identifier: Apache-2.0
 import { Boxes } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -88,7 +88,7 @@ export const cdkUsageTopic: HelpTopic = {
             "Define stages and steps, pinning each plugin with a filter.",
             "Add networking if builds must run in a VPC — VPC and network configuration.",
             "Decide the IAM posture — IAM roles covers all three levels.",
-            "Deploy, then confirm the stack and the platform registration."
+            "Deploy, then confirm the stack and the platform registration. In your own CDK app you name the Stack; pipeline-manager pipeline synth / deploy name it from project and organization — plain <project>-<organization> (lowercased) only when the organization has no hyphen and the name meets CloudFormation's rules, otherwise a sanitized base plus -<8-hex digest> (Pipeline stack names)."
           ]
         }
       ]
@@ -125,19 +125,31 @@ export const cdkUsageTopic: HelpTopic = {
               "project",
               "string",
               "Yes",
-              "Project identifier (sanitized to lowercase alphanumeric)"
+              "Project identifier (sanitized for resource names: non-alphanumerics → _, lowercased)"
             ],
             [
               "organization",
               "string",
               "Yes",
-              "Organization identifier"
+              "Organization identifier (sanitized the same way)"
+            ],
+            [
+              "environment",
+              "string",
+              "No",
+              "Deploy environment (e.g. production) for a single-environment pipeline: marks the deploy stage in the pb.deploys tag for DORA metrics. Multi-environment pipelines set environment per stage instead"
             ],
             [
               "orgId",
               "string",
               "No",
               "Tenant ID for resolving per-org secrets from Secrets Manager"
+            ],
+            [
+              "pipelineId",
+              "string",
+              "No",
+              "The platform's pipeline record id, injected as PIPELINE_ID for the autonomous synth (set by pipeline-manager)"
             ],
             [
               "pipelineName",
@@ -164,6 +176,12 @@ export const cdkUsageTopic: HelpTopic = {
               "Metadata inherited by all steps"
             ],
             [
+              "vars",
+              "Record<string, unknown>",
+              "No",
+              "Pipeline-level template variables, exposed as {{ pipeline.vars.* }} (Template Syntax)"
+            ],
+            [
               "defaults",
               "CodeBuildDefaults",
               "No",
@@ -186,6 +204,12 @@ export const cdkUsageTopic: HelpTopic = {
               "Record<string, string>",
               "No",
               "Tags applied to all pipeline resources"
+            ],
+            [
+              "resolvedPlugins",
+              "Record<string, ResolvedPlugin>",
+              "No",
+              "Plugins pre-resolved from the platform, keyed by artifact alias. pipeline-manager pipeline synth fills it; a plugin missing from it fails the synth"
             ],
             [
               "toolchain",
@@ -372,7 +396,7 @@ export const cdkUsageTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "new PipelineBuilder(stack, 'Pipeline', {\n  project: 'my-app',\n  organization: 'my-org',\n  defaults: {\n    network: {\n      type: 'vpcId',\n      vpcId: 'vpc-abc123',\n      subnetType: 'PRIVATE_WITH_EGRESS',\n    },\n  },\n  synth: { ... },\n  stages: [ ... ],\n});",
+          "content": "new PipelineBuilder(stack, 'Pipeline', {\n  project: 'my-app',\n  organization: 'my-org',\n  defaults: {\n    network: {\n      type: 'vpcId',\n      options: { vpcId: 'vpc-abc123', subnetType: 'PRIVATE_WITH_EGRESS' },\n    },\n  },\n  synth: { ... },\n  stages: [ ... ],\n});",
           "language": "typescript"
         },
         {
@@ -381,7 +405,7 @@ export const cdkUsageTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "stages: [{\n  stageName: 'Deploy',\n  steps: [{\n    plugin: { name: 'cdk-deploy' },\n    network: {\n      type: 'subnetIds',\n      vpcId: 'vpc-abc123',\n      subnetIds: ['subnet-111', 'subnet-222'],\n      securityGroupIds: ['sg-abc'],\n    },\n  }],\n}],",
+          "content": "stages: [{\n  stageName: 'Deploy',\n  steps: [{\n    plugin: { name: 'cdk-deploy' },\n    network: {\n      type: 'subnetIds',\n      options: {\n        vpcId: 'vpc-abc123',\n        subnetIds: ['subnet-111', 'subnet-222'],\n        securityGroupIds: ['sg-abc'],\n      },\n    },\n  }],\n}],",
           "language": "typescript"
         },
         {
@@ -429,7 +453,7 @@ export const cdkUsageTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "new PipelineBuilder(stack, 'Pipeline', {\n  role: {\n    type: 'roleArn',\n    roleArn: 'arn:aws:iam::123456789012:role/MyPipelineRole',\n    mutable: false,\n  },\n  // ...\n});",
+          "content": "new PipelineBuilder(stack, 'Pipeline', {\n  role: {\n    type: 'roleArn',\n    options: { roleArn: 'arn:aws:iam::123456789012:role/MyPipelineRole', mutable: false },\n  },\n  // ...\n});",
           "language": "typescript"
         },
         {
@@ -636,7 +660,7 @@ export const cdkUsageTopic: HelpTopic = {
             ],
             [
               "network:subnetids",
-              "JSON array of subnet IDs",
+              "Comma list (or array) of subnet IDs",
               "Subnet placement"
             ],
             [
@@ -648,7 +672,7 @@ export const cdkUsageTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "See Metadata Keys for the complete list of 80 keys."
+          "content": "See Metadata Keys for the complete list of 81 keys."
         }
       ]
     },

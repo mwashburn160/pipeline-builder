@@ -70,7 +70,7 @@ describe('ingestStripeInvoice', () => {
     const set = lastSet();
     expect(set).toMatchObject({ subtotalCents: 0, discountCents: 0, creditCents: 0, taxCents: 0, totalCents: 0, amountPaidCents: 0, currency: 'usd' });
     expect((set.periodStart as Date).getTime()).toBeGreaterThanOrEqual(before);
-    expect(BillingInvoice.updateOne).toHaveBeenCalledWith({ externalInvoiceId: 'in_2' }, expect.anything(), { upsert: true });
+    expect(BillingInvoice.updateOne).toHaveBeenCalledWith({ externalInvoiceId: 'in_2', status: { $nin: ['refunded', 'disputed'] } }, expect.anything(), { upsert: true });
   });
 
   it('sums tax lines, a line with no amount as 0', async () => {
@@ -89,13 +89,31 @@ describe('ingestStripeInvoice', () => {
     expect(lastSet()).toMatchObject({ discountCents: 100, creditCents: 0, periodStart: new Date(1_700_000_000_000) });
   });
 
-  it.each(['refunded', 'disputed'])('re-ingesting a %s row keeps its status and net paid amount', async (status) => {
-    existing.mockResolvedValue({ status });
+  it('writes status + amount only onto a row that is not refunded/disputed, in the same conditional upsert', async () => {
     await ledger.ingestStripeInvoice('org_1', { id: 'in_4', status: 'paid', amount_paid: 4900, total: 4900 } as any);
+    expect(BillingInvoice.updateOne).toHaveBeenCalledTimes(1);
+    expect(BillingInvoice.updateOne).toHaveBeenCalledWith(
+      { externalInvoiceId: 'in_4', status: { $nin: ['refunded', 'disputed'] } },
+      { $set: expect.objectContaining({ status: 'paid', amountPaidCents: 4900, totalCents: 4900 }) },
+      { upsert: true },
+    );
+  });
+
+  it('re-ingesting a reversed row (the upsert trips the unique key) keeps its status and net paid amount', async () => {
+    BillingInvoice.updateOne.mockRejectedValueOnce(Object.assign(new Error('dup'), { code: 11000 }));
+    await ledger.ingestStripeInvoice('org_1', { id: 'in_4', status: 'paid', amount_paid: 4900, total: 4900 } as any);
+    expect(BillingInvoice.updateOne).toHaveBeenCalledTimes(2);
+    expect(BillingInvoice.updateOne.mock.calls[1]![0]).toEqual({ externalInvoiceId: 'in_4' });
     const set = lastSet();
     expect(set.totalCents).toBe(4900);
     expect(set).not.toHaveProperty('status');
     expect(set).not.toHaveProperty('amountPaidCents');
+  });
+
+  it('rethrows an ingest write error that is not the reversed-row key conflict', async () => {
+    BillingInvoice.updateOne.mockRejectedValueOnce(new Error('mongo down'));
+    await expect(ledger.ingestStripeInvoice('org_1', { id: 'in_5', status: 'paid' } as any)).rejects.toThrow('mongo down');
+    expect(BillingInvoice.updateOne).toHaveBeenCalledTimes(1);
   });
 });
 

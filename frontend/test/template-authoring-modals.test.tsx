@@ -5,8 +5,9 @@
  * Golden-path template authoring, with real children and only `@/lib/api`
  * mocked:
  *  - CreateTemplateModal: pick a source pipeline (its props fetched by id),
- *    the detected repo URL auto-declared as a `repoUrl` input and swapped for
- *    `{{ vars.repoUrl }}` in the saved props; the half-filled / mis-named input
+ *    the source's repository (`synth.source.options.repo`) auto-declared as a
+ *    `repo` input and swapped for `{{ vars.repo }}` everywhere in the saved
+ *    props — the source itself, so instantiate builds the supplied repo; the half-filled / mis-named input
  *    refusals; a refused create; the preselected "Save as template" flow;
  *  - EditTemplateModal: the template's props hydrate the REAL builder (no
  *    toolchain picker — templates never carry one), inputs are edited, and the
@@ -27,11 +28,12 @@ import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
 import EditTemplateModal from '@/components/pipeline/EditTemplateModal';
 import { ImportTemplateModal } from '@/components/pipeline/ImportTemplateModal';
 
-const REPO = 'https://github.com/acme/web';
+const REPO = 'acme/web';
+const REPO_URL = `https://github.com/${REPO}`;
 const PROPS = {
   project: 'web', organization: 'acme', pipelineName: 'acme-web-pipeline',
   synth: { source: { type: 'github', options: { repo: 'acme/web' } }, plugin: { name: 'cdk-synth' } },
-  global: { 'aws:cdk:repo:url': REPO },
+  global: { 'aws:cdk:repo:url': REPO_URL },
 };
 const PIPELINE = {
   id: 'pl-1', orgId: 'org-1', project: 'web', organization: 'acme', pipelineName: 'web', props: PROPS,
@@ -63,8 +65,8 @@ describe('CreateTemplateModal', () => {
     fireEvent.change(picker, { target: { value: 'pl-1' } });
     await waitFor(() => expect(screen.getByLabelText('Template name')).toHaveValue('web-template'));
     expect(apiFn('getPipelineById')).toHaveBeenCalledWith('pl-1');
-    // The repo URL was detected and declared as an input on its own.
-    expect(await screen.findByDisplayValue('repoUrl')).toBeInTheDocument();
+    // The source repository was detected and declared as an input on its own.
+    expect(await screen.findByDisplayValue('repo')).toBeInTheDocument();
     expect(screen.getByLabelText('Value to replace')).toHaveValue(REPO);
     // "Parameterize repository" does not add it twice.
     fireEvent.click(screen.getByRole('button', { name: /Parameterize repository/ }));
@@ -89,11 +91,14 @@ describe('CreateTemplateModal', () => {
     expect(body).toMatchObject({
       name: 'web-template', category: 'backend', description: 'Node service', keywords: ['golden', 'node'], visibility: 'org',
       inputs: [
-        { name: 'repoUrl', label: 'Repository URL', type: 'string', required: true },
+        { name: 'repo', label: 'Repository', type: 'string', required: true },
         { name: 'replicas', type: 'number', default: 3, options: ['1', '3', '5'] },
       ],
     });
-    expect(body.props.global['aws:cdk:repo:url']).toBe('{{ vars.repoUrl }}');
+    // The SOURCE is parameterized (instantiate bakes it into a real repository);
+    // the metadata URL that embeds it follows (it resolves at synth).
+    expect(body.props.synth.source.options.repo).toBe('{{ vars.repo }}');
+    expect(body.props.global['aws:cdk:repo:url']).toBe('https://github.com/{{ vars.repo }}');
     expect(JSON.stringify(body.props)).not.toContain(REPO);
     expect(await screen.findByText('Template "web-template" saved as shared with your organization.')).toBeInTheDocument();
     expect(onCreated).toHaveBeenCalledTimes(1);
@@ -103,7 +108,7 @@ describe('CreateTemplateModal', () => {
 
   it('refuses a replacement with no input name, and an input name that is not an identifier', async () => {
     renderCreate({ pipeline: PIPELINE as never });
-    await screen.findByDisplayValue('repoUrl');
+    await screen.findByDisplayValue('repo');
     fireEvent.change(screen.getByLabelText('Input name'), { target: { value: '' } });
     fireEvent.click(createBtn());
     expect(await screen.findByText(`Give the input that replaces "${REPO}" a name.`)).toBeInTheDocument();
@@ -122,7 +127,7 @@ describe('CreateTemplateModal', () => {
     apiFn('createPipelineTemplate').mockResolvedValueOnce({ success: false, message: 'A template with that name exists' });
     apiFn('createPipelineTemplate').mockRejectedValueOnce(new Error('network down'));
     renderCreate({ pipeline: PIPELINE as never });
-    await screen.findByDisplayValue('repoUrl');
+    await screen.findByDisplayValue('repo');
     fireEvent.click(createBtn());
     expect(await screen.findByText('A template with that name exists')).toBeInTheDocument();
     fireEvent.click(createBtn());
@@ -212,7 +217,7 @@ describe('EditTemplateModal', () => {
         { name: 'debug', label: 'Debug', type: 'boolean', required: true, default: true },
       ],
     });
-    expect(body.props).toMatchObject({ project: 'web', organization: 'acme', global: { 'aws:cdk:repo:url': REPO } });
+    expect(body.props).toMatchObject({ project: 'web', organization: 'acme', global: { 'aws:cdk:repo:url': REPO_URL } });
     expect(await screen.findByText('Template updated successfully!')).toBeInTheDocument();
     expect(onSaved).toHaveBeenCalledTimes(1);
   });

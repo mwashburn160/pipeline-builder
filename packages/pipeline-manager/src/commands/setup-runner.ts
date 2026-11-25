@@ -33,10 +33,11 @@
  *     (Function URL, or the IP-allowlisted API Gateway) from the stack outputs →
  *     PATCH it onto the runner (step-up). The platform then sends a signed ping
  *     addressed to that id; a `pong` makes the runner active.
- *   signing key: a root org's key is created with its first runner. An org with
- *     no effective key is refused before anything is deployed, unless
- *     --generate-key creates one (step-up); an org that inherits its key from a
- *     parent with none is told to ask that parent.
+ *   signing key: an org with no effective key gets one created with its first
+ *     runner — its own (a root org, or a team in own mode), or for an
+ *     inheriting team its parent's. --generate-key creates the org's own key
+ *     first (step-up). Updating a runner with no effective key is refused
+ *     before anything is deployed (an inheriting team is told to ask its parent).
  *   update (the account has this org's runner with this label): redeploy +
  *     upload in place; a still-pending runner, or one whose endpoint changed,
  *     gets the URL PATCHed; an active one is test-pinged.
@@ -432,7 +433,7 @@ async function resolvePrefixes(plan: RunnerPlan, deps: SetupRunnerDeps): Promise
 
 /** Where the org's signing key came from on this run. Key ids only. */
 export interface SigningKeyStatus {
-  /** existing: the org (own mode) has one; inherited: a parent's; generated: --generate-key now; with-first-runner: the platform creates it on registration. */
+  /** existing: the org (own mode) has one; inherited: a parent's; generated: --generate-key now; with-first-runner: the platform creates it on registration (the parent's, named in `inheritedFrom`, for an inheriting team). */
   origin: 'existing' | 'inherited' | 'generated' | 'with-first-runner';
   kid: string | null;
   inheritedFrom?: string;
@@ -599,9 +600,10 @@ function effectiveKid(sk: RunnerSigningKeyDto): string | null {
 
 /**
  * Make sure requests to the runner can be signed, before anything is created:
- * an existing key passes; a root org registering a new runner gets its key from
- * the platform with that registration; --generate-key creates one (step-up);
- * anything else is refused with what to do.
+ * an existing key passes; an org registering a new runner gets its key from
+ * the platform with that registration (a root org or an own-mode team: its own
+ * key; an inheriting team: its parent's); --generate-key creates one first
+ * (step-up); with no registration and no key the run is refused with what to do.
  */
 async function ensureSigningKey(plan: RunnerPlan, deps: SetupRunnerDeps, sk: RunnerSigningKeyDto | null, willRegister: boolean): Promise<SigningKeyStatus> {
   if (!sk) throw new Error(runnersUnavailableMessage(null));
@@ -612,7 +614,13 @@ async function ensureSigningKey(plan: RunnerPlan, deps: SetupRunnerDeps, sk: Run
       ? { origin: 'inherited', kid, inheritedFrom: sk.inheritedFrom.orgName }
       : { origin: 'existing', kid };
   }
-  if (sk.mode === 'inherit') throw new Error(inheritedNoKeyMessage(sk.inheritedFrom?.orgName));
+  if (sk.mode === 'inherit') {
+    // The platform creates the PARENT's key when this team's first runner
+    // registers (ensureOrgKeyForFirstRunner); with nothing to register, only
+    // the parent (or switching to an own key) can supply one.
+    if (willRegister) return { origin: 'with-first-runner', kid: null, ...(sk.inheritedFrom?.orgName ? { inheritedFrom: sk.inheritedFrom.orgName } : {}) };
+    throw new Error(inheritedNoKeyMessage(sk.inheritedFrom?.orgName));
+  }
   if (plan.generateKey) {
     try {
       const created = unwrapData<RunnerSigningKeyDto>(await deps.platform.post(SIGNING_KEY_ROUTE, {}, await stepUpHeaders(deps)));
@@ -623,7 +631,9 @@ async function ensureSigningKey(plan: RunnerPlan, deps: SetupRunnerDeps, sk: Run
       return explainRunnerError(err);
     }
   }
-  if (sk.isRootOrg && willRegister) return { origin: 'with-first-runner', kid: null };
+  // The platform creates the org's own key when its first runner registers
+  // (ensureOrgKeyForFirstRunner) — a root org or a team in own mode alike.
+  if (willRegister) return { origin: 'with-first-runner', kid: null };
   throw new Error(NO_ORG_KEY_MESSAGE);
 }
 
@@ -925,7 +935,11 @@ function realAwsDeps(profile: string | undefined, interactive: boolean): Pick<Se
 function describeSigningKey(k: SigningKeyStatus): string {
   if (k.origin === 'inherited') return `${k.kid} (inherited from ${k.inheritedFrom ?? 'the parent organization'})`;
   if (k.origin === 'generated') return `${k.kid ?? '(created)'} (generated now)`;
-  if (k.origin === 'with-first-runner') return 'created by the platform with this runner';
+  if (k.origin === 'with-first-runner') {
+    return k.inheritedFrom
+      ? `created by the platform with this runner, for ${k.inheritedFrom} (the key this organization inherits)`
+      : 'created by the platform with this runner';
+  }
   return k.kid ?? '(none)';
 }
 
@@ -981,8 +995,10 @@ One runner per AWS account per organization:
 Signing key:
   The platform signs every request with your organization's runner signing key, and the
   runner verifies it against its own key set, <platform>${JWKS_PATH_PATTERN}.
-  A top-level organization's key is created with its first runner. If your organization has
-  no key, pass --generate-key (step-up) or generate one under ${RUNNERS_PANEL}.
+  If your organization has no key, the platform creates one when its first runner registers:
+  its own (a top-level organization, or a team using its own key), or, for a team that inherits
+  its parent's key, the parent's. --generate-key (step-up) creates your own key first instead.
+  Updating a runner with no key is refused: generate one under ${RUNNERS_PANEL}.
 `;
 
 /**

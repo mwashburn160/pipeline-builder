@@ -222,6 +222,12 @@ describe('exchangeAndValidate', () => {
     expect(identity.email).toBe('user@acme.com');
   });
 
+  it('trims the email claim too (the same normalisation as SAML), before the domain check', async () => {
+    stubFetch(signIdToken(goodPem, { email: '  User@ACME.com ' }));
+    const identity = await exchange({ ...cfg, allowedEmailDomains: ['acme.com'] }, 'c', 'nonce-1');
+    expect(identity.email).toBe('user@acme.com');
+  });
+
   it('REJECTS an id_token signed by a different (attacker) key', async () => {
     stubFetch(signIdToken(evilPem));
     await expect(exchange(cfg, 'c', 'nonce-1')).rejects.toThrow('OIDC_INVALID_ID_TOKEN');

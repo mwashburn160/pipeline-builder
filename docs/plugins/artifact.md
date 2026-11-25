@@ -39,7 +39,7 @@ flowchart LR
 
 | Plugin | Compute | Secrets | Key Env Vars |
 |--------|---------|---------|--------------|
-| docker-build | MEDIUM | ECR: IAM role / DockerHub: `DOCKER_USERNAME`, `DOCKER_PASSWORD` | `DOCKERFILE_PATH`, `DOCKER_CONTEXT`, `REGISTRY_TYPE`, `IMAGE_NAME`, `IMAGE_TAG` |
+| docker-build | MEDIUM | ECR: IAM role / DockerHub: `DOCKER_USERNAME`, `DOCKER_PASSWORD` / custom: `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` (all optional) | `DOCKERFILE_PATH`, `DOCKER_CONTEXT`, `REGISTRY_TYPE`, `IMAGE_NAME`, `IMAGE_TAG` |
 
 `docker-build` handles login, build, and push for ECR, DockerHub, and custom registries (`REGISTRY_TYPE`). It supports multi-stage targets (`DOCKER_TARGET`), build-arg injection (`DOCKER_BUILD_ARGS`), and layer caching (`DOCKER_CACHE_FROM`), and can run build-only without pushing via `REGISTRY_TYPE=none`. Built image metadata is written to `docker-output/`.
 
@@ -59,7 +59,7 @@ flowchart LR
 |--------|----------|---------|---------|--------------|
 | npm-publish | npmjs.com | SMALL | `NPM_TOKEN` | `NPM_DRY_RUN`, `NPM_TAG`, `NPM_ACCESS` |
 | pypi-publish | PyPI | SMALL | `TWINE_PASSWORD` | `PYPI_REPOSITORY`, `TWINE_USERNAME` |
-| maven-publish | Maven Central | SMALL | `OSSRH_USERNAME`, `OSSRH_PASSWORD`, `GPG_PASSPHRASE` | `MAVEN_REPOSITORY_URL` |
+| maven-publish | Maven Central | SMALL | `OSSRH_USERNAME`, `OSSRH_PASSWORD`; `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE` (optional) | `MAVEN_REPOSITORY_URL` |
 | nuget-publish | NuGet Gallery | SMALL | `NUGET_API_KEY` | `NUGET_SOURCE` |
 | cargo-publish | crates.io | SMALL | `CARGO_REGISTRY_TOKEN` | `CARGO_DRY_RUN` |
 | gem-publish | RubyGems | SMALL | `GEM_HOST_API_KEY` | `GEM_DRY_RUN` |

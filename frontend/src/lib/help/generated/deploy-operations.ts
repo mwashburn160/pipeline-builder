@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b539c2dafe3ee8eb6f1d7bd4c3cc89c0c4fdfbe3a6b10d340cbecda10e55e0a9
+// SOURCE-SHA256: 532dffa2ff08086138b1dd988fea1270111bfea91dd1f19c94c379ddff2ee9d7
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -32,13 +32,13 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Nothing is scheduled by default on any target. Until you wire a backup, your RPO is \"whenever someone last ran backup.sh by hand\".",
+            "Only the AWS targets schedule a backup, and only once BACKUP_IMAGE exists. minikube and docker schedule nothing; there, your RPO is \"whenever someone last ran backup.sh by hand\".",
             "Postgres has a streaming standby on every target; promotion is manual. Losing the primary's volume means promoting the standby — seconds of data rather than the nightly dump's hours — following Postgres Failover. MongoDB has no second copy, so for Mongo a lost volume really is a restore.",
             "There is no point-in-time recovery. The dumps are logical, so you can restore to a dump boundary and nothing in between.",
-            "The biggest hole is .env and certs/. Lose SECRET_ENCRYPTION_KEY and a perfect database dump is still partially unreadable, forever. Copy them into your secret manager.",
+            "The biggest hole is .env and certs/. Lose SECRET_ENCRYPTION_KEY and a perfect database dump is still partially unreadable, forever. The CronJob never backs them up; copy them into your secret manager, or have the manual backup.sh archive them (BACKUP_SECRETS_PATHS, encrypted).",
             "There is deliberately no blind --rotate flag. Regenerating .env would put passwords out of sync with the running databases and break them. Rotate per secret, in order, database first.",
             "The backup CronJob is enabled by default and will alert until its image exists. It is in both AWS kustomizations, on BACKUP_SCHEDULE (02:00 UTC), with BACKUP_ENABLED=true — so a deploy with no working backup is red rather than quietly green. Build BACKUP_IMAGE, or set BACKUP_ENABLED=false to suspend it deliberately.",
-            "The backup job is bucket-scoped and cannot delete. It used to run as the object store's root credential — admin over every bucket, with read and delete. It now holds a db-backups-only user with PutObject/GetObject/ListBucket and no delete verb, which is possible because retention is the bucket's own lifecycle rule rather than a client-side prune. A stolen backup credential cannot destroy the backups it was stolen from.",
+            "The backup job's dump credential is bucket-scoped and cannot delete. It writes the dumps as a db-backups-only user with PutObject/GetObject/ListBucket and no delete verb, which works because retention is the bucket's own lifecycle rule rather than a client-side prune. A stolen dump credential cannot destroy the backups it was stolen from. (The pod also mounts the RustFS root credential, which only the optional object-store mirror uses, as its read side.)",
             "An untested backup is not a backup, and a drill that restores only the dumps proves less than it looks."
           ]
         }
@@ -112,11 +112,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Neither .env nor mongodb-keyfile is tracked in git."
-        },
-        {
-          "type": "note",
-          "content": "The keyfiles that were previously committed have been git rm --cacheded. A fresh checkout ships none — setup generates them. Existing environments should rotate their keyfile, since it was shared publicly: generate a new one, then restart mongod on each member with the new key."
+          "content": "Neither .env nor mongodb-keyfile is tracked in git. A fresh checkout ships none; setup generates them."
         }
       ]
     },
@@ -140,20 +136,20 @@ export const deployOperationsTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "docker",
-              "docker, openssl, jq"
+              "docker (setup.sh)",
+              "docker, openssl"
             ],
             [
-              "minikube",
-              "minikube, kubectl, openssl, envsubst, jq"
+              "minikube (setup.sh)",
+              "kubectl, minikube, openssl, envsubst (startup.sh: minikube, kubectl)"
             ],
             [
-              "ec2 (bootstrap)",
-              "aws, docker, jq, openssl"
+              "ec2 (on the instance)",
+              "bootstrap.sh: openssl, plus docker, jq before auto-init; startup.sh: kubectl, minikube, docker, openssl"
             ],
             [
-              "eks",
-              "aws, eksctl, kubectl, openssl, jq"
+              "eks (setup.sh)",
+              "aws, kubectl, openssl, jq, envsubst — eksctl is installed at a pinned version if missing"
             ]
           ]
         },
@@ -167,11 +163,15 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "deploy/aws/eks/k8s/backup-cronjob.yaml is applied by the normal deploy on both AWS targets, from one implementation, and ships suspended (BACKUP_ENABLED=false). One REPLACE_ME remains: BACKUP_IMAGE, which must carry pg_dump, mongodump, the aws CLI, rclone, openssl and curl, and run as a non-root uid. Build it, set BACKUP_IMAGE, set BACKUP_ENABLED=true, and re-run the target's startup.sh — the schedule is BACKUP_SCHEDULE (default 0 2 * * *, 02:00 UTC)."
+          "content": "deploy/aws/eks/k8s/backup-cronjob.yaml is applied by the normal deploy on both AWS targets (it is in both kustomizations), from one implementation, and is enabled by default (BACKUP_ENABLED=true in .env.example; false renders it suspend: true). One REPLACE_ME remains: BACKUP_IMAGE, which must carry pg_dump, mongodump, the aws CLI, rclone, openssl and curl, and run as a non-root uid. Build it, set BACKUP_IMAGE, and re-run the target's startup.sh — the schedule is BACKUP_SCHEDULE (default 0 2 * * *, 02:00 UTC). Until the image exists each nightly Job hits its one-hour activeDeadlineSeconds and CronJobRunFailed fires (DatabaseBackupFailed is pushed by the job script itself, so it needs a running pod)."
         },
         {
           "type": "text",
           "content": "The job writes to RustFS, the in-cluster object store (BACKUP_BUCKET=db-backups, S3_ENDPOINT=http://rustfs:9000), using the bucket-scoped backup-access-key/backup-secret-key from rustfs-secret — so no S3 bucket, IAM role, IRSA or Pod Identity is needed. rustfs-init creates db-backups with versioning, a BACKUP_RETENTION_DAYS expiry rule and a noncurrent expiry, and attaches a policy with no delete. Understand the trade before relying on it: those dumps live in the same cluster, account and region as the databases, so they survive a dropped table or a bad migration but not loss of the cluster, the AZ or the account. deploy/bin/{backup,restore}.sh honour S3_ENDPOINT for the dump path, so repointing both at a real off-cluster bucket is the only change required if that is ever revisited."
+        },
+        {
+          "type": "text",
+          "content": "Steps 1–2 apply only if you repoint the job at an off-cluster S3 bucket; the shipped RustFS path needs no bucket, IAM role or Pod Identity."
         },
         {
           "type": "list",
@@ -186,7 +186,7 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Create the IAM role. This is the part the deploy does not do for you — the EKS setup role grants only SES and CodePipeline today, so this is an addition."
+            "Create the IAM role. The deploy does not create one."
           ]
         },
         {
@@ -218,18 +218,18 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Set the values. BACKUP_BUCKET, and keep ENV_NAME matching what backup.sh / restore.sh use — they read the same s3://<bucket>/<env>/<YYYY/MM/DD>/ layout. Then either complete the S3_BACKUP_TARGET_* block plus an objectstore-backup-target Secret, or unset S3_BACKUP_TARGET_URL to skip the object-storage mirror."
+            "Set the values. BACKUP_BUCKET, and keep ENV_NAME (set to prod in the manifest) matching what backup.sh / restore.sh use — they read the same s3://<bucket>/<env>/<YYYY/MM/DD>/ layout. Then either complete the S3_BACKUP_TARGET_* block plus an objectstore-backup-target Secret, or unset S3_BACKUP_TARGET_URL to skip the object-storage mirror."
           ]
         },
         {
           "type": "list",
           "items": [
-            "Apply and verify. Force one run rather than waiting for 02:00:"
+            "Apply and verify. Re-run the target's startup.sh (the manifest carries deploy tokens, so a raw kubectl apply -f of it does not work), then force one run rather than waiting for 02:00:"
           ]
         },
         {
           "type": "text",
-          "content": "bash kubectl apply -f deploy/aws/eks/k8s/backup-cronjob.yaml kubectl -n pipeline-builder create job --from=cronjob/db-backup db-backup-manual"
+          "content": "bash kubectl -n pipeline-builder create job --from=cronjob/db-backup db-backup-manual"
         },
         {
           "type": "text",
@@ -247,11 +247,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "ec2 and eks run one implementation. k8s/backup-cronjob.yaml is applied by the normal deploy on both targets, on the same BACKUP_SCHEDULE, suspended until BACKUP_ENABLED=true. Enabling it is identical to eks: build the image, set BACKUP_IMAGE, flip BACKUP_ENABLED, re-run startup.sh."
-        },
-        {
-          "type": "text",
-          "content": "ec2 used to carry a second, separate schedule — bootstrap.sh installed a host pipeline-backup.timer firing backup.sh at 03:30 UTC while the CronJob ran at 03:00. The two knew nothing about each other, so enabling both produced two full dumps a night against the same destination half an hour apart, and the two AWS targets could not be reasoned about together. The timer has been removed."
+          "content": "ec2 and eks run one implementation. k8s/backup-cronjob.yaml is applied by the normal deploy on both targets, on the same BACKUP_SCHEDULE, enabled unless BACKUP_ENABLED=false. Enabling it is identical to eks: build the image, set BACKUP_IMAGE, re-run startup.sh. There is no host timer."
         },
         {
           "type": "text",
@@ -288,7 +284,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "backup.sh runs rclone copy — additive, never deleting from the backup, so a source delete can't wipe it. Pair the target with versioning for point-in-time. (That copy rather than sync has this property was verified live before choosing it here.)"
+          "content": "backup.sh runs rclone copy — additive, never deleting from the backup, so a source delete can't wipe it. Pair the target with versioning for point-in-time."
         },
         {
           "type": "text",
@@ -1371,6 +1367,11 @@ export const deployOperationsTopic: HelpTopic = {
               "warning"
             ],
             [
+              "PluginRemediationRolloutStartFailing",
+              "a published tenant fix's rollout to pipelines never started and is no longer retried (plugin_remediation_rollout_start_failures_total{reason} in 6 h): permanent — the pipeline service refused the start (a 4xx other than 408 / 429; usually contract or service-auth drift between plugin and pipeline), exhausted — 5 attempts (the one at publish, then one per nightly pass) failed with a 5xx, 408, 429 or no answer. The fix version is live and choosable, but nothing is moved or proposed until Retry on its card; the org gets N37",
+              "warning"
+            ],
+            [
               "PluginSourceDeleteFailing",
               "a purge could not delete a version's plugin-sources prefix, an org's prefix, or a purged image (plugin_source_delete_failures_total{kind}); the leftover is retried from plugin_source_orphans",
               "warning"
@@ -1399,11 +1400,11 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The canary fixtures. PluginRemediationCanaryStale watches one remediation-canary-<type> plugin per package type, built into the system org at the end of a completed rescan pass when it is not stored yet, and fixed every night as a dry run (built, patched, verified, never published) under the system org's own remediation settings. Each fixture (api/plugin/src/services/remediation/canary.ts) builds on linux/amd64 and linux/arm64 (a downloaded tool follows TARGETARCH), carries go.sum / a checksummed Cargo.lock so the build needs no resolution, builds on version tags rather than digests and upgrades its base packages, so that the build gate's floor (no fixable Critical) passes and the pinned package carries the only fixable High. That fix is within the default upgrade level (minor). OS fixtures take their vulnerable version from a frozen archive (deb: a snapshot.debian.org trixie-security snapshot; rpm: AlmaLinux's 9.8 vault; apk: the alpine:3.24.3 patch release with the package held back from apk upgrade), so the builds need outbound access to those hosts as well as the usual registries. If a fixture's build is refused by the gate (its package picked up a fixable Critical) or the canary stays failing because a new fix is beyond the minor level, re-pin that fixture to a newer vulnerable version."
+          "content": "The canary fixtures. PluginRemediationCanaryStale watches one remediation-canary-<type> plugin per package type, built into the system org at the end of a completed rescan pass when it is not stored yet, and fixed every night as a dry run (built, patched, verified, never published) under the system org's own remediation settings. Unlike a real remediation, a fixture is queued again every night even though its findings haven't changed. Each run sets plugin_remediation_canary_ok{type} (1 = every targeted finding cleared), and a pass in which every fixture came out clean stamps plugin_remediation_canary_last_success_timestamp_seconds, which the alert watches. A system org with remediation mode: off runs no fixtures, so the timestamp stops advancing. Each fixture (api/plugin/src/services/remediation/canary.ts) builds on linux/amd64 and linux/arm64 (a downloaded tool follows TARGETARCH), carries go.sum / a checksummed Cargo.lock so the build needs no resolution, builds on version tags rather than digests and upgrades its base packages, so that the build gate's floor (no fixable Critical) passes and the pinned package carries the only fixable High. That fix is within the default upgrade level (minor). OS fixtures take their vulnerable version from a frozen archive (deb: a snapshot.debian.org trixie-security snapshot; rpm: AlmaLinux's 9.8 vault; apk: the alpine:3.24.3 patch release with the package held back from apk upgrade), so the builds need outbound access to those hosts as well as the usual registries. If a fixture's build is refused by the gate (its package picked up a fixable Critical) or the canary stays failing because a new fix is beyond the minor level, re-pin that fixture to a newer vulnerable version."
         },
         {
           "type": "text",
-          "content": "Turning remediation off (PLUGIN_REMEDIATION_ENABLED=false) silences the error and canary rules (nothing runs); the delete and missing-source rules keep working, because source retention and purge do not depend on it."
+          "content": "Turning remediation off (PLUGIN_REMEDIATION_ENABLED=false) silences the error, rollout-start and canary rules (nothing runs); the delete and missing-source rules keep working, because source retention and purge do not depend on it."
         },
         {
           "type": "text",

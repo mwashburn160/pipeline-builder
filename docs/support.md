@@ -44,7 +44,11 @@ a `response_due_at` computed when it was raised.
 | **Premium Support** (upgrade) | **8 hours, any day** | 24×7 | ✅ | $99.99 / mo per upgraded contact |
 
 Annual is about 10× monthly, rounded like every other price. Volume pricing
-applies as contact counts rise. Premium is an **upgrade** to a Standard or
+applies as contact counts rise. Larger accounts also carry a seat-derived **size
+floor** (`BILLING_SUPPORT_FLOOR_*`, on by default): beyond the first 15 seats,
+the support price is at least $4.99 per seat per month, weighted by level and
+billed as a visible top-up line — never charged to an account holding no support.
+See [Environment Variables](environment-variables.md). Premium is an **upgrade** to a Standard or
 Priority contact rather than a separate level, so it is bought for the specific
 people who need round-the-clock cover.
 
@@ -60,7 +64,9 @@ root, and a case opened from any team in the account spends from it. A case open
 this way is always filed at level `support_incident`, which carries **no** response
 target, even when the account holds a baseline it could not open against from that
 team. Members read the remaining balance with `GET /billing/support-incidents`
-(`messages:read`).
+(`messages:read`); staff grant them with `POST /billing/admin/orgs/:orgId/support-incidents`
+(`support_cases:write` in the system org, step-up, audited as
+`billing.support-incident.grant`).
 
 ## How it works
 
@@ -166,7 +172,7 @@ to go to.
 
 ### Rating a case
 
-When a case is closed you can rate it 1–5 with an optional comment. CSAT is the
+Once a case is `resolved` or `closed` you can rate it 1–5 with an optional comment. CSAT is the
 one case field staff may not write, and it is deliberately **not** in the audit
 trail: your opinion of your own closed case changes no entitlement and no clock,
 so it belongs in the record of the case rather than the record of who did what.
@@ -212,7 +218,10 @@ that reply stopped the clock); the four workflow actions `status`, `severity`,
 `assign` and `transfer`, each with both sides of the transition; the contact
 entitlement actions `designate`, `revoke`, `upgrade` and `downgrade`; and
 `support.case.note` for internal staff notes, which records that a note was
-written and its length but never its text.
+written and its length but never its text; `support.canned.write` for staff reply
+templates; `billing.support-incident.grant` for one-time incident grants; and the
+on-call actions `support.oncall.paged`, `.acknowledged`, `.escalated` and `.test`
+(see [On-call Paging](oncall-paging.md)).
 
 See [Audit Events](audit-events.md) for the full list.
 

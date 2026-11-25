@@ -43,6 +43,9 @@ let users: Record<string, { email: string }> = {};
  *  account, shared with passkeys) — real service, in-memory collection. */
 const recovery = createFakeRecoveryCodes();
 let passkeys = 0;
+/** Runs once, just before the next non-upsert findOneAndUpdate (a claim) — to
+ *  interleave a concurrent write between a read and its conditional claim. */
+let beforeNextClaim: (() => Promise<void>) | null = null;
 
 /** The filter shapes the service uses, and nothing else. */
 function findDoc(filter: Record<string, unknown>): { doc: TotpDoc; recoveryIndex: number } | null {
@@ -51,6 +54,7 @@ function findDoc(filter: Record<string, unknown>): { doc: TotpDoc; recoveryIndex
     if (filter.activatedAt === null && doc.activatedAt !== null) continue;
     if (filter.activatedAt !== undefined && filter.activatedAt !== null && doc.activatedAt === null) continue;
     if (filter.lastUsedStep !== undefined && doc.lastUsedStep !== filter.lastUsedStep) continue;
+    if (filter.secret !== undefined && doc.secret !== filter.secret) continue;
     // The claim's "no live lockout" condition: `$or: [{ lockedUntil: null }, { lockedUntil: { $lte: now } }]`.
     if (Array.isArray(filter.$or)) {
       const now = ((filter.$or[1] as { lockedUntil: { $lte: Date } }).lockedUntil.$lte).getTime();
@@ -70,6 +74,30 @@ function applyUpdate(doc: TotpDoc, update: Record<string, unknown>, _recoveryInd
   for (const [key, value] of Object.entries((update.$inc ?? {}) as Record<string, number>)) {
     (doc as unknown as Record<string, number>)[key] = ((doc as unknown as Record<string, number>)[key] ?? 0) + value;
   }
+}
+
+/** The fake `findOneAndUpdate`: match, upsert when asked, apply. */
+function claim(f: Record<string, unknown>, update: Record<string, unknown>, opts: { upsert?: boolean } = {}): TotpDoc | null {
+  let found = findDoc(f);
+  if (!found && opts.upsert) {
+    const created: TotpDoc = {
+      _id: new Types.ObjectId(),
+      userId: String(f.userId),
+      secret: '',
+      activatedAt: null,
+      lastUsedStep: 0,
+      failedAttempts: 0,
+      lockedUntil: null,
+      createdAt: new Date(),
+      lastUsedAt: null,
+      ...((update.$setOnInsert ?? {}) as Partial<TotpDoc>),
+    };
+    docs.push(created);
+    found = { doc: created, recoveryIndex: -1 };
+  }
+  if (!found) return null;
+  applyUpdate(found.doc, update, found.recoveryIndex);
+  return found.doc;
 }
 
 /** A `.select().lean()` / thenable chain over a fixed value, as mongoose returns. */
@@ -100,26 +128,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
       update: Record<string, unknown>,
       opts: { upsert?: boolean } = {},
     ) => {
-      let found = findDoc(f);
-      if (!found && opts.upsert) {
-        const created: TotpDoc = {
-          _id: new Types.ObjectId(),
-          userId: String(f.userId),
-          secret: '',
-          activatedAt: null,
-          lastUsedStep: 0,
-          failedAttempts: 0,
-          lockedUntil: null,
-          createdAt: new Date(),
-          lastUsedAt: null,
-          ...((update.$setOnInsert ?? {}) as Partial<TotpDoc>),
-        };
-        docs.push(created);
-        found = { doc: created, recoveryIndex: -1 };
+      if (!opts.upsert && beforeNextClaim) {
+        const hook = beforeNextClaim;
+        beforeNextClaim = null;
+        return { select: () => ({}), lean: async () => { await hook(); return claim(f, update); } } as never;
       }
-      if (!found) return chainable(null);
-      applyUpdate(found.doc, update, found.recoveryIndex);
-      return chainable(found.doc);
+      return chainable(claim(f, update, opts));
     },
   },
   User: {
@@ -223,6 +237,16 @@ describe('enrolment', () => {
     // The displayed-then-abandoned secret must not be the one that confirms.
     await expect(totp.activate(USER, totpCodeForStep(first.secret, timeStepAt())))
       .rejects.toThrow(errors.TOTP_INVALID_CODE);
+  });
+
+  it('refuses to activate a secret that replaced the one the code proved (re-enrolment raced the activation)', async () => {
+    const first = await totp.beginEnrolment(USER);
+    const code = totpCodeForStep(first.secret, timeStepAt());
+    // A second tab re-enrols between activate's read and its claim.
+    beforeNextClaim = async () => { await totp.beginEnrolment(USER); };
+    await expect(totp.activate(USER, code)).rejects.toThrow(errors.TOTP_INVALID_CODE);
+    // The new secret — which no code has confirmed — must not be live.
+    expect(await hasActiveTotp(USER)).toBe(false);
   });
 
   it('refuses to re-enrol over a working authenticator', async () => {

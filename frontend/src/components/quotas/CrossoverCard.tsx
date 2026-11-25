@@ -28,7 +28,7 @@ import type { CrossoverVerdict } from '@/types';
  * but would cost them capacity" (`would_regress`) — neither is something to
  * show, and showing the second would be an offer to downgrade.
  */
-export function CrossoverCard({ crossover }: { crossover: CrossoverVerdict | null }) {
+export function CrossoverCard({ crossover, currency }: { crossover: CrossoverVerdict | null; currency: string }) {
   if (!crossover?.crossover || !crossover.candidateTier) return null;
 
   const per = crossover.interval === 'annual' ? 'year' : 'month';
@@ -44,9 +44,9 @@ export function CrossoverCard({ crossover }: { crossover: CrossoverVerdict | nul
             {target} would cost less than what you pay now
           </h3>
           <p className="mt-1 text-sm text-fg-muted tabular-nums">
-            Your plan and add-ons come to <strong>{formatPrice(crossover.currentCents)}</strong>/{per}.{' '}
-            {target} is <strong>{formatPrice(crossover.candidateCents)}</strong>/{per} —{' '}
-            <strong className="text-success">{formatPrice(crossover.savingCents)}</strong> less, with at
+            Your plan and add-ons come to <strong>{formatPrice(crossover.currentCents, currency)}</strong>/{per}.{' '}
+            {target} is <strong>{formatPrice(crossover.candidateCents, currency)}</strong>/{per} —{' '}
+            <strong className="text-success">{formatPrice(crossover.savingCents, currency)}</strong> less, with at
             least as much of everything you currently have.
           </p>
 

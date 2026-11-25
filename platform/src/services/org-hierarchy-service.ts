@@ -92,6 +92,10 @@ export interface DeletedTeam {
   orgName: string;
   deletedAt: Date;
   purgeAfter: Date;
+  /** Deleted by a platform operator (a takedown). */
+  deletedByPlatform: boolean;
+  /** Whether THIS viewer may restore it: a takedown only by the platform. */
+  restorable: boolean;
 }
 
 /** Locally-unlimited quotas for a team (only the root's pooled cap binds). */
@@ -210,18 +214,20 @@ class OrgHierarchyService {
    * Soft-deleted teams of `parentOrgId` that can still be restored (purge
    * deadline not yet passed), most recently deleted first.
    */
-  async listDeletedTeams(parentOrgId: string): Promise<{ teams: DeletedTeam[] }> {
+  async listDeletedTeams(parentOrgId: string, viewerIsPlatform: boolean): Promise<{ teams: DeletedTeam[] }> {
     const docs = await Organization.find({
       parentOrgId: String(parentOrgId),
       deletedAt: { $ne: null },
       purgeAfter: { $gt: new Date() },
-    }).select('_id name deletedAt purgeAfter').sort({ deletedAt: -1 }).lean();
+    }).select('_id name deletedAt purgeAfter deletedByPlatform').sort({ deletedAt: -1 }).lean();
     return {
       teams: docs.map((d) => ({
         orgId: String(d._id),
         orgName: d.name,
         deletedAt: d.deletedAt as Date,
         purgeAfter: d.purgeAfter as Date,
+        deletedByPlatform: d.deletedByPlatform === true,
+        restorable: d.deletedByPlatform !== true || viewerIsPlatform,
       })),
     };
   }

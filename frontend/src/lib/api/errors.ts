@@ -114,6 +114,28 @@ export class StepUpRequiredError extends ApiError {
 }
 
 /**
+ * For a domain method that RESHAPES its answer (`return f(res)` rather than
+ * `return res`): rethrow its refusal through this so the replay resolves with
+ * the same shape a direct call returns. The dialog replays the raw request, so
+ * without it the caller's `onResumed` would get the unshaped envelope. A second
+ * refusal raised by the replay is reshaped the same way; a dismissal still
+ * rejects with the original refusal.
+ */
+export function mapStepUpResume<R, T>(err: unknown, map: (raw: R) => T): void {
+  if (!(err instanceof StepUpRequiredError) || !err.resume) return;
+  const mapped = err.resume.then(
+    (raw) => map(raw as R),
+    (next: unknown) => {
+      if (next !== err) mapStepUpResume(next, map);
+      throw next;
+    },
+  );
+  // Like the original: nobody is obliged to await it.
+  mapped.catch(() => undefined);
+  err.attachResume(mapped);
+}
+
+/**
  * Follow a refusal the global step-up dialog took over through to its replay.
  *
  * Resolves with the replayed request's result; a second refusal (the replay was

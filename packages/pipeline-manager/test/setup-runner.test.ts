@@ -534,10 +534,20 @@ describe('signing key', () => {
     expect(f.calls).not.toContain('deployStack');
   });
 
-  it('a sub-organization in own mode with no key is refused without --generate-key', async () => {
+  // The platform's ensureOrgKeyForFirstRunner creates an own-mode team's key on
+  // its first registration, exactly as for a root org; the CLI used to refuse.
+  it('a sub-organization in own mode with no key: the platform creates its key with the first runner', async () => {
     const f = fakeDeps({ signingKey: { ...NO_KEY, isRootOrg: false } });
+    const r = await setupRunnerFlow(basePlan(), f.deps);
+    expect(r.signingKey).toEqual({ origin: 'with-first-runner', kid: null });
+    expect(f.calls).toContain('POST /api/pipelines/runners');
+    expect(f.calls).not.toContain('POST /api/pipelines/runners/signing-key');
+  });
+
+  it('a sub-organization in own mode with no key and no new registration (an update) is refused', async () => {
+    const f = fakeDeps({ signingKey: { ...NO_KEY, isRootOrg: false }, stacks: [stack('run-1')], own: [{ id: 'run-1', label: 'default', status: 'active', functionUrl: ENDPOINT }] });
     await expect(setupRunnerFlow(basePlan(), f.deps)).rejects.toThrow(NO_ORG_KEY_MESSAGE);
-    expect(f.calls).not.toContain('POST /api/pipelines/runners');
+    expect(f.calls).not.toContain('deployStack');
   });
 
   it('--generate-key creates it (step-up) before the runner is registered', async () => {
@@ -571,10 +581,31 @@ describe('signing key', () => {
     expect((await setupRunnerFlow(basePlan(), f.deps)).signingKey).toEqual({ origin: 'inherited', kid: 'kid-parent', inheritedFrom: 'Acme Corp' });
   });
 
-  it("an inheriting team whose parent has no key is told to ask the parent (--generate-key can't help)", async () => {
+  // The platform's ensureOrgKeyForFirstRunner creates the PARENT's key when an
+  // inheriting team registers its first runner; the CLI used to refuse first.
+  it("an inheriting team whose parent has no key: the platform creates the parent's key with this runner", async () => {
     const f = fakeDeps({ signingKey: { ...NO_KEY, mode: 'inherit', isRootOrg: false, inheritedFrom: { orgId: 'p', orgName: 'Acme Corp', activeKid: null, rotation: 'none' } } });
-    await expect(setupRunnerFlow(basePlan({ generateKey: true }), f.deps)).rejects.toThrow(/"Acme Corp", which has no key yet.*Use our own key/s);
-    expect(f.calls).toEqual(['GET /api/pipelines/runners', 'listRunnerStacks']);
+    const r = await setupRunnerFlow(basePlan(), f.deps);
+    expect(r.signingKey).toEqual({ origin: 'with-first-runner', kid: null, inheritedFrom: 'Acme Corp' });
+    expect(f.calls).toContain('POST /api/pipelines/runners');
+    expect(f.calls).not.toContain('POST /api/pipelines/runners/signing-key');
+  });
+
+  it("an inheriting team whose parent has no key, with --generate-key: still the parent's key with the runner (the team can't generate one)", async () => {
+    const f = fakeDeps({ signingKey: { ...NO_KEY, mode: 'inherit', isRootOrg: false, inheritedFrom: { orgId: 'p', orgName: 'Acme Corp', activeKid: null, rotation: 'none' } } });
+    const r = await setupRunnerFlow(basePlan({ generateKey: true }), f.deps);
+    expect(r.signingKey).toEqual({ origin: 'with-first-runner', kid: null, inheritedFrom: 'Acme Corp' });
+    expect(f.calls).not.toContain('POST /api/pipelines/runners/signing-key');
+  });
+
+  it('an inheriting team whose parent has no key and no new registration (an update) is told to ask the parent', async () => {
+    const f = fakeDeps({
+      signingKey: { ...NO_KEY, mode: 'inherit', isRootOrg: false, inheritedFrom: { orgId: 'p', orgName: 'Acme Corp', activeKid: null, rotation: 'none' } },
+      stacks: [stack('run-1')],
+      own: [{ id: 'run-1', label: 'default', status: 'active', functionUrl: ENDPOINT }],
+    });
+    await expect(setupRunnerFlow(basePlan(), f.deps)).rejects.toThrow(/"Acme Corp", which has no key yet.*Use our own key/s);
+    expect(f.calls).not.toContain('deployStack');
   });
 
   it('an unreadable key stops before anything is created', async () => {

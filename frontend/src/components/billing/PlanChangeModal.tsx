@@ -91,12 +91,12 @@ export function PlanChangeModal({
           {discounted ? (
             <>
               {' '}at{' '}
-              <strong className="tabular-nums">{formatPrice(preview.netPlanCents)}</strong> per {per}{' '}
-              <span className="text-fg-muted line-through tabular-nums">{formatPrice(preview.listCents)}</span>.
+              <strong className="tabular-nums">{formatPrice(preview.netPlanCents, preview.currency)}</strong> per {per}{' '}
+              <span className="text-fg-muted line-through tabular-nums">{formatPrice(preview.listCents, preview.currency)}</span>.
             </>
           ) : (
             <>
-              {' '}at <strong className="tabular-nums">{formatPrice(price)}</strong>
+              {' '}at <strong className="tabular-nums">{formatPrice(price, targetPlan.currency)}</strong>
               {price > 0 ? ` per ${per}` : ''}.
             </>
           )}
@@ -104,7 +104,7 @@ export function PlanChangeModal({
 
         {discounted && (
           <p className="text-xs text-success" data-testid="plan-change-discount">
-            Your discount applies: <strong className="tabular-nums">{formatPrice(preview.discountCents)}</strong>{' '}
+            Your discount applies: <strong className="tabular-nums">{formatPrice(preview.discountCents, preview.currency)}</strong>{' '}
             off per {per}.
           </p>
         )}
@@ -115,7 +115,7 @@ export function PlanChangeModal({
         {preview !== null && preview.survivingAddonCents > 0 && (
           <p className="text-xs text-fg-muted tabular-nums" data-testid="plan-change-total">
             With your current add-ons, the total becomes{' '}
-            <strong>{formatPrice(preview.totalCents)}</strong> per {per}.
+            <strong>{formatPrice(preview.totalCents, preview.currency)}</strong> per {per}.
           </p>
         )}
 

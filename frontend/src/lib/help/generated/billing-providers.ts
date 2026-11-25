@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5b99b9f2ae9ce9e0c9cc3c4bba1aef05396712f2c1277a0d7a7f29bc0ae2f9af
+// SOURCE-SHA256: cfce7c604b5a9417978d80c453f4666f64d2b9e2c8060841ddda6274d213cf42
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -129,8 +129,8 @@ export const billingProvidersTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Tax and VAT are the provider's. There is no tax logic anywhere in api/billing, and there should not be: Stripe Tax computes and remits on the Stripe path, and AWS Marketplace is the merchant of record on the Marketplace path, so it handles tax, invoicing and remittance for the buyer. Adding a second calculation here would put the app in disagreement with whichever one is authoritative. Enable Stripe Tax account-side; nothing in the app needs to change.",
-            "One currency per deployment. BILLING_CURRENCY must match the Stripe account's currency — Stripe rejects a balance transaction whose currency differs from the customer's, and the credit mechanism every discount depends on is a balance transaction. Regional pricing therefore means a separate deployment, not a per-org currency field.",
+            "Tax and VAT are the provider's. There is no tax logic anywhere in api/billing, and there should not be: Stripe Tax computes and remits on the Stripe path, and AWS Marketplace is the merchant of record on the Marketplace path, so it handles tax, invoicing and remittance for the buyer. Adding a second calculation here would put the app in disagreement with whichever one is authoritative. To use Stripe Tax, configure it account-side and set BILLING_AUTOMATIC_TAX=true: the app sets automatic_tax on each subscriptions.create and Checkout Session call, because the Dashboard toggle reaches neither.",
+            "One currency per deployment. BILLING_CURRENCY must match the Stripe account's currency — Stripe rejects a balance transaction whose currency differs from the customer's, and the credit mechanism every discount depends on is a balance transaction. Regional pricing therefore means a separate deployment, not a per-org currency field. Responses that carry an authored amount name its currency in a currency field (lower-case ISO 4217, e.g. usd): plans, bundles and combos, every priceBreakdown, discount and promotion records, the subscription, and the plan-change and crossover previews. The usage rollup's cost.currency is the same value upper-cased (USD).",
             "No trial period. The trialing status is handled wherever Stripe reports it, so a trial configured account-side will not break anything, but the app never requests one. The $0 Developer tier is the on-ramp instead: it is a real tier with real limits rather than a countdown, so nothing expires and no card is needed to start.",
             "No overage billing — the invoice is the price you agreed. Every cap is a hard refusal at the limit rather than a meter that keeps counting and bills the excess, so a busy period cannot produce a surprise invoice and the monthly figure is the one on the plan card. An account that reaches a ceiling adds the capacity it needs (a pack, a bundle or a tier step) as a deliberate, priced choice. Metered billing remains open as a product decision rather than a missing foundation: BatchMeterUsage on the Marketplace path, usage records on the Stripe path, and the quota service's per-period counters are all already in place."
           ]
@@ -174,7 +174,7 @@ export const billingProvidersTopic: HelpTopic = {
           "type": "list",
           "items": [
             "A Stripe account (start in test mode).",
-            "Your plan catalog decided (developer / pro / team / enterprise) — the app's plan ids, from Environment Variables → Billing."
+            "Your plan catalog decided (developer / pro / team / business / enterprise) — the app's plan ids, from Environment Variables → Billing."
           ]
         },
         {
@@ -274,7 +274,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Add-ons are charged as extra subscription line items on the same subscription, so each sellable bundle also needs a Stripe Price per interval, keyed <bundleId>_<interval> in the same STRIPE_PRICE_MAP. Annual is about 10× monthly, then rounded up to a whole dollar or .99 like every other price — so it is $499.99 rather than $499.90. Create the Price at the exact figure below:"
+          "content": "Add-ons are charged as extra subscription line items on the same subscription, so each sellable bundle also needs a Stripe Price per interval, keyed <bundleId>_<interval> in the same STRIPE_PRICE_MAP. Annual is about 10× monthly, then rounded up to a whole dollar, .49 or .99 like every other price — so it is $499.99 rather than $499.90. Create the Price at the exact figure below:"
         },
         {
           "type": "table",
@@ -428,7 +428,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "That's the full set: 3 paid plans + 14 add-ons, each with a _monthly and _annual key. Drop any interval you don't sell (e.g. omit the _annual keys for monthly-only pricing), and drop any add-on you haven't enabled via BILLING_BUNDLES_ENABLED — an unmapped bundle's line item is silently skipped (entitlement granted, never charged), so only omit what you deliberately don't bill."
+          "content": "That's the full set: 4 paid plans + 18 priced add-ons, each with a _monthly and _annual key (44 keys). Drop any interval you don't sell (e.g. omit the _annual keys for monthly-only pricing), and drop any add-on you haven't enabled via BILLING_BUNDLES_ENABLED — an unmapped bundle's line item is silently skipped (entitlement granted, never charged), so only omit what you deliberately don't bill."
         },
         {
           "type": "text",
@@ -436,7 +436,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Four combos and the per-seat volume ladder are applied by the platform as credit lines on the invoice projection, computed from the add-ons an org holds. They are not products, they have no STRIPE_PRICE_MAP key, and creating Stripe Prices for them would double-count. Defaults:"
+          "content": "The combos and the volume ladders are applied by the platform as credit lines on the invoice projection, computed from the add-ons an org holds. They are not products, they have no STRIPE_PRICE_MAP key, and creating Stripe Prices for them would double-count. Defaults:"
         },
         {
           "type": "table",
@@ -485,7 +485,7 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "assured_delivery",
-              "compliance_standard + support_standard",
+              "compliance_standard + support_standard (only with SUPPORT_ENABLED)",
               "$34.99",
               "$349.99"
             ]
@@ -497,7 +497,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "seat also carries a volume ladder — 10% off from 5 seats, 20% from 15, 30% from 40 — applied as a separate credit line. Override with BILLING_BUNDLE_SEAT_VOLUME_TIERS."
+          "content": "seat also carries a volume ladder — 10% off from 5 seats, 20% from 15, 30% from 40 — applied as a separate credit line. Override with BILLING_BUNDLE_SEAT_VOLUME_TIERS. The other stackable packs and the support levels carry ladders of their own (see Billing Add-on Bundles), realized the same way."
         },
         {
           "type": "text",
@@ -509,11 +509,11 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The app reconciles all subscription and payment state from Stripe webhooks. The endpoint is:"
+          "content": "The app reconciles all subscription and payment state from Stripe webhooks. Through the nginx gateway (which maps /api/billing/* to the billing service's /billing/*) the endpoint is:"
         },
         {
           "type": "code",
-          "content": "POST https://<your-public-host>/billing/stripe/webhook"
+          "content": "POST https://<your-public-host>/api/billing/stripe/webhook"
         },
         {
           "type": "text",
@@ -579,7 +579,7 @@ export const billingProvidersTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Which endpoint. It uses STRIPE_WEBHOOK_ENDPOINT_ID (we_…) if set. Otherwise it uses the endpoint whose URL is PLATFORM_BASE_URL + /billing/stripe/webhook, ignoring a trailing slash. Set the id when the endpoint is registered at any other URL, such as a proxy in front of the gateway. Only endpoints in the key's own Stripe world (test vs live) are considered.",
+            "Which endpoint. It uses STRIPE_WEBHOOK_ENDPOINT_ID (we_…) if set. Otherwise it uses the endpoint whose URL is PLATFORM_BASE_URL + /billing/stripe/webhook, ignoring a trailing slash. That is the service path, not the gateway's /api/billing/stripe/webhook, so with the endpoint registered at the gateway URL above, set the id; likewise for any other URL, such as a proxy in front of the gateway. Only endpoints in the key's own Stripe world (test vs live) are considered.",
             "Key permission. STRIPE_SECRET_KEY needs write access to Webhook Endpoints. A standard secret key has it. A restricted key (rk_…) must be granted Webhook Endpoints: Write. Without it the check still runs and reports, but cannot fix anything.",
             "When it cannot fix it. Startup never fails because of this check. If the endpoint cannot be found, read or updated (missing permission, network, wrong id or URL), billing logs the missing event names and sets billing_stripe_webhook_events_missing to how many handled events are not confirmed on the endpoint. If the endpoint could not be read at all, that is every handled event. BillingStripeWebhookEventsMissing fires while the gauge is above 0. Read the stripe-webhook-reconcile log line for the event names and the reason. Then grant the permission, set STRIPE_WEBHOOK_ENDPOINT_ID, or add the events in the Dashboard. The next daily pass, or a restart, clears it."
           ]
@@ -603,12 +603,12 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "stripe login\nstripe listen --forward-to https://localhost:8443/billing/stripe/webhook\nstripe trigger customer.subscription.created\nstripe trigger invoice.payment_succeeded",
+          "content": "stripe login\nstripe listen --forward-to https://localhost:8443/api/billing/stripe/webhook\nstripe trigger customer.subscription.created\nstripe trigger invoice.payment_succeeded",
           "language": "bash"
         },
         {
           "type": "text",
-          "content": "Confirm the subscription appears (GET /billing/subscription for the org) and the tier is granted."
+          "content": "Confirm the subscription appears (GET /billing/subscriptions for the org) and the tier is granted."
         },
         {
           "type": "text",
@@ -630,10 +630,10 @@ export const billingProvidersTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Provider selection — getPaymentProvider() constructs the StripeProvider when BILLING_PROVIDER=stripe and throws at startup if STRIPE_SECRET_KEY is unset (STRIPE_SECRET_KEY is required when BILLING_PROVIDER=stripe), so a misconfigured deployment fails fast rather than silently running stubbed.",
-            "Subscribe — the dashboard Billing page calls POST /billing/subscriptions (authenticated, billing:manage), which runs createCustomer → createSubscription on the provider. createSubscription looks up the Stripe Price from STRIPE_PRICE_MAP[<planId>_<interval>] and fails fast if that key is missing.",
+            "Subscribe — a paid plan goes through hosted Checkout: POST /billing/subscriptions/checkout returns a Stripe Checkout url, and the local subscription and entitlements are provisioned by the customer.subscription.created webhook when it completes. The direct POST /billing/subscriptions runs createCustomer → createSubscription on the provider. Both need billing:manage, an MFA-grade admin session and the account root, and look up the Stripe Price from STRIPE_PRICE_MAP[<planId>_<interval>], failing fast if that key is missing.",
             "Add-ons — purchased bundles call the add-on routes, which invoke syncAddons; each bundle's Stripe Price comes from STRIPE_PRICE_MAP[<bundleId>_<interval>], applied as an extra subscription line item (a missing key is skipped — granted but not charged).",
             "Billing periods — Stripe owns the dates. The app is pinned to one Stripe API version (STRIPE_API_VERSION in the provider), and at that version the period lives on the subscription items, so that is where it is read from (on create, on every .updated, and by the late-webhook reconciler). A paid invoice moves the period to the one its recurring line bills for. Proration lines are skipped, and a proration-only or one-off invoice leaves the period alone. Each period carries the UTC day it is anchored on. Only periods no provider keeps (the stub provider, and a Marketplace entitlement with no expiry) are renewed by the app, on that anchor day clamped to the month's length, so an anchor of the 31st runs Jan 31 → Feb 28 → Mar 31.",
-            "Reconciliation — all state changes come back through POST /billing/stripe/webhook, which verifies each delivery with stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET), returns 503 if the secret is unset (so Stripe retries rather than the app processing unsigned payloads), and de-dupes redeliveries by event.id. The consumed event set is the table in Step 4."
+            "Reconciliation — all state changes come back through the webhook (service path POST /billing/stripe/webhook), which verifies each delivery with stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET), returns 503 if the secret is unset (so Stripe retries rather than the app processing unsigned payloads), and de-dupes redeliveries by event.id. The consumed event set is the table in Step 4."
           ]
         },
         {
@@ -665,12 +665,22 @@ export const billingProvidersTopic: HelpTopic = {
             [
               "STRIPE_WEBHOOK_ENDPOINT_ID",
               "—",
-              "Id (we_…) of the webhook endpoint whose events billing keeps complete. Unset = the endpoint registered at PLATFORM_BASE_URL/billing/stripe/webhook. See Step 4"
+              "Id (we_…) of the webhook endpoint whose events billing keeps complete. Unset = the endpoint registered at PLATFORM_BASE_URL/api/billing/stripe/webhook. See Step 4"
             ],
             [
               "STRIPE_PRICE_MAP",
               "{}",
               "JSON map of <id>_<interval> → Stripe Price id, where <id> is a plan id or a bundle id (e.g. {\"pro_monthly\":\"price_…\",\"seat_annual\":\"price_…\"}). A plan/interval absent here cannot be subscribed; a bundle absent here is granted but not charged"
+            ],
+            [
+              "BILLING_CURRENCY",
+              "usd",
+              "ISO currency every amount is authored and billed in. Must match the Stripe account's currency"
+            ],
+            [
+              "BILLING_AUTOMATIC_TAX",
+              "false",
+              "Hand tax calculation to Stripe Tax on both subscription paths (direct create and Checkout)"
             ]
           ]
         },
@@ -680,11 +690,11 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every variable Stripe needs, at its code default. Replace the two secrets and the 34 price_REPLACE ids; everything else can ship as-is."
+          "content": "Every variable Stripe needs, at its code default. Replace the two secrets and the 44 price_REPLACE ids; everything else can ship as-is."
         },
         {
           "type": "code",
-          "content": "BILLING_ENABLED=true\nBILLING_PROVIDER=stripe\n\nSTRIPE_SECRET_KEY=sk_test_REPLACE\nSTRIPE_WEBHOOK_SECRET=whsec_REPLACE\nSTRIPE_WEBHOOK_ENDPOINT_ID=\n\nSTRIPE_PRICE_MAP='{\"pro_monthly\":\"price_REPLACE\",\"pro_annual\":\"price_REPLACE\",\"team_monthly\":\"price_REPLACE\",\"team_annual\":\"price_REPLACE\",\"business_monthly\":\"price_REPLACE\",\"business_annual\":\"price_REPLACE\",\"enterprise_monthly\":\"price_REPLACE\",\"enterprise_annual\":\"price_REPLACE\",\"seat_monthly\":\"price_REPLACE\",\"seat_annual\":\"price_REPLACE\",\"pipeline_pack_monthly\":\"price_REPLACE\",\"pipeline_pack_annual\":\"price_REPLACE\",\"plugin_pack_monthly\":\"price_REPLACE\",\"plugin_pack_annual\":\"price_REPLACE\",\"cpu_credits_pack_monthly\":\"price_REPLACE\",\"cpu_credits_pack_annual\":\"price_REPLACE\",\"api_pack_monthly\":\"price_REPLACE\",\"api_pack_annual\":\"price_REPLACE\",\"automation_pack_monthly\":\"price_REPLACE\",\"automation_pack_annual\":\"price_REPLACE\",\"ai_pack_monthly\":\"price_REPLACE\",\"ai_pack_annual\":\"price_REPLACE\",\"storage_pack_monthly\":\"price_REPLACE\",\"storage_pack_annual\":\"price_REPLACE\",\"retention_pack_monthly\":\"price_REPLACE\",\"retention_pack_annual\":\"price_REPLACE\",\"dora_history_pack_monthly\":\"price_REPLACE\",\"dora_history_pack_annual\":\"price_REPLACE\",\"advanced_reporting_monthly\":\"price_REPLACE\",\"advanced_reporting_annual\":\"price_REPLACE\",\"team_usage_analytics_monthly\":\"price_REPLACE\",\"team_usage_analytics_annual\":\"price_REPLACE\",\"compliance_standard_monthly\":\"price_REPLACE\",\"compliance_standard_annual\":\"price_REPLACE\",\"compliance_advanced_monthly\":\"price_REPLACE\",\"compliance_advanced_annual\":\"price_REPLACE\",\"stakeholder_reports_monthly\":\"price_REPLACE\",\"stakeholder_reports_annual\":\"price_REPLACE\",\"support_standard_monthly\":\"price_REPLACE\",\"support_standard_annual\":\"price_REPLACE\",\"support_priority_monthly\":\"price_REPLACE\",\"support_priority_annual\":\"price_REPLACE\",\"support_premium_monthly\":\"price_REPLACE\",\"support_premium_annual\":\"price_REPLACE\"}'\n\nBILLING_DISCOUNTS_ENABLED=true\nBILLING_DISCOUNT_MAX_PERCENT=50\nBILLING_DISCOUNT_MAX_CENTS=2000000\nBILLING_PROMOTIONS_ENABLED=true\nPAYMENT_GRACE_PERIOD_DAYS=7\nRENEWAL_REMINDER_DAYS=7",
+          "content": "BILLING_ENABLED=true\nBILLING_PROVIDER=stripe\n\nSTRIPE_SECRET_KEY=sk_test_REPLACE\nSTRIPE_WEBHOOK_SECRET=whsec_REPLACE\nSTRIPE_WEBHOOK_ENDPOINT_ID=\nBILLING_CURRENCY=usd\nBILLING_AUTOMATIC_TAX=false\n\nSTRIPE_PRICE_MAP='{\"pro_monthly\":\"price_REPLACE\",\"pro_annual\":\"price_REPLACE\",\"team_monthly\":\"price_REPLACE\",\"team_annual\":\"price_REPLACE\",\"business_monthly\":\"price_REPLACE\",\"business_annual\":\"price_REPLACE\",\"enterprise_monthly\":\"price_REPLACE\",\"enterprise_annual\":\"price_REPLACE\",\"seat_monthly\":\"price_REPLACE\",\"seat_annual\":\"price_REPLACE\",\"pipeline_pack_monthly\":\"price_REPLACE\",\"pipeline_pack_annual\":\"price_REPLACE\",\"plugin_pack_monthly\":\"price_REPLACE\",\"plugin_pack_annual\":\"price_REPLACE\",\"cpu_credits_pack_monthly\":\"price_REPLACE\",\"cpu_credits_pack_annual\":\"price_REPLACE\",\"api_pack_monthly\":\"price_REPLACE\",\"api_pack_annual\":\"price_REPLACE\",\"automation_pack_monthly\":\"price_REPLACE\",\"automation_pack_annual\":\"price_REPLACE\",\"ai_pack_monthly\":\"price_REPLACE\",\"ai_pack_annual\":\"price_REPLACE\",\"storage_pack_monthly\":\"price_REPLACE\",\"storage_pack_annual\":\"price_REPLACE\",\"retention_pack_monthly\":\"price_REPLACE\",\"retention_pack_annual\":\"price_REPLACE\",\"dora_history_pack_monthly\":\"price_REPLACE\",\"dora_history_pack_annual\":\"price_REPLACE\",\"advanced_reporting_monthly\":\"price_REPLACE\",\"advanced_reporting_annual\":\"price_REPLACE\",\"team_usage_analytics_monthly\":\"price_REPLACE\",\"team_usage_analytics_annual\":\"price_REPLACE\",\"compliance_standard_monthly\":\"price_REPLACE\",\"compliance_standard_annual\":\"price_REPLACE\",\"compliance_advanced_monthly\":\"price_REPLACE\",\"compliance_advanced_annual\":\"price_REPLACE\",\"stakeholder_reports_monthly\":\"price_REPLACE\",\"stakeholder_reports_annual\":\"price_REPLACE\",\"support_standard_monthly\":\"price_REPLACE\",\"support_standard_annual\":\"price_REPLACE\",\"support_priority_monthly\":\"price_REPLACE\",\"support_priority_annual\":\"price_REPLACE\",\"support_premium_monthly\":\"price_REPLACE\",\"support_premium_annual\":\"price_REPLACE\"}'\n\nBILLING_DISCOUNTS_ENABLED=true\nBILLING_DISCOUNT_MAX_PERCENT=50\nBILLING_DISCOUNT_MAX_CENTS=2000000\nBILLING_PROMOTIONS_ENABLED=true\nPAYMENT_GRACE_PERIOD_DAYS=7\nRENEWAL_REMINDER_DAYS=7",
           "language": "bash"
         },
         {
@@ -723,7 +733,7 @@ export const billingProvidersTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Tier dimensions — one per sellable plan (map to pro / team / enterprise).",
+            "Tier dimensions — one per sellable plan (map to pro / team / business / enterprise).",
             "Metered add-on dimensions — one per add-on you meter (seat pack, pipeline pack, retention pack, etc.)."
           ]
         },
@@ -759,7 +769,7 @@ export const billingProvidersTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Resolve (public, the AWS redirect target) — POST /billing/marketplace/resolve runs ResolveCustomer on the token → GetEntitlements to determine the entitled tier (a dimension with no map entry falls back to developer) → banks a short-lived, single-use registrationRef (30 min TTL). It does not create a subscription yet — there's no org to bind to. If the customer is already linked, it returns alreadyRegistered instead."
+            "Resolve (server-side, from the fulfillment page) — the /marketplace/register page receives AWS's POST and calls the billing service's POST /billing/marketplace/resolve over the cluster network (BILLING_INTERNAL_URL); the gateway answers 404 for /api/billing/marketplace/resolve, because each call spends a per-account-throttled AWS ResolveCustomer. Resolve runs ResolveCustomer on the token → GetEntitlements to determine the entitled tier (a dimension with no map entry falls back to developer) → banks a short-lived, single-use registrationRef (30 min TTL). It does not create a subscription yet — there's no org to bind to. If the customer is already linked, it returns alreadyRegistered instead."
           ]
         },
         {
@@ -769,7 +779,7 @@ export const billingProvidersTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Claim (authenticated) — once the purchaser signs up / signs in, POST /billing/marketplace/claim (billing:manage) binds the registrationRef to their organization, creating the subscription (keyed on the real orgId; the AWS customer key is stored only in metadata, never the AWS account id) and syncing the tier to quota."
+            "Claim (authenticated) — once the purchaser signs up / signs in, POST /billing/marketplace/claim (billing:manage, MFA-grade admin session) binds the registrationRef to their organization, creating the subscription (keyed on the real orgId; the AWS customer key is stored only in metadata, never the AWS account id) and syncing the tier to quota."
           ]
         },
         {
@@ -898,7 +908,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Tier dimensions (from the four plans)"
+          "content": "Tier dimensions (from the four paid plans)"
         },
         {
           "type": "text",
@@ -1043,7 +1053,7 @@ export const billingProvidersTopic: HelpTopic = {
               "team_usage_analytics",
               "TeamUsageAnalytics",
               "$30 (3000)",
-              "team"
+              "team, business"
             ],
             [
               "compliance_standard",
@@ -1061,7 +1071,7 @@ export const billingProvidersTopic: HelpTopic = {
               "stakeholder_reports",
               "StakeholderReports",
               "$30 (3000)",
-              "pro, team"
+              "pro, team, business"
             ],
             [
               "support_standard",
@@ -1216,6 +1226,10 @@ export const billingProvidersTopic: HelpTopic = {
       "title": "Endpoints reference",
       "blocks": [
         {
+          "type": "text",
+          "content": "Paths are the billing service's; through the gateway each is reached under /api (/api/billing/...)."
+        },
+        {
           "type": "table",
           "headers": [
             "Endpoint",
@@ -1232,13 +1246,13 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "POST /billing/marketplace/resolve",
-              "None (AWS redirect)",
+              "None — cluster-internal only (the gateway 404s it; the fulfillment page calls it server-side)",
               "Marketplace",
               "Exchange a registration token for a single-use registrationRef (banks a pending registration; no subscription yet)"
             ],
             [
               "POST /billing/marketplace/claim",
-              "Auth (billing:manage)",
+              "Auth (billing:manage, MFA-grade admin)",
               "Marketplace",
               "Bind a registrationRef to the caller's org and create the subscription"
             ],
@@ -1250,7 +1264,7 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "GET /billing/marketplace/entitlements",
-              "Auth",
+              "Auth (billing:read)",
               "Marketplace",
               "Current entitlements and plan for the account ({ entitlements, currentPlanId }; the license ARN stays server-side)"
             ]

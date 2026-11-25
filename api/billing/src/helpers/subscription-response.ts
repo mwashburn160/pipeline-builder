@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { isGraceDowngraded } from './subscription-status.js';
+import { BILLING_CURRENCY } from '../config/currency.js';
 import { config } from '../config.js';
 
 /**
@@ -51,6 +52,8 @@ export interface SubscriptionResponse {
   addons: Array<{ bundleId: string; quantity: number }>;
   recurringDiscount: SubscriptionResponseDiscount | null;
   creditRemainingCents: number;
+  /** The currency of a dollar `recurringDiscount.value` and `creditRemainingCents` (lower-case ISO 4217). */
+  currency: string;
   /** `null` unless the subscription is in dunning (a failed payment not yet settled). */
   dunning: SubscriptionDunning | null;
   createdAt: string;
@@ -100,6 +103,7 @@ export function buildSubscriptionResponse(
       ? { discountId: subscription.recurringDiscount.discountId, unit: subscription.recurringDiscount.unit, value: subscription.recurringDiscount.value }
       : null,
     creditRemainingCents: subscription.creditBalanceCents ?? 0,
+    currency: BILLING_CURRENCY,
     dunning: dunningState(subscription),
     createdAt: subscription.createdAt.toISOString(),
     updatedAt: subscription.updatedAt.toISOString(),

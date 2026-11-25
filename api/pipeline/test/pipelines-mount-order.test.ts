@@ -207,7 +207,6 @@ jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/pipeline-template-validator.js', () => ({
   validatePipelineTemplates: jest.fn(),
-  resolvePipeline: jest.fn(),
 }));
 jest.unstable_mockModule('../src/services/pipeline-template-service.js', () => ({
   pipelineTemplateService: {

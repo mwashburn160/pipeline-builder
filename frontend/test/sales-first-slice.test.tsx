@@ -35,7 +35,7 @@ type Bundle = Parameters<typeof packForQuota>[1][number];
 
 const PACK: Bundle = {
   id: 'plugin_pack', name: 'Plugin Pack', description: '', grants: { plugins: 10 },
-  prices: { monthly: 1199, annual: 11990 }, stackable: true,
+  prices: { monthly: 1199, annual: 11990 }, currency: 'usd', stackable: true,
   availableForTiers: ['developer', 'pro', 'team', 'business', 'enterprise'],
 } as Bundle;
 
@@ -114,7 +114,7 @@ describe('F3 — the crossover card', () => {
   };
 
   it('states both figures and the saving', () => {
-    render(<CrossoverCard crossover={verdict} />);
+    render(<CrossoverCard crossover={verdict} currency="usd" />);
     const card = screen.getByTestId('crossover-card');
     expect(card).toHaveTextContent('$278.96');
     expect(card).toHaveTextContent('$249.00');
@@ -124,30 +124,30 @@ describe('F3 — the crossover card', () => {
   it('says the saving is CONDITIONAL on dropping the packs', () => {
     // The expensive failure: a plan change does not retire a resource pack, so
     // an account that upgrades and does nothing else pays MORE.
-    render(<CrossoverCard crossover={verdict} />);
+    render(<CrossoverCard crossover={verdict} currency="usd" />);
     const card = screen.getByTestId('crossover-card');
     expect(card).toHaveTextContent('does not remove it for you');
     expect(card).toHaveTextContent('would cost more than you pay today');
   });
 
   it('omits the condition when the move retires everything by itself', () => {
-    render(<CrossoverCard crossover={{ ...verdict, savingRequiresDrops: false, dropRequiredAddons: [], autoPrunedAddons: ['seat'] }} />);
+    render(<CrossoverCard crossover={{ ...verdict, savingRequiresDrops: false, dropRequiredAddons: [], autoPrunedAddons: ['seat'] }} currency="usd" />);
     expect(screen.getByTestId('crossover-card')).not.toHaveTextContent('does not remove');
   });
 
   it('renders NOTHING when there is no crossover, whatever the reason', () => {
     for (const reason of ['no_addons', 'top_tier', 'nothing_cheaper', 'would_regress'] as const) {
-      const { container } = render(<CrossoverCard crossover={{ ...verdict, crossover: false, candidateTier: null, reason }} />);
+      const { container } = render(<CrossoverCard crossover={{ ...verdict, crossover: false, candidateTier: null, reason }} currency="usd" />);
       // `would_regress` especially: showing it would be an offer to downgrade.
       expect(container).toBeEmptyDOMElement();
     }
-    const { container } = render(<CrossoverCard crossover={null} />);
+    const { container } = render(<CrossoverCard crossover={null} currency="usd" />);
     expect(container).toBeEmptyDOMElement();
   });
 });
 
 describe('F1 — the modal prices the change', () => {
-  const plan = { id: 'business', name: 'Business', tier: 'business', prices: { monthly: 24900, annual: 249000 } } as never;
+  const plan = { id: 'business', name: 'Business', tier: 'business', prices: { monthly: 24900, annual: 249000 }, currency: 'usd' } as never;
   const props = { targetPlan: plan, currentPlanName: 'Team', interval: 'monthly' as const, isDowngrade: false, loading: false, onConfirm: () => {}, onClose: () => {} };
 
   beforeEach(() => { jest.clearAllMocks(); });

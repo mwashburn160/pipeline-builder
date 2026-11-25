@@ -147,3 +147,22 @@ describe('calls whose result is a one-time secret or a ceremony are never replay
     expect(seen).toHaveLength(0);
   });
 });
+
+describe('a domain method that reshapes its answer reshapes the replay too', () => {
+  it('exportOwnData resumes with the same JSON text a direct call returns, through a second refusal too', async () => {
+    mockFetch(2, { success: true, data: { account: { id: 'u1' } } });
+    const { authApi } = await import('../src/lib/api/domains/auth');
+    const auth = authApi(new ApiCore());
+    const { seen, stop } = claimRefusals();
+    const saved = jest.fn<AnyFn>();
+
+    let handled = false;
+    try { await auth.exportOwnData('stale'); } catch (err) { handled = continueAfterStepUp<string>(err, saved); }
+    expect(handled).toBe(true);
+    await expect(seen[0].retry!('stale-again')).rejects.toBeInstanceOf(StepUpRequiredError);
+    await seen[1].retry!('fresh');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(saved).toHaveBeenCalledWith(JSON.stringify({ account: { id: 'u1' } }, null, 2));
+    stop();
+  });
+});

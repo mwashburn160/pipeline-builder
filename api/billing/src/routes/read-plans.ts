@@ -14,6 +14,7 @@ import {
   MAX_PAGE_LIMIT,
 } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
+import { BILLING_CURRENCY } from '../config/currency.js';
 import { Plan, type PlanDocument } from '../models/plan.js';
 
 const logger = createLogger('billing-plans');
@@ -39,6 +40,8 @@ function toPlanResponse(plan: PlanDocument) {
     description: plan.description,
     tier: plan.tier,
     prices: plan.prices,
+    /** The currency of `prices` (lower-case ISO 4217). */
+    currency: BILLING_CURRENCY,
     features: plan.features,
     isDefault: plan.isDefault,
     sortOrder: plan.sortOrder,

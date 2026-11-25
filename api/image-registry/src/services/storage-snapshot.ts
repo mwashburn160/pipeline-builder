@@ -463,10 +463,12 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
   await mapWithConcurrency([...orgRepos], concurrency, async ([orgId, repos]) => {
     if (signal?.aborted) return;
     const orgStart = Date.now();
-    const seq = await s.nextSeq();
-    const scan = await scanRepositories(repos, { timings, limiter, perRepo: true });
-    if (signal?.aborted) return;
     try {
+      // Drawn inside the try: a store blip on it is this org's failure, never
+      // the run's (mapWithConcurrency rejects the whole map on a throw).
+      const seq = await s.nextSeq();
+      const scan = await scanRepositories(repos, { timings, limiter, perRepo: true });
+      if (signal?.aborted) return;
       // Read-merge-write: a targeted refresh may have stored newer figures for
       // some of these repositories since this scan started (or store them while
       // this write is in flight — the write is conditional on what it merged).
@@ -481,7 +483,7 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
       incompleteOrgs++;
       unstoredOrgs.push(orgId);
       incCounter(SNAPSHOT_ORG_WRITE_FAILURES_COUNTER, {});
-      logger.warn('Storage snapshot could not store an org record — it reads as unknown', { orgId, error: errorMessage(err) });
+      logger.warn('Storage snapshot could not measure or store an org record — it reads as unknown', { orgId, error: errorMessage(err) });
     }
     perOrgMs.push({ orgId, ms: Date.now() - orgStart, repos: repos.length });
   });

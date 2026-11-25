@@ -12,6 +12,9 @@ import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, Combo
  *  fields are integer cents. */
 export interface DiscountPriceBreakdown {
   interval: 'monthly' | 'annual';
+  /** The currency of every amount here (lower-case ISO 4217, the server's `BILLING_CURRENCY`). */
+  currency: string;
+
   items: { label: string; cents: number }[];
   subtotalCents: number;
   totalCents: number;
@@ -50,6 +53,8 @@ export interface Promotion {
   spentCents: number;
   grantsCount: number;
   perOrgCapCents?: number;
+  /** The currency of every amount here (lower-case ISO 4217, the server's `BILLING_CURRENCY`). */
+  currency: string;
   maxGrants?: number;
   isActive: boolean;
   createdAt?: string;
@@ -136,7 +141,7 @@ export function billingApi(core: ApiCore) {
      * silent for the right cause rather than just rendering nothing.
      */
     getCrossover: async (opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ crossover: CrossoverVerdict | null }>>(
+      return core.request<ApiResponse<{ crossover: CrossoverVerdict | null; currency: string }>>(
         '/api/billing/crossover',
         { signal: opts?.signal },
       );

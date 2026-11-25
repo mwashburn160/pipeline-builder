@@ -28,7 +28,7 @@ const baseProps = {
 const preview = (over: Partial<AddonResult> = {}): AddonResult => ({
   addons: [],
   effectiveLimits: {},
-  priceBreakdown: { interval: 'monthly', items: [{ label: 'Pro', quantity: 1, cents: 4900 }], totalCents: 4900 },
+  priceBreakdown: { interval: 'monthly', currency: 'usd', items: [{ label: 'Pro', quantity: 1, cents: 4900 }], totalCents: 4900 },
   ...over,
 });
 

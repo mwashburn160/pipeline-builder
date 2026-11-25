@@ -22,6 +22,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
+import { BILLING_CURRENCY } from '../config/currency.js';
 import { normalizeCampaignId } from '../helpers/campaign.js';
 import { grantPromotionToOrg, previewPromotion, promotionsEnabled, batchEvaluatePromotion, loadManageableSubscription, aggregatePromotionLedgerSpend } from '../helpers/promotion-engine.js';
 import type { PromotionContext } from '../helpers/promotion-engine.js';
@@ -54,6 +55,8 @@ function toPromotionResponse(p: PromotionDocument): Record<string, unknown> {
     spentCents: p.spentCents,
     grantsCount: p.grantsCount,
     perOrgCapCents: p.perOrgCapCents,
+    /** The currency of a dollar `value`/`referrerValue` and the cent amounts. */
+    currency: BILLING_CURRENCY,
     maxGrants: p.maxGrants,
     isActive: p.isActive,
     createdAt: p.createdAt?.toISOString(),

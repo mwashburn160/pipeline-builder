@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6ad01600d67ea41730725fb2b05227307fc701055384aa0e15e814c70e4a2793
+// SOURCE-SHA256: 5057ecd672b413dd760b4fccf2be5a32bab22fb693b1d6191ffd78550d650e20
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -579,7 +579,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Read by ops-center, which serves the relay (POST /observability/alert-webhook) and every other Alertmanager receiver since the operations control plane was split out of platform. Platform no longer reads any variable in this section."
+          "content": "Read by ops-center, which serves the relay (POST /observability/alert-webhook) and every other Alertmanager receiver. Platform reads none of the variables in this section."
         },
         {
           "type": "table",
@@ -1326,8 +1326,8 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "SOFT_DELETE_PURGE_LOCK_TTL_MS",
-              "900000",
-              "Purge-sweep leader-lock TTL; only one replica sweeps at a time"
+              "120000",
+              "Purge-sweep leader-lock TTL (the shared crash-recovery window); only one replica sweeps at a time"
             ],
             [
               "ECOSYSTEM_PUBLIC_READER_PASSWORD",
@@ -1792,6 +1792,11 @@ export const envVariablesTopic: HelpTopic = {
               "Bound on one DB refresh (10 min)"
             ],
             [
+              "PLUGIN_VULN_SCAN_TIMEOUT_MS",
+              "300000",
+              "Bound on one grype scan of an image's SBOM (5 min)"
+            ],
+            [
               "PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES",
               "unset",
               "The grype-db volume's size limit, in bytes. Published as plugin_vuln_db_cache_limit_bytes next to the measured plugin_vuln_db_cache_bytes, so the PluginVulnDbCacheNearLimit alert can fire before the kubelet evicts the pod. Keep equal to the emptyDir sizeLimit (ec2 and minikube set 12 Gi). Unset = no limit gauge, so the alert stays silent"
@@ -1808,8 +1813,8 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "PLUGIN_RESCAN_LOCK_TTL_MS",
-              "21600000",
-              "Rescan leader-lock TTL (6 h) — must outlast one pass"
+              "120000",
+              "Rescan leader-lock crash-recovery window (the shared leader-lock default)"
             ],
             [
               "PLUGIN_RESCAN_STARTUP_DELAY_MS",
@@ -1899,7 +1904,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLUGIN_AUTO_TIDY_ENABLED",
               "true",
-              "Run the daily automatic plugin version tidying job over tenant orgs (leader-locked, one pod per day). Each org picks its own mode under Settings → Organization → Plugin security (pluginRetention.autoTidy: off, notify — the default, a weekly digest only — or on: deactivate a stale unused version 7 days after its warning, soft-delete it 30 days later). Only the literal false stops the job for every org; any other value leaves it on. The per-org preview (GET /plugins/tidy/preview) answers either way. See Plugin publishing. Plugin service"
+              "Run the daily automatic plugin version tidying job over tenant orgs (leader-locked, one pod per day). Each org picks its own mode under Settings → Organization → Plugin security (pluginRetention.autoTidy: off, notify — the default, a weekly digest only — or on: deactivate a stale unused version 7 days after its warning, soft-delete it 30 days later). Only false (any case) stops the job for every org; any other value leaves it on. The per-org preview (GET /plugins/tidy/preview) answers either way. See Plugin publishing. Plugin service"
             ],
             [
               "PLUGIN_REMEDIATION_ENABLED",
@@ -1914,12 +1919,12 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLUGIN_REMEDIATION_CONCURRENCY",
               "2",
-              "Tenant remediation jobs running at once across the build queue's workers. Remediation builds run on the org's build tier queue behind user builds and spend no build credits. Plugin service"
+              "Remediation jobs running at once across the build queue's workers (at least 1). Remediation builds run on the org's build tier queue behind user builds, also hold one of the org's build slots, and spend no build credits; a job without a slot waits a minute and tries again. Plugin service"
             ],
             [
               "PLUGIN_REMEDIATION_BASE_CONCURRENCY",
               "4",
-              "Concurrency of the system-org shared-base pass (a CVE in plugin-base reaches every plugin built on it), which runs ahead of tenant remediations. Plugin service"
+              "Shared platform base rebuilds running at once (a CVE in plugin-base reaches every plugin built on it). The first remediation that needs a base rebuilt, once per base and findings set, rebuilds it into the system namespace; the others on that base wait and build FROM it. Separate from PLUGIN_REMEDIATION_CONCURRENCY. Plugin service"
             ],
             [
               "PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY",
@@ -2010,58 +2015,158 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "PLUGIN_BUILD_CONCURRENCY_UNLIMITED",
-              "4",
-              "Concurrent builds per container on the unlimited tier's queue"
+              "1",
+              "Concurrent builds per container on the unlimited tier's queue — deliberately the lowest row: unlimited is the billing-disabled (usually single-node) tier and the system org's, which loads the whole sample catalogue at once"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "The per-tier concurrencies are a ladder, not one figure, and each one bounds how many of that tier's builds run at once across every org on the tier — a Worker per tier, one queue each. That makes this ladder (not a quota) the aggregate bound, which is what lets a tier's cpuCredits cap stay reachable by a single tenant: the cap is deliverable, and the number of tenants reaching for it concurrently is limited here, where it can be tuned without touching the price list. They all defaulted to a global PLUGIN_BUILD_CONCURRENCY (1) before, which made the per-tier machinery inert — at 1 an org can never reach its per-org slot cap either, so the per-org semaphore never bound and the free tier was capped at one concurrent build platform-wide by accident rather than by decision. That global is now REMOVED, not merely superseded. It was still being read and then discarded while this table still described it as the default for every tier below, so an operator could set it to 1, believe the service built one plugin at a time, and in fact be running four on the unlimited tier — a belief that shaped the diagnosis of a real incident. There is no global knob: each tier carries its own figure. | PLUGIN_BUILDKIT_MILLI_VCPU | 1500 | vCPU (in milli-units, as Kubernetes spells it) that one build is assumed to occupy, used to price cpuCredits: a credit is a vCPU-minute, so a build costs wall-minutes x this / 1000, rounded up to the whole credit. Must track limits.cpu on the buildkitd sidecar in deploy/<target>/k8s/plugin.yaml — the whole credits ladder is derived from this figure (credits = builds x wall-minutes x vCPU), so changing one without the other reprices every tier silently | | PLUGIN_ORG_BUILD_SLOTS_STANDARD | 5 | Baseline in-flight build slots an org gets on the standard class. The build catalog's tier ladder only ever RAISES it, so the effective cap is max(baseline, ladder) — 5 for developer through business, 8 for enterprise/unlimited. It is 5 rather than the ladder's lower rows (1/2/3) because three in flight is too tight for a real working set: an org pushing a batch spends most of its time queued, and past PLUGIN_ORG_SLOT_MAX_WAIT_MS the waiting builds fail terminally rather than late. A per-tier/class override wins outright, including a value BELOW this. The system org is exempt from the cap entirely. Not PLUGIN_MAX_BUILDS_PER_ORG: that name was dead for a time and left behind in several targets' examples, so reviving it would have silently applied a stale value — a fresh name can only have been set on purpose | | PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE | 8 | The same baseline for the flexible class, and deliberately HIGHER than standard's. A single shared baseline flattened the two classes below it — developer, pro and team got the same figure either way, so choosing the cheap class bought a later start and no extra slots. Per-class baselines keep \"flexible has more headroom\" true on every tier by construction | | — | — | The per-org cap is a fairness device between tenants sharing a tier queue, not a throughput knob. PLUGIN_BUILD_CONCURRENCY_<TIER> is the pod's own capacity and the lower of the two binds — every concurrent build drives the same buildkitd sidecar. The worker logs both figures on start and WARNS when concurrency is the binding one, because a per-org cap that cannot be reached is exactly the shape of a setting that looks like it works | | PLUGIN_MAX_BUILDS_<TIER>_<CLASS> | per tier and class (below) | Max in-flight builds one org may hold, per scheduling class, across all workers (Redis semaphore) — an org over the cap has its job re-delayed so another org's build takes the worker slot. <TIER> is one of DEVELOPER, PRO, TEAM, BUSINESS, ENTERPRISE, UNLIMITED; <CLASS> is STANDARD or FLEXIBLE. The system org uses PLUGIN_SYSTEM_ORG_MAX_BUILDS instead, and is exempt from the slot WAIT becoming terminal — see below | | PLUGIN_SYSTEM_ORG_MAX_BUILDS | 12 | The system org's in-flight build cap, replacing the per-tier rows above for that one org. It is finite on purpose, and the wait is what is exempt, not the cap. The sample catalogue loads under the system org, so a queue hundreds deep is normal there: a cap of 3 plus a terminal PLUGIN_ORG_SLOT_MAX_WAIT_MS once failed 80 of 119 plugins for being merely LATE, and removing the cap entirely then let 8 replicas x 4 worker concurrency put 32 builds in flight and OOMKill the image registry (107 of 117 lost, pushes included — /token is served by the same process). So: a high cap that bounds the fan-out, and a system-org build that cannot get a slot waits as long as it takes | | PLUGIN_MAX_BUILDS_PER_REPLICA | the ladder's sum (13) | Builds ONE replica runs at once, across every tier queue. A replica starts one BullMQ Worker per tier, each with its own PLUGIN_BUILD_CONCURRENCY_<TIER>, and all of them drive the same buildkitd sidecar — one container, one BUILDKIT_MEMORY_LIMIT. So a replica's real ceiling is the SUM of the ladder (13), and the fleet's is that times the plugin deployment's KEDA maxReplicaCount (8) = 104. Nothing declared that before: the figure everyone reasoned with, 8 x 4 = 32, was the single-tier case (a catalogue load is all system-org). Defaults to the shipped sum so it binds nothing today, and starts binding — with a warning on worker start — the moment a tier row is raised. Lower it when the sidecar's memory is the constraint; raise it only together with BUILDKIT_MEMORY_LIMIT, since the concurrent builds share that one cgroup | | PLUGIN_BUILD_BORROW_MAX | 0 | How many builds may run above their tier's floor on one replica, letting a busy tier use slots the idle tiers are not asking for. A replica runs one worker per tier capped at its ladder row, and a worker only polls its own queue — so a single-tier backlog strands the rest of the budget. That is the normal case on a billing-disabled install, where every org is unlimited (floor 1 of 13) and the sample catalogue loads under it. 0 keeps today's behaviour exactly: a tier can never exceed its floor. The cost is not free capacity — builds are not preemptible, so a lent slot turns a tier's immediate floor into \"guaranteed once this many builds finish\". Shipped ON at 12 on the local targets (minikube, docker) and off on the AWS ones: locally billing is off, so every org sits on unlimited's floor of 1 of 13 and there is no other tier to protect. Keep it at 1–2 on a multi-tenant cluster. Expect roughly 2 → 12 builds in flight locally rather than 2 → 26 — once borrowing clears the tier floor, PLUGIN_SYSTEM_ORG_MAX_BUILDS (12) becomes the binding constraint on a catalogue load, and raising that is the path that once OOMKilled the image registry. PLUGIN_MAX_BUILDS_PER_REPLICA still binds on top. It also changes SCALING, in the direction that surprises people: this figure is published as plugin_build_tier_concurrency, which the autoscaler divides a backlog by — so raising it makes the fleet ask for FEWER replicas, buying density instead of pods (20 unlimited jobs want 2 dense replicas rather than 8 sparse ones). The cost is concentrated blast radius: a replica going away — scale-down, eviction, restart, Karpenter consolidation — aborts every build on it, so at 0 an unlimited replica loses one build and at 12 it loses up to 13, none of it recoverable. Raise it on a stable fleet, not a churning one. Watch plugin_build_idle_floor_slots (the waste) and plugin_build_borrowed_inflight | | PLUGIN_ORG_SLOT_MAX_DELAY_MS | 60000 | Longest gap between slot retries. The interval BACKS OFF from PLUGIN_ORG_SLOT_DELAY_MS, doubling to this cap, because a fixed 10s poll is waste once an org is parked at its cap — 569 waiting jobs is ~57 Redis acquire attempts a second, every one known to fail, for builds that take minutes. At 60s the churn drops ~6x and the worst case is a minute of extra latency on a job already waiting an hour. The wait BUDGET is PLUGIN_ORG_SLOT_MAX_WAIT_MS measured as elapsed time, not as a count of attempts — with a backoff the two diverge | | PLUGIN_BUILDKIT_ADDR_<TIER> | (unset) | buildkitd address for one tier's builds; unset means the shared sidecar. Shipped deploys never set it | | PLUGIN_BUILDKIT_ADDR_SIZE_<SUFFIX> | (unset) | buildkitd address for one build machine: HALF, 1X, 2X, 4X, 8X (Small … X-Large). The pool that makes a machine mean anything, and a size with no pool is refused at submission rather than served off the shared daemon. Takes precedence over the per-tier address, because a tenant asking for Large wants the big daemon even when their tier has one of its own. The suffix comes from the build catalog, not from the id — 0.5x would produce the illegal ..._0.5X | | PLUGIN_ORG_SLOT_DELAY_MS | 10000 | How long (ms) a job that couldn't get an org slot waits before retrying |"
+          "content": "The per-tier concurrencies are a ladder, not one figure, and each one bounds how many of that tier's builds run at once across every org on the tier — a Worker per tier, one queue each. That makes this ladder (not a quota) the aggregate bound, which is what lets a tier's cpuCredits cap stay reachable by a single tenant: the cap is deliverable, and the number of tenants reaching for it concurrently is limited here, where it can be tuned without touching the price list. There is no global PLUGIN_BUILD_CONCURRENCY knob: each tier carries its own figure."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "PLUGIN_BUILDKIT_MILLI_VCPU",
+              "1500",
+              "vCPU (in milli-units, as Kubernetes spells it) that one build is assumed to occupy, used to price cpuCredits: a credit is a vCPU-minute, so a build costs wall-minutes x this / 1000, rounded up to the whole credit. Must track limits.cpu on the buildkitd sidecar in deploy/<target>/k8s/plugin.yaml — the whole credits ladder is derived from this figure (credits = builds x wall-minutes x vCPU), so changing one without the other reprices every tier silently"
+            ],
+            [
+              "PLUGIN_ORG_BUILD_SLOTS_STANDARD",
+              "5",
+              "Baseline in-flight build slots an org gets on the standard class. The build catalog's tier ladder only ever RAISES it, so the effective cap is max(baseline, ladder) — 5 for developer through business, 8 for enterprise/unlimited. It is 5 rather than the ladder's lower rows (1/2/3) because three in flight is too tight for a real working set: an org pushing a batch spends most of its time queued, and past PLUGIN_ORG_SLOT_MAX_WAIT_MS the waiting builds fail terminally rather than late. A per-tier/class override wins outright, including a value BELOW this. The system org is exempt from the cap entirely. Not PLUGIN_MAX_BUILDS_PER_ORG: that name was dead for a time and left behind in several targets' examples, so reviving it would have silently applied a stale value — a fresh name can only have been set on purpose"
+            ],
+            [
+              "PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE",
+              "8",
+              "The same baseline for the flexible class, and deliberately HIGHER than standard's. A single shared baseline flattened the two classes below it — developer, pro and team got the same figure either way, so choosing the cheap class bought a later start and no extra slots. Per-class baselines keep \"flexible has more headroom\" true on every tier by construction"
+            ],
+            [
+              "—",
+              "—",
+              "The per-org cap is a fairness device between tenants sharing a tier queue, not a throughput knob. PLUGIN_BUILD_CONCURRENCY_<TIER> is the pod's own capacity and the lower of the two binds — every concurrent build drives the same buildkitd sidecar. The worker logs both figures on start and WARNS when concurrency is the binding one, because a per-org cap that cannot be reached is exactly the shape of a setting that looks like it works"
+            ],
+            [
+              "PLUGIN_MAX_BUILDS_<TIER>_<CLASS>",
+              "per tier and class (below)",
+              "Max in-flight builds one org may hold, per scheduling class, across all workers (Redis semaphore) — an org over the cap has its job re-delayed so another org's build takes the worker slot. <TIER> is one of DEVELOPER, PRO, TEAM, BUSINESS, ENTERPRISE, UNLIMITED; <CLASS> is STANDARD or FLEXIBLE. The system org uses PLUGIN_SYSTEM_ORG_MAX_BUILDS instead, and is exempt from the slot WAIT becoming terminal — see below"
+            ],
+            [
+              "PLUGIN_SYSTEM_ORG_MAX_BUILDS",
+              "12",
+              "The system org's in-flight build cap, replacing the per-tier rows above for that one org. It is finite on purpose, and the wait is what is exempt, not the cap. The sample catalogue loads under the system org, so a queue hundreds deep is normal there: a cap of 3 plus a terminal PLUGIN_ORG_SLOT_MAX_WAIT_MS once failed 80 of 119 plugins for being merely LATE, and removing the cap entirely then let 8 replicas x 4 worker concurrency put 32 builds in flight and OOMKill the image registry (107 of 117 lost, pushes included — /token is served by the same process). So: a high cap that bounds the fan-out, and a system-org build that cannot get a slot waits as long as it takes"
+            ],
+            [
+              "PLUGIN_MAX_BUILDS_PER_REPLICA",
+              "the ladder's sum (13)",
+              "Builds ONE replica runs at once, across every tier queue. A replica starts one BullMQ Worker per tier, each with its own PLUGIN_BUILD_CONCURRENCY_<TIER>, and all of them drive the same buildkitd sidecar — one container, one BUILDKIT_MEMORY_LIMIT. So a replica's real ceiling is the SUM of the ladder (13), and the fleet's is that times the plugin deployment's KEDA maxReplicaCount (8) = 104. Nothing declared that before: the figure everyone reasoned with, 8 x 4 = 32, was the single-tier case (a catalogue load is all system-org). Defaults to the shipped sum so it binds nothing today, and starts binding — with a warning on worker start — the moment a tier row is raised. Lower it when the sidecar's memory is the constraint; raise it only together with BUILDKIT_MEMORY_LIMIT, since the concurrent builds share that one cgroup"
+            ],
+            [
+              "PLUGIN_BUILD_BORROW_MAX",
+              "0",
+              "How many builds may run above their tier's floor on one replica, letting a busy tier use slots the idle tiers are not asking for. A replica runs one worker per tier capped at its ladder row, and a worker only polls its own queue — so a single-tier backlog strands the rest of the budget. That is the normal case on a billing-disabled install, where every org is unlimited (floor 1 of 13) and the sample catalogue loads under it. 0 keeps today's behaviour exactly: a tier can never exceed its floor. The cost is not free capacity — builds are not preemptible, so a lent slot turns a tier's immediate floor into \"guaranteed once this many builds finish\". Shipped ON at 12 on the local targets (minikube, docker) and off on the AWS ones: locally billing is off, so every org sits on unlimited's floor of 1 of 13 and there is no other tier to protect. Keep it at 1–2 on a multi-tenant cluster. Expect roughly 2 → 12 builds in flight locally rather than 2 → 26 — once borrowing clears the tier floor, PLUGIN_SYSTEM_ORG_MAX_BUILDS (12) becomes the binding constraint on a catalogue load, and raising that is the path that once OOMKilled the image registry. PLUGIN_MAX_BUILDS_PER_REPLICA still binds on top. It also changes SCALING, in the direction that surprises people: this figure is published as plugin_build_tier_concurrency, which the autoscaler divides a backlog by — so raising it makes the fleet ask for FEWER replicas, buying density instead of pods (20 unlimited jobs want 2 dense replicas rather than 8 sparse ones). The cost is concentrated blast radius: a replica going away — scale-down, eviction, restart, Karpenter consolidation — aborts every build on it, so at 0 an unlimited replica loses one build and at 12 it loses up to 13, none of it recoverable. Raise it on a stable fleet, not a churning one. Watch plugin_build_idle_floor_slots (the waste) and plugin_build_borrowed_inflight"
+            ],
+            [
+              "PLUGIN_ORG_SLOT_MAX_DELAY_MS",
+              "60000",
+              "Longest gap between slot retries. The interval BACKS OFF from PLUGIN_ORG_SLOT_DELAY_MS, doubling to this cap, because a fixed 10s poll is waste once an org is parked at its cap — 569 waiting jobs is ~57 Redis acquire attempts a second, every one known to fail, for builds that take minutes. At 60s the churn drops ~6x and the worst case is a minute of extra latency on a job already waiting an hour. The wait BUDGET is PLUGIN_ORG_SLOT_MAX_WAIT_MS measured as elapsed time, not as a count of attempts — with a backoff the two diverge"
+            ],
+            [
+              "PLUGIN_BUILDKIT_ADDR_<TIER>",
+              "(unset)",
+              "buildkitd address for one tier's builds; unset means the shared sidecar. Shipped deploys never set it"
+            ],
+            [
+              "PLUGIN_BUILDKIT_ADDR_SIZE_<SUFFIX>",
+              "(unset)",
+              "buildkitd address for one build machine: HALF, 1X, 2X, 4X, 8X (Small … X-Large). The pool that makes a machine mean anything, and a size with no pool is refused at submission rather than served off the shared daemon. Takes precedence over the per-tier address, because a tenant asking for Large wants the big daemon even when their tier has one of its own. The suffix comes from the build catalog, not from the id — 0.5x would produce the illegal ..._0.5X"
+            ],
+            [
+              "PLUGIN_ORG_SLOT_DELAY_MS",
+              "10000",
+              "How long (ms) a job that couldn't get an org slot waits before retrying"
+            ],
+            [
+              "PLUGIN_ORG_SLOT_TTL_SECONDS",
+              "900",
+              "Crash-recovery expiry (seconds) of a held org build slot, so a dead worker can't leak one forever. A running build heartbeats its own slot at a third of this, so the TTL is NOT a cap on build duration. Refreshed only on a GRANTED acquire: when denials refreshed it too, a starved org's own retries pushed back the recovery of the leaked slot that was starving it, so the window never elapsed"
+            ],
+            [
+              "PLUGIN_ORG_SLOT_MAX_WAIT_MS",
+              "1800000",
+              "How long (ms) a build may wait for an org slot before failing terminally with a 503. A slot delay spends no BullMQ attempt, so this budget is what stops a starved job bouncing forever"
+            ],
+            [
+              "PLUGIN_ORG_SLOT_SCRUB_MS",
+              "PLUGIN_ORG_SLOT_TTL_SECONDS / 3",
+              "How often leaked org build slots are reconciled against live BullMQ state"
+            ],
+            [
+              "PLUGIN_TIER_CACHE_TTL_MS",
+              "300000",
+              "Per-pod cache (ms) of each org's tier, used to route a build to its tier queue; a stale entry only misroutes to a neighbouring queue until expiry"
+            ]
+          ]
         },
         {
           "type": "text",
-          "content": "| PLUGIN_ORG_SLOT_TTL_SECONDS | 900 | Crash-recovery expiry (seconds) of a held org build slot, so a dead worker can't leak one forever. A running build heartbeats its own slot at a third of this, so the TTL is NOT a cap on build duration. Refreshed only on a GRANTED acquire: when denials refreshed it too, a starved org's own retries pushed back the recovery of the leaked slot that was starving it, so the window never elapsed | | PLUGIN_ORG_SLOT_MAX_WAIT_MS | 1800000 | How long (ms) a build may wait for an org slot before failing terminally with a 503. A slot delay spends no BullMQ attempt, so this budget is what stops a starved job bouncing forever | | PLUGIN_ORG_SLOT_SCRUB_MS | PLUGIN_ORG_SLOT_TTL_SECONDS / 3 | How often leaked org build slots are reconciled against live BullMQ state | | PLUGIN_TIER_CACHE_TTL_MS | 300000 | Per-pod cache (ms) of each org's tier, used to route a build to its tier queue; a stale entry only misroutes to a neighbouring queue until expiry |"
-        },
-        {
-          "type": "text",
-          "content": "Per-org build slots are per class as well as per tier. The defaults, from TIER_BUILD_SLOTS:"
+          "content": "Per-org build slots are per class as well as per tier. The catalog ladder (BUILD_CLASS_CATALOG[class].slotsByTier) only ever raises the per-class baseline, so the effective default is max(PLUGIN_ORG_BUILD_SLOTS_<CLASS>, ladder):"
         },
         {
           "type": "table",
           "headers": [
             "Tier",
-            "STANDARD",
-            "FLEXIBLE"
+            "Ladder STANDARD",
+            "Ladder FLEXIBLE",
+            "Effective STANDARD (baseline 5)",
+            "Effective FLEXIBLE (baseline 8)"
           ],
           "rows": [
             [
               "developer",
               "1",
-              "3"
+              "3",
+              "5",
+              "8"
             ],
             [
               "pro",
               "2",
-              "4"
+              "4",
+              "5",
+              "8"
             ],
             [
               "team",
               "3",
-              "6"
+              "6",
+              "5",
+              "8"
             ],
             [
               "business",
+              "5",
+              "10",
               "5",
               "10"
             ],
             [
               "enterprise",
               "8",
+              "16",
+              "8",
               "16"
             ],
             [
               "unlimited",
+              "8",
+              "16",
               "8",
               "16"
             ]
@@ -2073,11 +2178,11 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The defaults live in the build catalog (BUILD_CLASS_CATALOG[class].slotsByTier) alongside the class labels and the machine floors, not in the tier-limit table: the catalog is browser-importable and therefore cannot read an env var, so it holds defaults and maxBuildsPerOrg applies the overlay. Before it, these numbers lived in plan-tiers.ts and were mirrored by hand in the frontend."
+          "content": "The defaults live in the build catalog (BUILD_CLASS_CATALOG[class].slotsByTier) alongside the class labels and the machine floors, not in the tier-limit table: the catalog is browser-importable and therefore cannot read an env var, so it holds defaults and maxBuildsPerOrg applies the overlay."
         },
         {
           "type": "text",
-          "content": "It was one flat figure before (PLUGIN_MAX_BUILDS_PER_ORG=3), which gave a Developer org the same three in-flight builds as an Enterprise one — the per-org semaphore was the one place in the build path that ignored what the tenant pays for. That name is retired and has no alias: it sat dead in three deploy targets' .env.example for long enough that reviving it would have silently applied a stale =3. The baselines are now PLUGIN_ORG_BUILD_SLOTS_STANDARD / _FLEXIBLE, which the ladder still raises wherever it exceeds them, and a per-cell override still wins over both. A garbage override still falls back to the cell's default rather than reaching the acquire script as NaN: tonumber('NaN') is nil in Lua, and one fat-fingered variable would otherwise brick every plugin build, not just that tier's."
+          "content": "The baselines are PLUGIN_ORG_BUILD_SLOTS_STANDARD / _FLEXIBLE, which the ladder raises wherever it exceeds them, and a per-cell PLUGIN_MAX_BUILDS_<TIER>_<CLASS> override wins over both (including a value below the baseline). There is no single per-org figure (PLUGIN_MAX_BUILDS_PER_ORG is not read). A garbage override still falls back to the cell's default rather than reaching the acquire script as NaN: tonumber('NaN') is nil in Lua, and one fat-fingered variable would otherwise brick every plugin build, not just that tier's."
         },
         {
           "type": "text",
@@ -2089,7 +2194,97 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The deadline scales with the machine: a sub-Standard build gets DOCKER_BUILD_TIMEOUT_MS multiplied by the inverse of its multiplier, never divided for a bigger one. The timeout is a safety bound on a runaway build rather than a budget — at half the vCPU a ten-minute build becomes about twenty and would die on the 15-minute bound, while scaling it down at Large would break I/O-bound builds that gain nothing from the extra CPU. | PLUGIN_BUILD_QUEUE_NAME | plugin-build | BullMQ queue name | | PLUGIN_BUILD_MAX_ATTEMPTS | 2 | Max build attempts before moving to DLQ | | PLUGIN_BUILD_BACKOFF_DELAY_MS | 5000 | Backoff delay between retries (ms) | | PLUGIN_BUILD_COMPLETED_RETENTION_SECS | 3600 | Completed job retention (1 hour) | | PLUGIN_BUILD_FAILED_RETENTION_SECS | 86400 | Failed job retention (24 hours) | | PLUGIN_BUILD_WORKER_TIMEOUT_MS | 10000 | Worker ready timeout (ms) | | PLUGIN_DLQ_MAX_ATTEMPTS | 3 | Max DLQ retry attempts (exponential backoff) | | PLUGIN_DLQ_BACKOFF_BASE_MS | 300000 | DLQ backoff base delay (5 min; scales 5m, 15m, 45m) | | PLUGIN_DLQ_MAX_SIZE | 20 | Max DLQ jobs before oldest are purged | | PLUGIN_DLQ_SCAN_INTERVAL_MS | 5000 | Minimum interval (ms) between DLQ max-size enforcement scans | | PLUGIN_QUEUE_METRICS_INTERVAL_MS | 15000 | How often (ms) the build-queue job counts are scraped into Prometheus metrics | | PLUGIN_QUEUE_MAX_PAGE_DEPTH | 5000 | Deepest row a caller may page to on the queue GET /failed and GET /dlq views (each page reads offset + limit entries from every queue, so this bounds the Redis range read) | | PLUGIN_QUEUE_TENANT_SCAN_MAX_ROWS | 10000 | Deepest row a TENANT-scoped queue view (GET /failed, GET /dlq, GET /triage) scans per source (each tier's failed set, each DLQ state set). Those views keep the caller's own jobs before limiting, so other orgs' failures cannot push them off the page; the caller's jobs older than this depth are not listed | | PLUGIN_TRIAGE_CACHE_TTL_MS | 5000 | Memo TTL (ms) for the queue GET /triage aggregate, collapsing a dashboard's repeated polls into one scan | | PLUGIN_TRIAGE_CACHE_MAX_ENTRIES | 500 | Cap on distinct /triage memo keys (keyed per org), oldest evicted first | | TEMP_DIR_MAX_AGE_MS | 14400000 | Stale temp dir cleanup threshold (4 hours) |"
+          "content": "The deadline scales with the machine: a sub-Standard build gets DOCKER_BUILD_TIMEOUT_MS multiplied by the inverse of its multiplier, never divided for a bigger one. The timeout is a safety bound on a runaway build rather than a budget — at half the vCPU a ten-minute build becomes about twenty and would die on the 15-minute bound, while scaling it down at Large would break I/O-bound builds that gain nothing from the extra CPU."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "PLUGIN_BUILD_QUEUE_NAME",
+              "plugin-build",
+              "BullMQ queue name"
+            ],
+            [
+              "PLUGIN_BUILD_MAX_ATTEMPTS",
+              "2",
+              "Max build attempts before moving to DLQ"
+            ],
+            [
+              "PLUGIN_BUILD_BACKOFF_DELAY_MS",
+              "5000",
+              "Backoff delay between retries (ms)"
+            ],
+            [
+              "PLUGIN_BUILD_COMPLETED_RETENTION_SECS",
+              "3600",
+              "Completed job retention (1 hour)"
+            ],
+            [
+              "PLUGIN_BUILD_FAILED_RETENTION_SECS",
+              "86400",
+              "Failed job retention (24 hours)"
+            ],
+            [
+              "PLUGIN_BUILD_WORKER_TIMEOUT_MS",
+              "10000",
+              "Worker ready timeout (ms)"
+            ],
+            [
+              "PLUGIN_DLQ_MAX_ATTEMPTS",
+              "3",
+              "Max DLQ retry attempts (exponential backoff)"
+            ],
+            [
+              "PLUGIN_DLQ_BACKOFF_BASE_MS",
+              "300000",
+              "DLQ backoff base delay (5 min; scales 5m, 15m, 45m)"
+            ],
+            [
+              "PLUGIN_DLQ_MAX_SIZE",
+              "20",
+              "Max DLQ jobs before oldest are purged"
+            ],
+            [
+              "PLUGIN_DLQ_SCAN_INTERVAL_MS",
+              "5000",
+              "Minimum interval (ms) between DLQ max-size enforcement scans"
+            ],
+            [
+              "PLUGIN_QUEUE_METRICS_INTERVAL_MS",
+              "15000",
+              "How often (ms) the build-queue job counts are scraped into Prometheus metrics"
+            ],
+            [
+              "PLUGIN_QUEUE_MAX_PAGE_DEPTH",
+              "5000",
+              "Deepest row a caller may page to on the queue GET /failed and GET /dlq views (each page reads offset + limit entries from every queue, so this bounds the Redis range read)"
+            ],
+            [
+              "PLUGIN_QUEUE_TENANT_SCAN_MAX_ROWS",
+              "10000",
+              "Deepest row a TENANT-scoped queue view (GET /failed, GET /dlq, GET /triage) scans per source (each tier's failed set, each DLQ state set). Those views keep the caller's own jobs before limiting, so other orgs' failures cannot push them off the page; the caller's jobs older than this depth are not listed"
+            ],
+            [
+              "PLUGIN_TRIAGE_CACHE_TTL_MS",
+              "5000",
+              "Memo TTL (ms) for the queue GET /triage aggregate, collapsing a dashboard's repeated polls into one scan"
+            ],
+            [
+              "PLUGIN_TRIAGE_CACHE_MAX_ENTRIES",
+              "500",
+              "Cap on distinct /triage memo keys (keyed per org), oldest evicted first"
+            ],
+            [
+              "TEMP_DIR_MAX_AGE_MS",
+              "14400000",
+              "Stale temp dir cleanup threshold (4 hours)"
+            ]
+          ]
         }
       ]
     },
@@ -2437,12 +2632,54 @@ export const envVariablesTopic: HelpTopic = {
           "content": "SCIM paging, the member cap and the SCIM rate limit are env-tunable (rows below). They live in platform/src/constants/scim.ts, which reads them through api-core's envInt via the lib/* subpath rather than the barrel — that module is deliberately dependency-free so the response helper, the scope gate and the routes can all share it without dragging the config/model graph into a middleware. The schema URNs and the application/scim+json media type stay hard constants: those are the PROTOCOL, and a deployment that varies them is not speaking SCIM."
         },
         {
-          "type": "text",
-          "content": "| Variable | Default | Description | | SCIM_RATE_LIMIT_MAX | 600 | Per-ORG request ceiling on the whole /scim/v2/* surface, in its own bucket so one tenant's IdP cannot starve the general per-org limiter. Raise it for an initial import from a large directory (Okta/Entra push a few requests per second during a full sync) and lower it for steady-state delta syncs | | SCIM_RATE_LIMIT_WINDOW_MS | 60000 | Window for the above (min 1000) | | SCIM_DEFAULT_COUNT | 100 | SCIM page size when the client does not send count | | SCIM_MAX_COUNT | 200 | Ceiling when a client asks for more. The right value is a function of directory size and pod memory — an unbounded count would let one request materialize an entire directory | | SCIM_MAX_MEMBERS_PER_REQUEST | 500 | Most members one Groups write may carry. Okta and Entra both page well below this; each member costs a Role reconciliation | | IMPERSONATION_SESSION_TTL_MS | 900000 (15 min) | How long an issued impersonation session token lives. A policy knob: an org under a strict access-review regime wants minutes. Floored at 60000 — a window shorter than the sign-in it authorizes is unusable | | IMPERSONATION_REQUEST_TTL_MS | 3600000 (1 h) | How long an impersonation approval (or pending request) stays redeemable. Floored at 60000 |"
-        },
-        {
-          "type": "text",
-          "content": "|----------|---------|-------------| | SCIM_DOCUMENTATION_URL | https://docs.pipeline-builder.io/docs/authentication.html | The documentationUri served in the SCIM ServiceProviderConfig — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally |"
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "SCIM_RATE_LIMIT_MAX",
+              "600",
+              "Per-ORG request ceiling on the whole /scim/v2/* surface, in its own bucket so one tenant's IdP cannot starve the general per-org limiter. Raise it for an initial import from a large directory (Okta/Entra push a few requests per second during a full sync) and lower it for steady-state delta syncs"
+            ],
+            [
+              "SCIM_RATE_LIMIT_WINDOW_MS",
+              "60000",
+              "Window for the above (min 1000)"
+            ],
+            [
+              "SCIM_DEFAULT_COUNT",
+              "100",
+              "SCIM page size when the client does not send count"
+            ],
+            [
+              "SCIM_MAX_COUNT",
+              "200",
+              "Ceiling when a client asks for more. The right value is a function of directory size and pod memory — an unbounded count would let one request materialize an entire directory"
+            ],
+            [
+              "SCIM_MAX_MEMBERS_PER_REQUEST",
+              "500",
+              "Most members one Groups write may carry. Okta and Entra both page well below this; each member costs a Role reconciliation"
+            ],
+            [
+              "IMPERSONATION_SESSION_TTL_MS",
+              "900000 (15 min)",
+              "How long an issued impersonation session token lives. A policy knob: an org under a strict access-review regime wants minutes. Floored at 60000 — a window shorter than the sign-in it authorizes is unusable"
+            ],
+            [
+              "IMPERSONATION_REQUEST_TTL_MS",
+              "3600000 (1 h)",
+              "How long an impersonation approval (or pending request) stays redeemable. Floored at 60000"
+            ],
+            [
+              "SCIM_DOCUMENTATION_URL",
+              "https://docs.pipeline-builder.io/docs/authentication.html",
+              "The documentationUri served in the SCIM ServiceProviderConfig — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally"
+            ]
+          ]
         },
         {
           "type": "note",
@@ -2993,7 +3230,7 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "SCAN_LOCK_TTL_MS",
-              "300000",
+              "120000",
               "Scan scheduler cross-pod leader-lock TTL (ms); only one replica sweeps per tick"
             ],
             [
@@ -3008,7 +3245,7 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "DIGEST_LOCK_TTL_MS",
-              "300000",
+              "120000",
               "Digest scheduler cross-pod leader-lock TTL (ms)"
             ]
           ]
@@ -3039,7 +3276,7 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "EMAIL_FROM_NAME",
-              "pipeline-builder",
+              "Platform (deploys set pipeline-builder)",
               "Sender display name"
             ],
             [
@@ -3169,8 +3406,8 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "BILLING_BUNDLES_ENABLED",
-              "false",
-              "Master switch for purchasable add-on bundles — hidden unless set"
+              "true",
+              "Master switch for purchasable add-on bundles — set false to hide the add-on catalog"
             ]
           ]
         },
@@ -3496,7 +3733,7 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "REPORT_SCHEDULER_LOCK_TTL_MS",
-              "1800000",
+              "120000",
               "Crash-recovery window for the scheduler's leader lock — how long a dead pod parks the job. Not a run-duration cover: the lock heartbeats for as long as the sweep runs."
             ],
             [
@@ -3750,7 +3987,62 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Runner signing keys need no deploy setting. Each org's Ed25519 key is generated by the pipeline service (on the first runner registration under an org with no key — for a team that inherits, its top-level org's key — or from Settings → Organization → Pipeline runners), stored in Postgres encrypted under SECRET_ENCRYPTION_KEY — or the org's own KMS key with SECRET_ENCRYPTION_PER_ORG_KMS=true, resolved through platform's GET /internal/kms-config/:orgId — and never leaves the service. Each runner reads its public keys from GET /api/pipelines/runner/runners/<runnerId>/jwks.json. The pipeline service therefore needs SECRET_ENCRYPTION_KEY (and any KMS secret-encryption settings) exactly as platform does; every target hands them to it. Runners are on for every org and are the only execution path. See secret rotation. | BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS | 300 | Webhook in-progress lock TTL — a crash mid-processing releases the claim after this so the provider's retry re-runs the event's side-effects (not dropped as a duplicate) | | COMPLIANCE_VALIDATE_TIMEOUT_MS | 4000 | Per-attempt timeout for the fail-closed compliance validate call (now retried, so a transient blip doesn't reject a legit upload/create) | | HTTP_CLIENT_MAX_SOCKETS | 64 | Max sockets per internal HTTP keep-alive agent (was unbounded) | | HTTP_CLIENT_MAX_RESPONSE_BYTES | 10485760 | Cap on an internal HTTP response body (10 MiB); a larger body aborts the call instead of being buffered | | IDEMPOTENCY_TTL_MS | 300000 | How long a completed Idempotency-Key response is replayed | | IDEMPOTENCY_MAX_STORE_SIZE | 10000 | Max keys in the per-process (no-Redis) idempotency store | | IDEMPOTENCY_CLEANUP_INTERVAL_MS | 60000 | Sweep interval for expired keys in the per-process idempotency store | | IDEMPOTENCY_PENDING_TTL_MS | 120000 | How long an in-flight Idempotency-Key reservation holds the key if the process dies mid-request (retries get 409 until then). Must exceed the slowest handler; a client disconnect no longer releases the key — the handler's own result settles it | | REGISTRY_GC_LOCK_TTL_MS | 120000 (api-core's default leader-lock TTL) | Image-registry GC leader-lock TTL (ms); only one replica runs the destructive GC sweep at a time. This is the CRASH-RECOVERY window only — the holder heartbeats the lock for as long as a sweep runs, so it need not outlast one; keep it well under the sweep interval |"
+          "content": "Runner signing keys need no deploy setting. Each org's Ed25519 key is generated by the pipeline service (with a top-level org's first runner, when a team switches to its own key, or from Settings → Organization → Pipeline runners), stored in Postgres encrypted under SECRET_ENCRYPTION_KEY — or the org's own KMS key with SECRET_ENCRYPTION_PER_ORG_KMS=true, resolved through platform's GET /internal/kms-config/:orgId — and never leaves the service. Each runner reads its public keys from GET /api/pipelines/runner/runners/<runnerId>/jwks.json. The pipeline service therefore needs SECRET_ENCRYPTION_KEY (and any KMS secret-encryption settings) exactly as platform does; every target hands them to it. Runners are on for every org and are the only execution path. See secret rotation."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS",
+              "900",
+              "Webhook in-progress lock TTL — a crash mid-processing releases the claim after this so the provider's retry re-runs the event's side-effects (not dropped as a duplicate)"
+            ],
+            [
+              "COMPLIANCE_VALIDATE_TIMEOUT_MS",
+              "4000",
+              "Per-attempt timeout for the fail-closed compliance validate call (now retried, so a transient blip doesn't reject a legit upload/create)"
+            ],
+            [
+              "HTTP_CLIENT_MAX_SOCKETS",
+              "64",
+              "Max sockets per internal HTTP keep-alive agent (was unbounded)"
+            ],
+            [
+              "HTTP_CLIENT_MAX_RESPONSE_BYTES",
+              "10485760",
+              "Cap on an internal HTTP response body (10 MiB); a larger body aborts the call instead of being buffered"
+            ],
+            [
+              "IDEMPOTENCY_TTL_MS",
+              "300000",
+              "How long a completed Idempotency-Key response is replayed"
+            ],
+            [
+              "IDEMPOTENCY_MAX_STORE_SIZE",
+              "10000",
+              "Max keys in the per-process (no-Redis) idempotency store"
+            ],
+            [
+              "IDEMPOTENCY_CLEANUP_INTERVAL_MS",
+              "60000",
+              "Sweep interval for expired keys in the per-process idempotency store"
+            ],
+            [
+              "IDEMPOTENCY_PENDING_TTL_MS",
+              "120000",
+              "How long an in-flight Idempotency-Key reservation holds the key if the process dies mid-request (retries get 409 until then). Must exceed the slowest handler; a client disconnect no longer releases the key — the handler's own result settles it"
+            ],
+            [
+              "REGISTRY_GC_LOCK_TTL_MS",
+              "120000 (api-core's default leader-lock TTL)",
+              "Image-registry GC leader-lock TTL (ms); only one replica runs the destructive GC sweep at a time. This is the CRASH-RECOVERY window only — the holder heartbeats the lock for as long as a sweep runs, so it need not outlast one; keep it well under the sweep interval"
+            ]
+          ]
         }
       ]
     },
@@ -4101,8 +4393,69 @@ export const envVariablesTopic: HelpTopic = {
           ]
         },
         {
-          "type": "text",
-          "content": "| PVC_AUTOEXPAND_ENABLED | false | eks only. Arms automatic PersistentVolumeClaim expansion: Alertmanager also POSTs PersistentVolumeFillingUp / PersistentVolumeCriticallyFull to ops-center, which raises the claim's requested size (as the ops-center ServiceAccount, through the ops-center-pvc-autoexpand Role). Off by default because expansion spends money and cannot be undone — neither EBS nor Kubernetes can shrink a volume. Only pb-ebs can be expanded at all; ec2 and minikube bind manual hostPath PVs and the handler refuses a claim with no storageClassName. Prefer true only on an unattended cluster — the alerts give hours of warning and the manual remedy is one kubectl patch, and arming it also introduces PvcAutoExpandTemplateDrift on the rustfs/redis StatefulSet claims. | | PVC_AUTOEXPAND_STEP_PERCENT | 50 | Growth per expansion, as a percentage of the current request, rounded up to a whole GiB (EBS allocates in whole GiB). | | PVC_AUTOEXPAND_CEILING_MULTIPLE | 4 | Hard ceiling as a multiple of the original request, pinned in the pipeline-builder.io/autoexpand-original annotation on first expansion so it cannot compound. At the ceiling expansion stops and PvcAutoExpandAtCeiling fires. | | PVC_AUTOEXPAND_MAX_GI | 500 | Absolute ceiling in GiB, whatever the multiple works out to. Inert at the shipped sizes: every claim is 20 GiB, so the 4× multiple binds at 80 GiB first and this cap only starts to matter above a ~125 GiB base claim. | | PVC_AUTOEXPAND_COOLDOWN_SECONDS | 21600 | Minimum gap between decisions for one claim. 6 h because EBS refuses a second modification of the same volume inside roughly that window and Alertmanager re-sends on its repeat_interval. Held in Redis, which also provides the cross-replica lock — without Redis, expansion fails closed. | | NODE_DISK_AUTOEXPAND_ENABLED | false | ec2 only. Arms automatic growth of the instance's data volume when NodeDiskFillingUp fires: ec2:ModifyVolume, then a fixed SSM document resizes the filesystem (root on the host is required, which is the only reason SSM is involved). Off by default — this is the single disk every hostPath mount shares, and EBS cannot shrink. Prefer true only on an unattended instance, and check the preflight in deploy/aws/ec2/.env.example first: the SSM half can fail on its own and leave a larger volume billing behind a still-full filesystem. | | NODE_DISK_AUTOEXPAND_SSM_DOCUMENT | pipeline-builder-resize-data-fs | The document CloudFormation creates, <stack>-resize-data-fs. It takes no parameters and resizes a fixed device, so the instance role's ssm:SendCommand grant permits that one resize and nothing else. | | NODE_DISK_AUTOEXPAND_STEP_PERCENT | 50 | Growth per expansion, as a percentage of the current size. | | NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE | 4 | Hard ceiling as a multiple of the size first seen, recorded on the volume as a tag so it cannot compound. | | NODE_DISK_AUTOEXPAND_MAX_GI | 2000 | Absolute ceiling in GiB. | | NODE_DISK_AUTOEXPAND_COOLDOWN_SECONDS | 21600 | Minimum gap between decisions. 6 h, because EBS refuses a second modification of the same volume inside that window. Held in Redis, which is also the cross-replica lock — without Redis this fails closed. |"
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "PVC_AUTOEXPAND_ENABLED",
+              "false",
+              "eks only. Arms automatic PersistentVolumeClaim expansion: Alertmanager also POSTs PersistentVolumeFillingUp / PersistentVolumeCriticallyFull to ops-center, which raises the claim's requested size (as the ops-center ServiceAccount, through the ops-center-pvc-autoexpand Role). Off by default because expansion spends money and cannot be undone — neither EBS nor Kubernetes can shrink a volume. Only pb-ebs can be expanded at all; ec2 and minikube bind manual hostPath PVs and the handler refuses a claim with no storageClassName. Prefer true only on an unattended cluster — the alerts give hours of warning and the manual remedy is one kubectl patch, and arming it also introduces PvcAutoExpandTemplateDrift on the rustfs/redis StatefulSet claims."
+            ],
+            [
+              "PVC_AUTOEXPAND_STEP_PERCENT",
+              "50",
+              "Growth per expansion, as a percentage of the current request, rounded up to a whole GiB (EBS allocates in whole GiB)."
+            ],
+            [
+              "PVC_AUTOEXPAND_CEILING_MULTIPLE",
+              "4",
+              "Hard ceiling as a multiple of the original request, pinned in the pipeline-builder.io/autoexpand-original annotation on first expansion so it cannot compound. At the ceiling expansion stops and PvcAutoExpandAtCeiling fires."
+            ],
+            [
+              "PVC_AUTOEXPAND_MAX_GI",
+              "500",
+              "Absolute ceiling in GiB, whatever the multiple works out to. Inert at the shipped sizes: every claim is 20 GiB, so the 4× multiple binds at 80 GiB first and this cap only starts to matter above a ~125 GiB base claim."
+            ],
+            [
+              "PVC_AUTOEXPAND_COOLDOWN_SECONDS",
+              "21600",
+              "Minimum gap between decisions for one claim. 6 h because EBS refuses a second modification of the same volume inside roughly that window and Alertmanager re-sends on its repeat_interval. Held in Redis, which also provides the cross-replica lock — without Redis, expansion fails closed."
+            ],
+            [
+              "NODE_DISK_AUTOEXPAND_ENABLED",
+              "false",
+              "ec2 only. Arms automatic growth of the instance's data volume when NodeDiskFillingUp fires: ec2:ModifyVolume, then a fixed SSM document resizes the filesystem (root on the host is required, which is the only reason SSM is involved). Off by default — this is the single disk every hostPath mount shares, and EBS cannot shrink. Prefer true only on an unattended instance, and check the preflight in deploy/aws/ec2/.env.example first: the SSM half can fail on its own and leave a larger volume billing behind a still-full filesystem."
+            ],
+            [
+              "NODE_DISK_AUTOEXPAND_SSM_DOCUMENT",
+              "pipeline-builder-resize-data-fs",
+              "The document CloudFormation creates, <stack>-resize-data-fs. It takes no parameters and resizes a fixed device, so the instance role's ssm:SendCommand grant permits that one resize and nothing else."
+            ],
+            [
+              "NODE_DISK_AUTOEXPAND_STEP_PERCENT",
+              "50",
+              "Growth per expansion, as a percentage of the current size."
+            ],
+            [
+              "NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE",
+              "4",
+              "Hard ceiling as a multiple of the size first seen, recorded on the volume as a tag so it cannot compound."
+            ],
+            [
+              "NODE_DISK_AUTOEXPAND_MAX_GI",
+              "2000",
+              "Absolute ceiling in GiB."
+            ],
+            [
+              "NODE_DISK_AUTOEXPAND_COOLDOWN_SECONDS",
+              "21600",
+              "Minimum gap between decisions. 6 h, because EBS refuses a second modification of the same volume inside that window. Held in Redis, which is also the cross-replica lock — without Redis this fails closed."
+            ]
+          ]
         },
         {
           "type": "text",
@@ -4302,12 +4655,8 @@ export const envVariablesTopic: HelpTopic = {
               "OPENAI_COMPATIBLE_MODELS",
               "Comma-separated model list the endpoint serves, each `id[",
               "Display Name] (e.g. qwen2.5-coder:7b",
-              "Qwen 2.5 Coder, llama3.1:8b`)."
-            ],
-            [
-              "OPENAI_COMPATIBLE_MODEL",
-              "Single-model fallback used when OPENAI_COMPATIBLE_MODELS is unset. Defaults to `local",
-              "Local model`."
+              "Qwen 2.5 Coder, llama3.1:8b). Defaults to local",
+              "Local model` when unset."
             ],
             [
               "OPENAI_COMPATIBLE_NAME",
@@ -4337,7 +4686,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "One implementation on both AWS targets: k8s/backup-cronjob.yaml, applied by the normal deploy. ec2 previously carried a second, separate schedule — a host pipeline-backup.timer firing at 03:30 UTC while the CronJob ran at 03:00 — so enabling both produced two full dumps a night against the same destination. That timer has been removed."
+          "content": "One implementation on both AWS targets: k8s/backup-cronjob.yaml, applied by the normal deploy. There is no separate host timer on ec2."
         },
         {
           "type": "table",
@@ -4543,7 +4892,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The dashboard no longer waits for that failed turn to find out. Opening Ask calls GET /ask-agent/availability first — a configuration-only read that never opens a socket to the model — and when the answer is \"scheduled off\" (or no provider is configured at all) the panel opens straight into help topics, carrying the same sentence and the time the assistant returns. The check shares its window arithmetic with the 503 above, so the two cannot disagree. It fails open: a probe that errors leaves the assistant on offer, because a transient gateway error must not quietly replace it."
+          "content": "The dashboard does not wait for that failed turn to find out. Opening Ask calls GET /ask-agent/availability first — a configuration-only read that never opens a socket to the model — and when the answer is \"scheduled off\" (or no provider is configured at all) the panel opens straight into help topics, carrying the same sentence and the time the assistant returns. The check shares its window arithmetic with the 503 above, so the two cannot disagree. It fails open: a probe that errors leaves the assistant on offer, because a transient gateway error must not quietly replace it."
         },
         {
           "type": "text",
@@ -5256,7 +5605,7 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "REPORTING_RETENTION_LOCK_TTL_MS",
-              "1800000",
+              "120000",
               "Leader-lock TTL held while a retention sweep runs"
             ],
             [

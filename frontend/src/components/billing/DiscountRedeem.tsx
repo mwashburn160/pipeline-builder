@@ -107,7 +107,7 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
 
   // Readable label for the standing recurring discount.
   const recurringLabel = recurring
-    ? recurring.unit === 'percent' ? `${recurring.value}% off` : formatCents(recurring.value)
+    ? recurring.unit === 'percent' ? `${recurring.value}% off` : formatCents(recurring.value, subscription.currency)
     : null;
 
   return (
@@ -173,17 +173,17 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
             {(preview.priceBreakdown.items ?? []).map((item, i) => (
               <div key={i} className="flex items-center justify-between gap-4 text-sm">
                 <dt className="text-fg-muted">{item.label}</dt>
-                <dd className="text-fg tabular-nums text-right">{formatCents(item.cents)}</dd>
+                <dd className="text-fg tabular-nums text-right">{formatCents(item.cents, preview.priceBreakdown.currency)}</dd>
               </div>
             ))}
             <div className="flex items-center justify-between gap-4 text-sm border-t border-default pt-1 mt-1 font-medium">
               <dt className="text-fg">Total ({preview.priceBreakdown.interval})</dt>
-              <dd className="text-fg tabular-nums text-right">{formatCents(preview.priceBreakdown.totalCents)}</dd>
+              <dd className="text-fg tabular-nums text-right">{formatCents(preview.priceBreakdown.totalCents, preview.priceBreakdown.currency)}</dd>
             </div>
             {preview.priceBreakdown.creditRemainingCents > 0 && (
               <div className="flex items-center justify-between gap-4 text-xs text-fg-muted">
                 <dt>Credit remaining</dt>
-                <dd className="tabular-nums text-right">{formatCents(preview.priceBreakdown.creditRemainingCents)}</dd>
+                <dd className="tabular-nums text-right">{formatCents(preview.priceBreakdown.creditRemainingCents, preview.priceBreakdown.currency)}</dd>
               </div>
             )}
           </dl>

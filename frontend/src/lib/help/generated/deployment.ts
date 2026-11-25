@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c4725474eb009d55c4181df10ace116d0e0ce939dfe42b7cd4a92faacc7e352f
+// SOURCE-SHA256: 8561e1caa4c15736db5d11df20caa0b828f90be46cef0004452db6db84774738
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -116,7 +116,7 @@ export const deploymentTopic: HelpTopic = {
             "Choose the mode. Private (default) puts the ALB inside the VPC; public makes it internet-facing. See Deployment modes.",
             "Provision with infra provision, or the target's bin/setup.sh. Use --plan first to see what will happen.",
             "Decide about email. --email is the default on both AWS targets and provisions the whole SES path; --no-email opts out. See Email (SES).",
-            "Complete the post-deploy steps — they are not optional: store the three service credentials, then deploy the EventBridge reporting infrastructure.",
+            "Complete the post-deploy steps — they are not optional: store the four service credentials, then deploy the EventBridge reporting infrastructure.",
             "Verify at the access points. The admin consoles are on by default on AWS (ADMIN_CONSOLES_ENABLED=true) and each sits behind its own permission plus the system org and an AAL2 session; set the flag false to make all five 404 instead.",
             "Wire a backup before you need one — nothing is scheduled by default. See Deploy Operations."
           ]
@@ -250,7 +250,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Post-install steps. After deploy + health, infra provision registers the admin (non-interactive with --admin-email/--admin-password, which set PLATFORM_IDENTIFIER/PLATFORM_PASSWORD) and runs opt-in loads — each also pulls its folder into the sparse clone: --with-plugins (build + load plugins; adds deploy/plugins), --with-compliance (deploy/compliance), --with-samples (deploy/samples), or --with-all. Also --build-bootstrap (build-plugin-images.sh --only pipeline-bootstrap), --with-smoke-test (read-only API check), --with-events (EC2/EKS event ingestion — a four-step bundle: three infra store-token runs writing the platform, registry:push and reporting:ingest service-account keys to Secrets Manager at the pipeline-builder/{orgId}/… pattern, then infra setup-events --scoped-ingest deploying the EventBridge → SQS → Lambda that reads the ingest key; all pull AWS creds from the standard env / ~/.aws chain, and need PLATFORM_PASSWORD for the step-up each key write requires), and repeatable --post-step \"<cmd>\". The default is register-only (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On the AWS targets these loads run deploy-side by default (so infra provision doesn't prompt for them locally) — EC2 on first boot, EKS in setup.sh's final phase over a kubectl port-forward. Pass --init manual to drive them yourself."
+          "content": "Post-install steps. After deploy + health, infra provision registers the admin (non-interactive with --admin-email/--admin-password, which set PLATFORM_IDENTIFIER/PLATFORM_PASSWORD) and runs opt-in loads — each also pulls its folder into the sparse clone: --with-plugins (build + load plugins; adds deploy/plugins), --with-compliance (deploy/compliance), --with-samples (deploy/samples), or --with-all. Also --build-bootstrap (build-plugin-images.sh --only pipeline-bootstrap), --with-smoke-test (read-only API check), --with-events (EC2/EKS event ingestion — a five-step bundle: four infra store-token --schedule runs writing the platform, registry:push, pipeline_registry:write and reporting:ingest service-account keys to Secrets Manager at the pipeline-builder/{orgId}/… pattern, then infra setup-events --scoped-ingest deploying the EventBridge → SQS → Lambda that reads the ingest key; all pull AWS creds from the standard env / ~/.aws chain, and need PLATFORM_PASSWORD for the step-up each key write requires), and repeatable --post-step \"<cmd>\". The default is register-only (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On the AWS targets these loads run deploy-side by default (so infra provision doesn't prompt for them locally) — EC2 on first boot, EKS in setup.sh's final phase over a kubectl port-forward. Pass --init manual to drive them yourself."
         },
         {
           "type": "code",
@@ -661,7 +661,7 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "Data",
-              "500 GiB",
+              "580 GiB",
               "/opt/pipeline",
               "Docker layers, plugin artifacts, registry, databases, logs"
             ]
@@ -720,7 +720,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The figures above are OBSERVED usage. The volume is sized from what the stack commits instead, at a 2x minimum — 140 GiB of declared PV claims (every hostPath in k8s/ is under /opt/pipeline/pipeline-data, each claiming 20 GiB) plus the 80 GiB minikube node disk, so the floor is 440 GiB. Postgres and MongoDB using 5-15 GB today does not lower it: the claims are what a CSI would enforce if this target ever stopped using hostPaths, and the node disk is a real file on this volume either way."
+          "content": "The figures above are OBSERVED usage. The volume is sized from what the stack commits instead, at a 2x minimum — 180 GiB of declared PV claims (nine hostPath PVs in k8s/, all under /opt/pipeline/pipeline-data, each claiming 20 GiB; two are the Postgres read-replica ordinals) plus the 80 GiB minikube node disk, so the floor is 520 GiB. Postgres and MongoDB using 5-15 GB today does not lower it: the claims are what a CSI would enforce if this target ever stopped using hostPaths, and the node disk is a real file on this volume either way."
         },
         {
           "type": "text",
@@ -770,7 +770,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "INSTANCE_ID=$(curl -s -H \"X-aws-ec2-metadata-token: $(curl -s -X PUT \\\n  http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600')\" \\\n  http://169.254.169.254/latest/meta-data/instance-id)\n\nVOL_ID=$(aws ec2 describe-volumes \\\n  --filters \"Name=attachment.instance-id,Values=$INSTANCE_ID\" \"Name=tag:Name,Values=*data*\" \\\n  --query 'Volumes[0].VolumeId' --output text)\n\naws ec2 modify-volume --volume-id $VOL_ID --size 500\n\nwatch -n5 \"aws ec2 describe-volumes-modifications --volume-ids $VOL_ID \\\n  --query 'VolumesModifications[0].ModificationState' --output text\"\n\nDEVICE=$(lsblk -no PKNAME $(findmnt -n -o SOURCE /opt/pipeline))\nPART=$(lsblk -no PARTNUM $(findmnt -n -o SOURCE /opt/pipeline) 2>/dev/null)\n[ -n \"$PART\" ] && sudo growpart /dev/$DEVICE $PART\nsudo xfs_growfs /opt/pipeline    # XFS filesystem\n\ndf -h /opt/pipeline",
+          "content": "INSTANCE_ID=$(curl -s -H \"X-aws-ec2-metadata-token: $(curl -s -X PUT \\\n  http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600')\" \\\n  http://169.254.169.254/latest/meta-data/instance-id)\n\nVOL_ID=$(aws ec2 describe-volumes \\\n  --filters \"Name=attachment.instance-id,Values=$INSTANCE_ID\" \"Name=tag:Name,Values=*data*\" \\\n  --query 'Volumes[0].VolumeId' --output text)\n\naws ec2 modify-volume --volume-id $VOL_ID --size 740\n\nwatch -n5 \"aws ec2 describe-volumes-modifications --volume-ids $VOL_ID \\\n  --query 'VolumesModifications[0].ModificationState' --output text\"\n\nDEVICE=$(lsblk -no PKNAME $(findmnt -n -o SOURCE /opt/pipeline))\nPART=$(lsblk -no PARTNUM $(findmnt -n -o SOURCE /opt/pipeline) 2>/dev/null)\n[ -n \"$PART\" ] && sudo growpart /dev/$DEVICE $PART\nsudo xfs_growfs /opt/pipeline    # XFS filesystem\n\ndf -h /opt/pipeline",
           "language": "bash"
         },
         {
@@ -854,6 +854,16 @@ export const deploymentTopic: HelpTopic = {
               "shutdown.sh",
               "Stop Minikube + remove iptables rules",
               "root (sudo)"
+            ],
+            [
+              "boot-recover.sh",
+              "Bring the cluster back after an instance stop/start (ExecStart of the pipeline-minikube systemd unit bootstrap.sh installs; shutdown.sh is its ExecStop)",
+              "systemd"
+            ],
+            [
+              "backup.sh / restore.sh",
+              "Database backup and restore (wrappers over deploy/bin/backup.sh / restore.sh via kubectl; see Deploy Operations)",
+              "the minikube user (kubectl context)"
             ]
           ]
         },
@@ -1049,7 +1059,7 @@ export const deploymentTopic: HelpTopic = {
           "rows": [
             [
               "1. Cluster",
-              "eksctl creates the EKS Auto Mode cluster (cluster/cluster.yaml) + the aws-efs-csi-driver addon"
+              "eksctl creates the EKS Auto Mode cluster (cluster/cluster.yaml), then the custom NodeClass + NodePool (NetworkPolicy enforcement, the compute ceiling) and the cluster addons (incl. aws-efs-csi-driver)"
             ],
             [
               "2. EFS",
@@ -1068,8 +1078,8 @@ export const deploymentTopic: HelpTopic = {
               "SES ses:SendEmail/ses:SendRawEmail association for the platform ServiceAccount (when email is enabled)"
             ],
             [
-              "6. KEDA",
-              "Installs the KEDA operator (the plugin ScaledObject autoscaler — Auto Mode doesn't bundle it)"
+              "6. KEDA, metrics-server, mesh",
+              "Installs the KEDA operator (the ScaledObject autoscaler — Auto Mode doesn't bundle it), metrics-server (HPA and KEDA cpu/memory triggers) and the Istio ambient mesh"
             ],
             [
               "7. Workloads",
@@ -1079,6 +1089,14 @@ export const deploymentTopic: HelpTopic = {
             [
               "8. Route 53",
               "A-alias --domain → the ALB the Ingress provisions"
+            ],
+            [
+              "9. Init",
+              "init-platform.sh eks over a kubectl port-forward (skipped with --no-auto-init / AUTO_INIT=false)"
+            ],
+            [
+              "10. Smoke checks",
+              "Post-provision checks; non-fatal"
             ]
           ]
         },
@@ -1374,11 +1392,19 @@ export const deploymentTopic: HelpTopic = {
           "rows": [
             [
               "setup.sh",
-              "Full deploy: cluster → EFS → ACM → secrets → KEDA → manifests → Route 53"
+              "Full deploy, phases 1-10: cluster → EFS → ACM → secrets → IAM → operators + mesh → manifests → Route 53 → init → smoke checks (--from-phase / --to-phase / --only-phase)"
+            ],
+            [
+              "startup.sh",
+              "Phases 4-8 only: re-apply secrets, IAM, operators, workloads and the Route 53 alias after a config or image change"
             ],
             [
               "shutdown.sh",
               "Teardown: Ingress/ALB → Route 53 → EFS → cluster → ACM cert"
+            ],
+            [
+              "backup.sh / restore.sh",
+              "Database backup and restore (wrappers over deploy/bin/backup.sh / restore.sh; see Deploy Operations)"
             ]
           ]
         },
@@ -1463,7 +1489,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "SES_REGION=<deploy region>, EMAIL_FROM=noreply@<domain>, EMAIL_FROM_NAME=pipeline-builder, SES_CONFIGURATION_SET. Override the sender with --email-from / --email-from-name. On EKS a re-deploy also switches an existing .env that still holds the template's SMTP placeholders (EMAIL_PROVIDER=smtp, SMTP_HOST=localhost) to SES; a real SMTP relay is left alone."
+          "content": "SES_REGION=<deploy region>, EMAIL_FROM=noreply@<domain>, EMAIL_FROM_NAME=pipeline-builder, SES_CONFIGURATION_SET. Override the sender with --email-from / --email-from-name."
         },
         {
           "type": "table",
@@ -1824,7 +1850,7 @@ export const deploymentTopic: HelpTopic = {
           "type": "list",
           "items": [
             "After a fresh deploy (which generates a new user-token signing key), re-run infra store-token before publishing — otherwise the crane push / CodeBuild image pull can 401.",
-            "Re-run it for ALL THREE credentials — the platform one, --scope registry:push (what CodeBuild presents to the registry) and --scope reporting:ingest (what the event Lambda reads). Each is a separate service account with only the authority its job needs; see Authentication → Stored machine credentials (AWS). Each secret holds an opaque pb_sa_… key in its password field — the full procedure, including the ordering that matters, is in Access Keys and Machine Credentials."
+            "Re-run it for ALL FOUR credentials — the platform one, --scope registry:push (what CodeBuild presents to the registry), --scope pipeline_registry:write (what the synth registers its step manifest with) and --scope reporting:ingest (what the event Lambda reads). Each is a separate service account with only the authority its job needs; see Authentication → Stored machine credentials (AWS). Each secret holds an opaque pb_sa_… key in its password field — the full procedure, including the ordering that matters, is in Access Keys and Machine Credentials."
           ]
         },
         {
@@ -1837,7 +1863,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "pipeline-manager auth login --no-verify-ssl\n\nexport PLATFORM_PASSWORD='…'\n\npipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1\n\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\n\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
+          "content": "pipeline-manager auth login --no-verify-ssl\n\nexport PLATFORM_PASSWORD='…'\n\npipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1\n\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\n\npipeline-manager infra store-token --scope pipeline_registry:write --schedule --region us-east-1\n\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
           "language": "bash"
         },
         {
@@ -1849,33 +1875,42 @@ export const deploymentTopic: HelpTopic = {
           "headers": [
             "Secret",
             "Service account",
-            "Key scope"
+            "Authority"
           ],
           "rows": [
             [
               "pipeline-builder/{orgId}/platform",
               "platform-automation",
-              "none (org admin Roles)"
+              "Pipeline Automation Role (unscoped key)"
             ],
             [
               "pipeline-builder/{orgId}/registry-push",
               "registry-push",
-              "registry:push"
+              "registry:push key scope, no Role"
+            ],
+            [
+              "pipeline-builder/{orgId}/pipeline-registry-write",
+              "pipeline-register",
+              "Pipeline Registration Role (unscoped key)"
             ],
             [
               "pipeline-builder/{orgId}/reporting-ingest",
               "reporting-ingest",
-              "reporting:ingest"
+              "reporting:ingest key scope, no Role"
             ]
           ]
         },
         {
+          "type": "text",
+          "content": "See Permissions → Automation service accounts."
+        },
+        {
           "type": "note",
-          "content": "On a headless host with no browser, export PLATFORM_IDENTIFIER / PLATFORM_PASSWORD instead: store-token still has a non-interactive password login of its own for exactly that case (it is provisioning a machine credential, with nobody present to approve anything). PLATFORM_PASSWORD is required either way — it is the step-up factor for both writes."
+          "content": "On a headless host with no browser, export PLATFORM_IDENTIFIER / PLATFORM_PASSWORD instead: store-token still has a non-interactive password login of its own for exactly that case (it is provisioning a machine credential, with nobody present to approve anything). Without a terminal, PLATFORM_PASSWORD is also the step-up factor; an account with no password issues the key on the Service accounts page and hands it over with --from-key - (no step-up needed)."
         },
         {
           "type": "text",
-          "content": "By default infra store-token only writes the secret — you must re-run it before the key expires (audit tokens warns you in advance). To avoid that, add --schedule to also deploy a small daily key-rotation stack (pipeline-builder-token-renew-<secret>, e.g. pipeline-builder-token-renew-platform):"
+          "content": "By default infra store-token only writes the secret — you must re-run it before the key expires (audit tokens warns you in advance). To avoid that, add --schedule to also deploy a small daily key-rotation stack named pipeline-builder-token-renew-<leaf>-<hash> — <leaf> is the secret name's last path segment (platform, registry-push, pipeline-registry-write, reporting-ingest; non-alphanumerics become -, trimmed so the names fit AWS's 64-character limit), <hash> the first 8 hex characters of the SHA-256 of the full secret name — e.g. pipeline-builder-token-renew-platform-1a2b3c4d. The stack's IAM role, Lambda function and EventBridge rule carry the same name, so every credential — including the same leaf for another org rotated from the same AWS account — gets its own stack:"
         },
         {
           "type": "code",
@@ -2182,7 +2217,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Runners are on for every org: there is no feature flag and nothing for the operator to provision. Each org signs with its own Ed25519 key, created on the platform with the first runner registered under it — a top-level org's own first runner, or a team's first runner when the top-level org it inherits from has no key yet (teams inherit their parent's key unless they switch to their own), and each runner verifies requests against its own key set at <platform>/api/pipelines/runner/runners/<runnerId>/jwks.json. Org admins rotate the key from the Signing key card or pipeline-manager runner signing-key. In an emergency an operator revokes one org's key from the system org, or turns on Pause all pipeline runs, which stops every run on the deployment (see secret rotation)."
+          "content": "Runners are on for every org: there is no feature flag and nothing for the operator to provision. Each top-level org signs with its own Ed25519 key, created on the platform with its first runner; teams inherit their parent's key unless they switch to their own. Each runner verifies requests against its own key set at <platform>/api/pipelines/runner/runners/<runnerId>/jwks.json. Org admins rotate the key from the Signing key card or pipeline-manager runner signing-key (the new key is published at once, signs 10 minutes later, and the old one is retired an hour after that). In an emergency an operator revokes one org's key from the system org, or turns on Pause all pipeline runs, which stops every run on the deployment. The key lifecycle, with a diagram, is in secret rotation: signing flow at a glance."
         },
         {
           "type": "text",
@@ -2206,6 +2241,19 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The runner for a pipeline is always found by its pb.pipeline-id tag, which only the runner can see, so nobody picks it by hand. When a pipeline is registered the platform probes the org's runners in the background and saves the link; the pipeline page shows it under Runs via (Linked, Not linked yet, Not found, or Two runners matched) with Find runner again to re-probe (step-up). An unlinked pipeline is discovered on its first Run, and a stale link is rediscovered once."
+        },
+        {
+          "type": "text",
+          "content": "A run request, end to end"
+        },
+        {
+          "type": "code",
+          "content": "sequenceDiagram\n    autonumber\n    actor U as User\n    participant P as Pipeline service\n    participant Q as runner-dispatch queue\n    participant R as Runner Lambda\n    participant CP as CodePipeline\n    U->>P: POST /api/pipelines/:id/executions\n    P->>P: pick the runner: the saved link, else probe the org's runners\n    P->>Q: record the run request (queued, expires in 10 min)\n    P-->>U: 202 with the requestId\n    Q->>P: dispatch job\n    P->>P: not paused, runner healthy and still eligible\n    P->>P: sign a pb-run+jwt with the runner owner's key\n    P->>R: POST the compact JWS\n    R->>P: GET /api/pipelines/runner/runners/:runnerId/jwks.json (cache cold or kid unknown)\n    R->>R: verify signature, iss, aud and exp, then the jti replay check\n    R->>R: find the pipeline by its pb.pipeline-id tag, check the allowlist\n    R->>CP: StartPipelineExecution (clientRequestToken = requestId)\n    R-->>P: 200 outcome started, executionId\n    P->>P: run request becomes started\n    U->>P: GET /api/pipelines/:id/run-requests/:requestId",
+          "language": "mermaid"
+        },
+        {
+          "type": "text",
+          "content": "A failed delivery (timeout, refused connection, 5xx, 429) is retried with backoff (1, 2, 4, … seconds, capped at 30) until the request expires. A runner's refusal (SIGNATURE_INVALID, RUNNER_REFUSED, …) fails the request at once, except NOT_YET_VISIBLE and DUPLICATE, which are retried, and PIPELINE_NOT_FOUND from a linked runner, which clears the link and rediscovers once. Stop and the plugin-upgrade redeploy follow the same path. Without Redis the queue runs in-process, which is correct only on one replica. How the signing key is chosen, rotated and revoked is in secret rotation."
         },
         {
           "type": "text",
@@ -2251,7 +2299,7 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "It is a compact JWS (alg: EdDSA, typ: pb-run+jwt) whose signature verifies against this runner's own key set at <platform>/api/pipelines/runner/runners/<RUNNER_ID>/jwks.json, which publishes only the runner owner's keys (fetched from that URL only, redirects refused; cached 10 minutes; an unknown key id, or a refresh that failed while keys are cached, refetches at most once a minute; a 404, for an unknown or revoked runner, means no keys and every request is refused). The issuer is pipeline-builder, the audience is this runner's id (the stack's RunnerId parameter is required: setup-runner registers the runner first and deploys with its id, and a function without one refuses everything), and it was issued within its 10-minute lifetime (2 minutes of clock skew allowed). Otherwise: 401 SIGNATURE_INVALID.",
+            "It is a compact JWS (alg: EdDSA, typ: pb-run+jwt) whose signature verifies against this runner's own key set at <platform>/api/pipelines/runner/runners/<RUNNER_ID>/jwks.json, which publishes only the keys the runner's owning org signs with: its own, or the parent's it inherits (fetched from that URL only, redirects refused; cached 10 minutes; an unknown key id, or a refresh that failed while keys are cached, refetches at most once a minute; a 404, for an unknown or revoked runner, means no keys and every request is refused). The issuer is pipeline-builder, the audience is this runner's id (the stack's RunnerId parameter is required: setup-runner registers the runner first and deploys with its id, and a function without one refuses everything), and it was issued within its 10-minute lifetime (2 minutes of clock skew allowed). Otherwise: 401 SIGNATURE_INVALID.",
             "Its request id was not seen in the last 15 minutes. A repeat gets the earlier result back, or 409 DUPLICATE while the first is still running. This cache lives in one warm Lambda container (there can be two, and containers are recycled), so it is best effort. What actually keeps an at-least-once delivery from acting twice is CodePipeline: the request id is the start's clientRequestToken (the same request starts one execution), and a stop of an execution already stopping or stopped answers stopped.",
             "The pipeline is found by its identity tag (next section), and it is inside the allowlist. Otherwise: 403 RUNNER_REFUSED."
           ]
@@ -2305,7 +2353,7 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "Org B's runner is sent a request signed by org A",
-              "The platform signs with the key of the org that owns the runner row, never one named in a request, and each runner's JWKS carries only its owner's keys, so the signature fails with 401."
+              "The platform signs with the key of the org that owns the runner row (or the key it inherits), never one named in a request, and each runner's JWKS carries only that key's states, so the signature fails with 401."
             ],
             [
               "The JWKS endpoint is spoofed",
@@ -2428,11 +2476,11 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Check the platform (runners must be available: not paused by the operator) and the account: list its runner stacks, refuse a second runner of your org, warn about other orgs' runners and about a parent's shared runner. Nothing is created in AWS before this passes.",
+            "Check the platform (runners must be available: not paused by the operator), the account (list its runner stacks, refuse a second runner of your org, warn about other orgs' runners and about a parent's shared runner) and the org's signing key. A top-level org with no key gets one when the runner registers in step 2; --generate-key creates one first (step-up); a team that inherits from a parent with no key is refused (the parent's admins generate one, or the team switches to its own key); an unreadable key is refused. Nothing is created in AWS before this passes.",
             "Register a pending runner: POST /api/pipelines/runners { label, regions }, gated by step-up (--step-up auto|password|totp|browser, as store-token) and an MFA-grade session. The platform returns the runner's id.",
             "Deploy the stack once, with that id as RUNNER_ID, and upload the bundled handler. From its first invocation the runner accepts only requests addressed to itself.",
             "Read the endpoint from the stack outputs. It is never printed.",
-            "Send it: PATCH /api/pipelines/runners/:id { functionUrl } (step-up). Registering the first runner under an org with no signing key created it (a team's first runner creates its top-level org's key when that org has none); an org with none stops here unless --generate-key was passed. setup-runner prints the runner's own JWKS URL. The platform checks the host and sends a signed ping; a pong makes the runner active. If the ping fails (422 RUNNER_PING_FAILED), the stack stays deployed and the runner stays pending. Check the runner's CloudWatch logs and re-run setup-runner, which resumes with the same runner. The platform deletes runners still pending after 24 hours.",
+            "Send it: PATCH /api/pipelines/runners/:id { functionUrl } (step-up). setup-runner prints the runner's own JWKS URL. The platform checks the host and sends a signed ping; a pong makes the runner active. If the ping fails (422 RUNNER_PING_FAILED), the stack stays deployed and the runner stays pending. Check the runner's CloudWatch logs and re-run setup-runner, which resumes with the same runner. The platform deletes runners still pending after 24 hours.",
             "Check event reporting: without the pipeline-builder-events stack in the region, runs the runner starts show as started but report no progress, so setup-runner warns. --with-events runs infra setup-events --scoped-ingest afterwards (it needs the reporting:ingest key from infra store-token --scope reporting:ingest --schedule)."
           ]
         },
@@ -2583,7 +2631,7 @@ export const deploymentTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "All endpoints require authentication and org context. Time range defaults to last 30 days."
+          "content": "All endpoints require authentication and org context. Time range defaults to last 30 days. These are the core execution and plugin reports; the full set (DORA, flaky stages, error patterns, …) is in API Reference → Reporting Endpoints."
         },
         {
           "type": "text",
@@ -2606,11 +2654,6 @@ export const deploymentTopic: HelpTopic = {
               "GET /api/reports/execution/success-rate",
               "Pass/fail rate over time",
               "interval, from, to, tz, weekStart"
-            ],
-            [
-              "GET /api/reports/execution/timeline",
-              "Execution timeline (alias for success-rate)",
-              "interval, from, to"
             ],
             [
               "GET /api/reports/execution/duration",
@@ -2710,7 +2753,7 @@ export const deploymentTopic: HelpTopic = {
           "items": [
             "A run is a terminal ACTION event: SUCCEEDED or FAILED. Canceled and superseded actions aren't counted.",
             "publisher is pipeline-builder for the Official catalog and empty for your org's own plugins. To select only your own plugins, pass ?publisher= with an empty value.",
-            "A pipeline deployed before this existed has no manifest, so its events carry no plugin until its next deploy.",
+            "A pipeline whose registration was skipped (no pipeline_registry:write key) has no manifest, so its events carry no plugin until it is deployed with one.",
             "These reports are rollup-aware (?includeDescendants=true with reports:rollup) and capped by your retention window."
           ]
         },
@@ -2728,7 +2771,7 @@ export const deploymentTopic: HelpTopic = {
           "rows": [
             [
               "interval",
-              "day, week, month",
+              "day, week, month, quarter",
               "week"
             ],
             [
@@ -2831,7 +2874,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "deploy/aws/ec2/\n├── template.yaml          # CloudFormation stack\n├── .env.example           # Reference config\n├── postgres-init.sql      # Schema + RLS (identical in every target)\n├── mongodb-init.js        # Mongo indexes (identical in every target)\n├── services.txt           # Generated by projen: <kind> <name> <dir>\n├── bin/\n│   ├── setup.sh         # Deploy the stack (from your machine)\n│   ├── bootstrap.sh      # EC2 setup + hardening\n│   ├── startup.sh        # Minikube + K8s deploy + ALB-target iptables bridge\n│   └── shutdown.sh       # Teardown\n├── k8s/                   # Kubernetes manifests\n│   └── kustomization.yaml # Kustomize entry point\n├── nginx/\n│   ├── nginx.conf         # Nginx config (routes; drift-checked against the other targets)\n│   ├── jwt.js             # NJS access-log claim decode (identical in every target)\n│   ├── metrics.js         # NJS gateway request counters (identical in every target)\n│   └── registry-auth.js   # NJS registry token-realm rewrite\n└── config/                # Prometheus, Promtail, Grafana, Loki, Alertmanager, Thanos"
+          "content": "deploy/aws/ec2/\n├── template.yaml          # CloudFormation stack\n├── .env.example           # Reference config\n├── postgres-init.sql      # Schema + RLS (identical in every target)\n├── mongodb-init.js        # Mongo indexes (identical in every target)\n├── services.txt           # Generated by projen: <kind> <name> <dir>\n├── bin/\n│   ├── setup.sh         # Deploy the stack (from your machine)\n│   ├── bootstrap.sh      # EC2 setup + hardening\n│   ├── startup.sh        # Minikube + K8s deploy + ALB-target iptables bridge\n│   ├── shutdown.sh       # Stop Minikube + remove the iptables rules\n│   ├── boot-recover.sh   # Bring the cluster back after an instance stop/start (systemd)\n│   ├── backup.sh         # Wrapper over deploy/bin/backup.sh\n│   └── restore.sh        # Wrapper over deploy/bin/restore.sh\n├── k8s/                   # Kubernetes manifests\n│   └── kustomization.yaml # Kustomize entry point\n├── nginx/\n│   ├── nginx.conf         # Nginx config (routes; drift-checked against the other targets)\n│   ├── admin-consoles*.conf, rustfs-console*.conf  # Console routes (enabled/disabled variants)\n│   ├── jwt.js             # NJS access-log claim decode (identical in every target)\n│   ├── metrics.js         # NJS gateway request counters (identical in every target)\n│   └── registry-auth.js   # NJS registry token-realm rewrite\n└── config/                # Prometheus, Alloy, Grafana, Loki, Alertmanager, Thanos"
         },
         {
           "type": "text",
@@ -2847,7 +2890,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "deploy/aws/eks/\n├── bin/\n│   ├── setup.sh           # Full deploy orchestrator (cluster → … → Route 53)\n│   └── shutdown.sh        # Teardown (Ingress/ALB → Route 53 → EFS → cluster → ACM)\n├── cluster/\n│   └── cluster.yaml       # eksctl ClusterConfig (Auto Mode + aws-efs-csi-driver)\n├── k8s/\n│   ├── kustomization.yaml # Standalone manifests (not shared with ec2/minikube)\n│   ├── storageclasses.yaml# pb-ebs (RWO) + pb-efs (RWX)\n│   ├── ingress.yaml       # ALB Ingress → nginx:8080 (ACM TLS at the ALB)\n│   └── *.yaml             # Full workload set, PVC-tuned for multi-node\n├── config/                # Prometheus, Promtail, Grafana, Loki, Alertmanager, Thanos\n├── nginx/                 # nginx.conf, admin-consoles*.conf, registry-auth.js, jwt.js, metrics.js\n├── .env.example\n├── postgres-init.sql      # Schema + RLS (identical in every target)\n├── mongodb-init.js        # Mongo indexes (identical in every target)\n├── services.txt           # Generated by projen: <kind> <name> <dir>\n└── mongodb-keyfile        # generated per deploy, gitignored"
+          "content": "deploy/aws/eks/\n├── bin/\n│   ├── setup.sh           # Full deploy orchestrator, phases 1-10 (cluster → … → Route 53 → init → smoke)\n│   ├── startup.sh         # Phases 4-8 only (re-apply config / images / manifests)\n│   ├── shutdown.sh        # Teardown (Ingress/ALB → Route 53 → EFS → cluster → ACM)\n│   ├── backup.sh          # Wrapper over deploy/bin/backup.sh\n│   └── restore.sh         # Wrapper over deploy/bin/restore.sh\n├── cluster/\n│   ├── cluster.yaml       # eksctl ClusterConfig (Auto Mode)\n│   ├── addons.yaml        # Cluster addons (incl. aws-efs-csi-driver)\n│   ├── nodeclass.yaml     # NodeClass (NetworkPolicy enforcement)\n│   └── nodepool.yaml      # NodePools (compute ceiling, ask-model GPU pool)\n├── k8s/\n│   ├── kustomization.yaml # Standalone manifests (not shared with ec2/minikube)\n│   ├── storageclasses.yaml# pb-ebs (RWO) + pb-efs (RWX)\n│   ├── ingress.yaml       # ALB Ingress → nginx:8080 (ACM TLS at the ALB)\n│   └── *.yaml             # Full workload set, PVC-tuned for multi-node\n├── config/                # Prometheus, Alloy, Grafana, Loki, Alertmanager, Thanos\n├── nginx/                 # nginx.conf, admin-consoles*.conf, rustfs-console*.conf, registry-auth.js, jwt.js, metrics.js\n├── .env.example\n├── postgres-init.sql      # Schema + RLS (identical in every target)\n├── mongodb-init.js        # Mongo indexes (identical in every target)\n├── services.txt           # Generated by projen: <kind> <name> <dir>\n└── mongodb-keyfile        # generated per deploy, gitignored"
         },
         {
           "type": "text",

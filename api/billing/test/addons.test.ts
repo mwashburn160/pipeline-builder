@@ -180,7 +180,12 @@ jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
 // ALONGSIDE the local billing_events write. Spied via the api-core mock's `recordAudit`.
 const mockAuditRecord = jest.fn<AnyFn>();
 
+// Every priced response names its currency (BILLING_CURRENCY, lower-cased).
+const priorCurrency = process.env.BILLING_CURRENCY;
+process.env.BILLING_CURRENCY = ' JPY ';
 const { createAddonRoutes } = await import('../src/routes/addons.js');
+// Read once at import; restored so no later suite in this worker inherits it.
+if (priorCurrency === undefined) delete process.env.BILLING_CURRENCY; else process.env.BILLING_CURRENCY = priorCurrency;
 const router = createAddonRoutes();
 
 const getHandler = handlerGetter(router);
@@ -278,8 +283,11 @@ describe('GET /bundles', () => {
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
     expect(payload.comboDiscounts).toEqual([
-      { id: 'demo', name: 'Demo Suite', bundleIds: ['seat_pack', 'free_feature'], savings: { monthly: 500, annual: 5000 } },
+      { id: 'demo', name: 'Demo Suite', bundleIds: ['seat_pack', 'free_feature'], savings: { monthly: 500, annual: 5000 }, currency: 'jpy' },
     ]);
+    // Bundle prices, like combo savings, name the billing currency.
+    expect(payload.bundles.length).toBeGreaterThan(0);
+    for (const b of payload.bundles) expect(b.currency).toBe('jpy');
   });
 
   it('omits a combo when a member is not offered on the account tier', async () => {
@@ -302,7 +310,7 @@ describe('GET /bundles', () => {
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
     expect(payload.comboDiscounts).toEqual([
-      { id: 'demo', name: 'Demo', bundleIds: ['seat_pack', 'free_feature'], minQuantities: { seat_pack: 2 }, savings: { monthly: 1500, annual: 15000 } },
+      { id: 'demo', name: 'Demo', bundleIds: ['seat_pack', 'free_feature'], minQuantities: { seat_pack: 2 }, savings: { monthly: 1500, annual: 15000 }, currency: 'jpy' },
     ]);
   });
 
@@ -520,6 +528,7 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     expect(status).toBe(200);
     expect(payload.addons).toEqual([{ bundleId: 'seat_pack', quantity: 3 }]);
     expect(payload.priceBreakdown.totalCents).toBe(4000 + 1000 * 3); // Pro base + 3× seat pack
+    expect(payload.priceBreakdown.currency).toBe('jpy');
   });
 
   it('stamps providerAddonSyncPending transactionally with the add-on commit (crash-durability)', async () => {
@@ -989,6 +998,11 @@ describe('GET /charges', () => {
     expect(b.totalCents).toBe(b.items.reduce((s, i) => s + i.cents, 0));
   });
 
+  it('names the currency of its amounts', async () => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'support_standard', quantity: 3 }] }));
+    expect((await charges()).priceBreakdown).toMatchObject({ currency: 'jpy' });
+  });
+
   it('returns NULL rather than erroring when there is nothing to bill', async () => {
     // A deployment with billing disabled, or an org before its first plan.
     mockSubscriptionFindOne.mockResolvedValue(null);
@@ -1019,6 +1033,15 @@ describe('POST /subscriptions/:id/addons/basket — payment gate', () => {
   });
 });
 
+describe('GET /crossover — currency', () => {
+  const handler = getHandler('get', '/crossover');
+  it('names the currency of the compared amounts', async () => {
+    withActiveSub(makeSubscription());
+    await handler(mockReq(), mockRes());
+    expect(mockSendSuccess.mock.calls.at(-1)?.[2]).toMatchObject({ currency: 'jpy' });
+  });
+});
+
 describe('GET /plan-preview — interval', () => {
   const handler = getHandler('get', '/plan-preview');
   const preview = async (query: Record<string, string>) => {
@@ -1040,6 +1063,11 @@ describe('GET /plan-preview — interval', () => {
     const annual = (await preview({ tier: 'business', interval: 'annual' }))?.preview;
     expect(annual?.interval).toBe('annual');
     expect(annual!.listCents).toBeGreaterThan(monthly!.listCents);
+  });
+
+  it('names the currency of its amounts', async () => {
+    withActiveSub(makeSubscription({ interval: 'monthly' }));
+    expect((await preview({ tier: 'business' }))?.preview).toMatchObject({ currency: 'jpy' });
   });
 
   it('refuses an unknown interval', async () => {

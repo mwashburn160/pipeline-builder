@@ -207,8 +207,10 @@ export async function activate(userId: string, code: string): Promise<{ recovery
 
   // The lockout is re-checked IN the write (see `notLockedOut`): a guess that
   // read the enrolment before a parallel run of failures locked it can't land.
+  // So is the secret: a re-enrolment that replaced it meanwhile (another tab)
+  // must not be activated by a code that proved the OLD one.
   const claimed = await UserTotp.findOneAndUpdate(
-    { userId, activatedAt: null, lastUsedStep: doc.lastUsedStep, ...notLockedOut() },
+    { userId, activatedAt: null, secret: doc.secret, lastUsedStep: doc.lastUsedStep, ...notLockedOut() },
     {
       $set: {
         activatedAt: new Date(),

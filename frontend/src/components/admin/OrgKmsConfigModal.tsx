@@ -53,7 +53,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
 
   // `data` may be omitted on a not-yet-configured org: that is "not
   // configured", not an error.
-  const { data: loaded, loading, error: loadError } = useFetch(async () => {
+  const { data: loaded, loading, error: loadError, refetch: reloadBinding } = useFetch(async () => {
     const res = await api.getOrgKmsConfig(org.id);
     if (!res.success) throw new Error(res.message || 'Failed to load KMS config');
     return { configured: res.data?.configured ?? false, keyId: res.data?.keyId };
@@ -63,6 +63,22 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
 
   // One banner for save / test / clear: starting any of them clears it.
   const showError = (_err: unknown, message: string) => setError(message);
+
+  /** Before a save / clear: drop the banners the last one left. */
+  const startChange = () => {
+    setError(null);
+    setUnreadable([]);
+  };
+
+  /** A failed save / clear: some 500s answer AFTER the config changed ("saved
+   *  but re-encryption failed"), so re-read the binding rather than keep
+   *  showing the one this modal last knew. */
+  const failChange = (err: unknown, message: string) => {
+    showError(err, message);
+    setWritten(null);
+    void reloadBinding();
+    onSaved?.();
+  };
 
   /** After a change landed: close, unless it left secrets unreadable — then stay
    *  open naming them, since closing would read as a clean migration. */
@@ -78,7 +94,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
 
   const saveM = useMutation({
     fn: async (stepUpToken: string) => {
-      setError(null);
+      startChange();
       const res = await api.putOrgKmsConfig(org.id, { keyId, ciphertextBase64 }, undefined, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Failed to save KMS config');
       return res;
@@ -90,7 +106,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
       setCiphertextBase64('');
       finishChange(res.data);
     },
-    onError: showError,
+    onError: failChange,
   });
 
   /** Dry-run the proposed config without committing. The backend's
@@ -112,7 +128,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
 
   const clearM = useMutation({
     fn: async (stepUpToken: string) => {
-      setError(null);
+      startChange();
       const res = await api.deleteOrgKmsConfig(org.id, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Failed to clear KMS config');
       return res;
@@ -122,7 +138,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
       setWritten({ configured: false });
       finishChange(res.data);
     },
-    onError: showError,
+    onError: failChange,
   });
 
   const submitting = saveM.pending || clearM.pending;

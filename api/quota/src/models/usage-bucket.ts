@@ -81,9 +81,9 @@ const usageBucketSchema = new Schema<UsageBucketDocument>({
   keySource: { type: String, enum: [...AI_KEY_SOURCES, null], default: null },
   hour: { type: Date, required: true },
   amount: { type: Number, required: true, default: 0 },
-  tokensIn: { type: Number, default: 0 },
-  tokensOut: { type: Number, default: 0 },
-  calls: { type: Number, default: 0 },
+  tokensIn: { type: Number, required: true, default: 0 },
+  tokensOut: { type: Number, required: true, default: 0 },
+  calls: { type: Number, required: true, default: 0 },
 }, { collection: 'quota_usage_buckets', versionKey: false });
 
 // The bucket key. Led by (orgId, hour), so it doubles as the TEAM read scope's

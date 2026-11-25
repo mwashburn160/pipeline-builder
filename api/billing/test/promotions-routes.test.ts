@@ -65,7 +65,12 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: { aggregate: jest.fn(async () => [{ cents: 0, grants: 0 }]) },
 }));
 
+// A dollar promotion's value, budget and cap are in the billing currency.
+const priorCurrency = process.env.BILLING_CURRENCY;
+process.env.BILLING_CURRENCY = 'CAD';
 const { createPromotionRoutes } = await import('../src/routes/promotions.js');
+// Read once at import; restored so no later suite in this worker inherits it.
+if (priorCurrency === undefined) delete process.env.BILLING_CURRENCY; else process.env.BILLING_CURRENCY = priorCurrency;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const router: any = createPromotionRoutes();
@@ -92,7 +97,7 @@ describe('POST /admin/promotions (mint)', () => {
     }));
     expect(mockPromoCreate).toHaveBeenCalledTimes(1);
     expect(mockSendSuccess).toHaveBeenCalledWith({}, 201, expect.objectContaining({
-      promotion: expect.objectContaining({ name: 'Signup credit', value: 5000, unit: 'dollar' }),
+      promotion: expect.objectContaining({ name: 'Signup credit', value: 5000, unit: 'dollar', currency: 'cad' }),
     }));
     expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.promotion.create' }));
   });

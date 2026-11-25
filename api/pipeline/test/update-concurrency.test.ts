@@ -31,6 +31,8 @@ jest.unstable_mockModule('../src/helpers/pipeline-write.js', () => ({
   validatePipelineWrite: async () => ({ pluginWarnings: [] }),
   buildPipelineUpdateData: (_req: unknown, body: Record<string, unknown>) =>
     Object.fromEntries(Object.entries({ description: body.description }).filter(([, v]) => v !== undefined)),
+  // `from-stored` stands for a rename alone (the helper's own suite covers when that is).
+  alignPipelineUpdateIdentity: (data: Record<string, unknown>) => ({ data, fromStored: data.description === 'from-stored' }),
   auditedChanges: () => ({}),
   complianceBlockedDetails: () => ({}),
   pluginWarningsField: () => ({}),
@@ -78,6 +80,13 @@ describe('PUT /pipelines/:id', () => {
     const r = await call(createUpdatePipelineRoutes(), { description: 'd', expectedUpdatedAt: LOADED });
     expect(r.status).toBe(200);
     expect(pipelines.update).toHaveBeenCalledWith('p-1', { description: 'd' }, 'org-a', 'u-1', { expectedUpdatedAt: LOADED });
+  });
+
+  it('an update that rewrites the STORED props (a rename alone) is guarded on the row it read, without a caller token', async () => {
+    pipelines.findById.mockResolvedValueOnce({ id: 'p-1', orgId: 'org-a', pipelineName: 'p', visibility: 'org', updatedAt: LOADED });
+    const r = await call(createUpdatePipelineRoutes(), { description: 'from-stored' });
+    expect(r.status).toBe(200);
+    expect(pipelines.update).toHaveBeenCalledWith('p-1', { description: 'from-stored' }, 'org-a', 'u-1', { expectedUpdatedAt: LOADED });
   });
 
   it('a stale token is a 412 PRECONDITION_FAILED', async () => {

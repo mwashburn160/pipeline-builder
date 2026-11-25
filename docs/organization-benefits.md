@@ -18,7 +18,7 @@ Why Pipeline Builder exists, and what an engineering organization gets from it.
 - **Developers ship pipelines without AWS expertise.** Five interfaces — dashboard, AI prompt, CLI, REST API, CDK construct — all produce the same native AWS resources.
 - **Security is enforced at the gate, not discovered in audit.** Compliance rules block creation at `error` or `critical` severity, so scanning is mandatory rather than opt-in.
 - **Zero vendor lock-in.** Pipelines deploy as native CodePipeline + CodeBuild in *your* AWS account. Stop using Pipeline Builder tomorrow and every deployed pipeline keeps running.
-- **119 pre-built plugins** across 10 categories, so no team maintains its own build images.
+- **118 pre-built plugins** across 10 categories, so no team maintains its own build images.
 - **The organization is the tenancy boundary.** Teams nest one level under it, share one account, and pool their quotas at the root.
 - **The pooled cap is the only cap.** A team's own limits are unlimited by design, so enforcement reads the root's cap — and briefly refuses rather than waving requests through unmetered if it can't resolve.
 - **Service accounts take no seat.** They are machine principals with their own token-exchange budget, so automation is bounded on its own allowance rather than the people's.
@@ -59,7 +59,7 @@ A Java team gets build, test, lint, security scan and deploy stages in minutes �
 
 ### 2. Shared plugin catalog
 
-119 pre-built, containerized plugins covering the full CI/CD lifecycle:
+118 pre-built, containerized plugins covering the full CI/CD lifecycle:
 
 | Category | What it covers |
 |----------|---------------|
@@ -156,13 +156,15 @@ An organization is a self-contained, isolated workspace — your company, a busi
 
 | Built-in Role (seeded permission bundle) | What its permissions cover |
 |------|-------------|
-| **Owner** | Full control — manage members, transfer ownership, delete the organization (exactly one owner per org) |
-| **Admin** | Manage plugins, pipelines, compliance rules and quotas; invite and manage members |
+| **Admin** | Every org-assignable permission — plugins, pipelines, compliance rules, quotas, Roles; invite and manage members |
 | **Member** | Create and manage their own pipelines and plugins |
+| **Pipeline Automation** / **Pipeline Registration** | Machine Roles for the service accounts `pipeline-manager infra store-token` provisions; no admin over the org |
+
+The org creator joins as the membership **owner** (exactly one per org) and holds the Admin and Member Roles.
 
 The coarse `owner` / `admin` / `member` label on a *membership* is for display and ownership transfer only — **it grants nothing**. Permissions come only from the Roles assigned to a user ([Permissions](permissions.md#the-model)).
 
-Access is granted through **Roles**, each a named set of fine-grained `resource:action` permissions. A user's effective permissions are the **union of the Roles assigned to them**; there is no separate role-based baseline. New orgs seed default Roles (Admin, Member); the system org also gets Super Admin; a platform Super Admin implicitly holds every permission. Admins with `roles:manage` can author custom Roles, bounded by their own permissions — a permission ceiling.
+Access is granted through **Roles**, each a named set of fine-grained `resource:action` permissions. A user's effective permissions are the **union of the Roles assigned to them**; there is no separate role-based baseline. New orgs seed default Roles (Admin, Member and the two machine Roles); the system org also gets Super Admin and its job Roles; a platform Super Admin implicitly holds every permission. Admins with `roles:manage` can author custom Roles, bounded by their own permissions — a permission ceiling.
 
 **Scoped to the org:** pipelines (by project + orgId), plugins (by orgId + the `visibility` ladder: `private` / `org` / `public`), compliance rules and exemptions, quotas and seats, secrets (`pipeline-builder/{orgId}/{secretName}`), the billing subscription, and execution analytics.
 
@@ -174,7 +176,7 @@ Access is granted through **Roles**, each a named set of fine-grained `resource:
 
 A **team** is an organization nested one level under a parent (root) organization. Nesting is **opt-in**: by default every organization is a flat, top-level root with no teams. A team is a full organization — its own members, roles and secrets — but it shares its parent's account, so the parent can govern it and quotas, billing, visibility, compliance and analytics roll across the parent ↔ team relationship.
 
-- **One level deep, and tier-gated.** Teams can't have sub-teams. A parent can only nest teams on the **Team** or **Enterprise** tier.
+- **One level deep, and tier-gated.** Teams can't have sub-teams. A parent can only nest teams on the **Team**, **Business** or **Enterprise** tier (or Unlimited when billing is off).
 - **One shared account.** A team inherits the parent's tier and feature entitlements, and its own quotas are set to unlimited so that **only the root's pooled caps bind** — the whole subtree draws from one shared pool rather than each team carrying separate limits.
 - **Effective RBAC.** A parent-org **admin/owner** administers its teams (manage members, rules, quotas) without a separate membership; team-local roles still apply within each team. Members get no implied authority over sibling or parent orgs.
 - **Inherited plugin visibility.** A team sees its parent's **private** plugins in addition to its own and the public catalog.
@@ -190,7 +192,7 @@ A **team** is an organization nested one level under a parent (root) organizatio
 
 Every pipeline synthesizes on a **managed toolchain release** — the `pipeline-bootstrap` build image and the `cdk-synth` step, published together by the system org under one version ([Pipeline Manager → The toolchain release](pipeline-manager.md#the-toolchain-release-synth-and-deploy)). By default an organization **follows the platform default**: its pipelines move to each newly promoted release on their next run. **Settings → Organization → Pipeline toolchain** lets an organization hold its own release instead.
 
-- **Who.** Anyone with `pipelines:read` sees the card: the release the org's unpinned pipelines resolve to now and why (`org-default`, `canary` or `default`), whether the org is in a canary, the platform default, and how many pipelines pin a release or build on one older than the platform default. Changing it needs `toolchain:manage` (Admin and Owner; grantable to a custom Role) and a step-up on every write, whatever the org's MFA policy.
+- **Who.** Anyone with `pipelines:read` sees the card: the release the org's unpinned pipelines resolve to now and why (`org-default`, `canary` or `default`), whether the org is in a canary, the platform default, and how many pipelines pin a release or build on one older than the platform default. Changing it needs `toolchain:manage` (in the Admin Role; grantable to a custom Role) and a step-up on every write, whatever the org's MFA policy.
 - **What you can choose.** "Follow platform default", or an **eligible** release: live (not yanked, deprecated or inactive), both halves present, and either a current or former platform default or your organization's own canary. Anything else is refused with `TOOLCHAIN_RELEASE_NOT_ELIGIBLE`. A release that picked up a vulnerability after promotion is still eligible; setting it answers with a `TOOLCHAIN_RELEASE_VULNERABLE` warning.
 - **Precedence.** A pipeline's own `toolchain.release` pin wins; then the nearest org default (the team's, else its root's); then the org's canary; then the platform default. An org default beats any canary.
 - **Teams.** A team sets its own default the same way. Without one it **inherits** its root organization's, and the card says so. Nothing a team does touches the root's default, and no organization ever sees or affects another's.
@@ -224,7 +226,7 @@ Each account — the root organization — carries a subscription **tier** that 
 | Alert rules / destinations | 50 / 10 | 500 / 50 | unlimited | unlimited | unlimited |
 | IdP configs | 1 | 5 | 5 | 10 | unlimited |
 | Public ecosystem listings | 3 | 10 | 25 | 50 | 100 |
-| AI generation (pipelines & plugins) | — | ✅ | ✅ | ✅ | ✅ |
+| AI generation (pipelines & plugins) | trial (the 20 AI calls) | ✅ | ✅ | ✅ | ✅ |
 | Bulk operations | — | ✅ | ✅ | ✅ | ✅ |
 | SSO | — | — | ✅ | ✅ | ✅ |
 | Teams (org → team nesting) | — | — | ✅ | ✅ | ✅ |
@@ -232,9 +234,9 @@ Each account — the root organization — carries a subscription **tier** that 
 | Advanced Reporting (DORA) | add-on | add-on | add-on | ✅ | ✅ |
 | Team Usage Analytics | — | — | add-on | add-on | ✅ |
 | Custom integrations | — | — | — | — | ✅ |
-| Priority support | — | ✅ | ✅ | ✅ | ✅ |
+| Support (standard / priority / premium) | add-on | add-on | add-on | add-on | add-on |
 
-The **audit trail is on every plan** — it is gated on being an organization admin, not on tier. (This table used to list it as a Team-and-up feature; `audit_log` has not been a feature flag for some time, so nothing enforced that.)
+The **audit trail is on every plan** — it is gated on being an organization admin, not on tier.
 
 <a id="per-period-is-not-per-month"></a>
 **"Per period" is not per month.** Every counted quota rolls over on one shared window, `QUOTA_RESET_DAYS` (default **3 days**), while the price is per month — so the API and AI figures above are each tier's allowance per 3 days, not per month. The window is a deployment setting, so lowering it tightens every tier at once.
@@ -245,7 +247,7 @@ AI allowances are far smaller than API allowances because an AI call carries an 
 
 **Unlimited tier.** Beyond the five subscription tiers there is an **Unlimited** tier where every quota above is `-1` and every gated feature is on. It exists for **billing-disabled** deployments: when `BILLING_ENABLED=false` there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is **enabled**, Unlimited is a valid stored tier but is never displayed, selectable or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Business/Enterprise are ever offered.
 
-**Add-on bundles** — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5 pipelines with +25 plugins, Team+), Plugin Pack (+10), API Pack (+25k calls), AI Pack (+100 calls), Storage Pack (+10 GB), Listing Pack (+5 plugin-ecosystem listings, **free**), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is **not** an add-on — it comes with the Team tier and up.
+**Add-on bundles** — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5 pipelines with +25 plugins, Team+), Plugin Pack (+10), CPU Credits Pack (+500), API Pack (+25k calls), Automation Pack (+25k automation calls), AI Pack (+100 calls), Storage Pack (+10 GB), Listing Pack (+5 plugin-ecosystem listings, **free**), Standard Retention Pack (+90 days) and DORA History Pack (+365 days), plus the Scale Bundle combo, the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance, Stakeholder Reports) and the per-contact support bundles (Standard, Priority, Premium upgrade). SSO is **not** an add-on — it comes with the Team tier and up.
 
 **Effective limit = tier base + Σ(bundle grant × quantity)**, and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See [Billing Add-on Bundles](billing-bundles.md) for the full catalog, prices and pooling rules.
 

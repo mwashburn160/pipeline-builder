@@ -410,6 +410,25 @@ describe('start: who is proposed, queued or skipped', () => {
     });
   });
 
+  it('a start that fails part-way writes no row, so its retry still covers every pipeline', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const pipes = [await pipelineOn(ROOT), await pipelineOn(TEAM, { root: ROOT })].sort();
+    // Planning the second candidate fails once (a transient read error).
+    let failed = false;
+    const flaky = createRolloutEngine({
+      ...deps,
+      plan: async (pipeline, rootOrgId, ref) => {
+        if (pipeline.id === pipes[1] && !failed) { failed = true; throw new Error('db blip'); }
+        return deps.plan(pipeline, rootOrgId, ref);
+      },
+    });
+    const rem = randomUUID();
+    await expect(flaky.start(rem, startBody(ROOT))).rejects.toThrow(/db blip/);
+    expect(await loadRows(rem)).toEqual([]);
+    await flaky.start(rem, startBody(ROOT));
+    expect((await loadRows(rem)).map((r) => r.pipelineId).sort()).toEqual(pipes);
+  });
+
   it('rowOrgAdmits: the row org must be the pipeline\'s org, and the scope its own org or an ancestor', async () => {
     const { rowOrgAdmits } = engineModule;
     const anc = deps.ancestors;

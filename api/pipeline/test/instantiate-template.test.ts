@@ -69,3 +69,21 @@ describe('instantiateTemplateProps — a stored toolchain pin is stripped', () =
     expect(props).toMatchObject({ project: 'p', organization: 'o', synth: { plugin: { name: 'cdk-synth' } } });
   });
 });
+
+describe('instantiateTemplateProps — a parameterized repository is baked into synth.source', () => {
+  const template = {
+    props: { synth: { source: { type: 'github', options: { repo: '{{ vars.repo }}', branch: 'main', token: 'secretsmanager:pb/{{ pipeline.vars.orgId }}/t' } } } },
+    inputs: [input({ name: 'repo', required: true })],
+  };
+
+  it('the instantiated props name the supplied repository (and keep the synth-time token template)', () => {
+    const props = instantiateTemplateProps(template, { project: 'p', organization: 'o', inputs: { repo: 'acme/shop' } });
+    expect((props.synth as any).source.options).toEqual({ repo: 'acme/shop', branch: 'main', token: 'secretsmanager:pb/{{ pipeline.vars.orgId }}/t' });
+    expect((template.props.synth.source.options as any).repo).toBe('{{ vars.repo }}');
+  });
+
+  it('refuses (400) when the source references a var with no value', () => {
+    const optional = { ...template, inputs: [input({ name: 'repo' })] };
+    expect(() => instantiateTemplateProps(optional, { project: 'p', organization: 'o' })).toThrow(/synth\.source\.options\.repo/);
+  });
+});

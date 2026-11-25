@@ -288,8 +288,8 @@ describe('runner signing keys runbook', () => {
 
   it('documents master-key rotation and the re-encrypt job, on both kinds of target', () => {
     expect(section).toContain('### Master-key rotation and the re-encrypt job');
-    expect(section).toContain('kubectl -n pipeline-builder exec deploy/pipeline -- node lib/scripts/reencrypt-runner-keys.js');
-    expect(section).toContain('docker compose exec pipeline node lib/scripts/reencrypt-runner-keys.js --org <orgId>');
+    expect(section).toContain('kubectl -n pipeline-builder exec deploy/pipeline -- node scripts/reencrypt-runner-keys.js');
+    expect(section).toContain('docker compose exec pipeline node scripts/reencrypt-runner-keys.js --org <orgId>');
     expect(section).toContain('scripts/reencrypt-secrets.js');
     // …and the master-key section itself sends the operator to pipeline too.
     const master = runbook.slice(runbook.indexOf('## `SECRET_ENCRYPTION_KEY`'), runbook.indexOf('\n## ', runbook.indexOf('## `SECRET_ENCRYPTION_KEY`') + 1));

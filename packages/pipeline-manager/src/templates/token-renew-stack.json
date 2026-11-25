@@ -25,7 +25,7 @@
     },
     "NameSuffix": {
       "Type": "String",
-      "Description": "Suffix appended to the rotation stack's resource names (the secret's trailing path segment, e.g. '-platform', '-reporting-ingest') so each credential's renewal coexists with the others instead of clobbering their role/function/rule."
+      "Description": "Suffix appended to the rotation stack's resource names (the secret's trailing path segment plus a hash of the full secret name, e.g. '-platform-1a2b3c4d') so each credential's renewal coexists with the others instead of clobbering their role/function/rule."
     }
   },
   "Resources": {

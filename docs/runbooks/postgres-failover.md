@@ -51,7 +51,7 @@ rather than repeating it. What matters here:
 |---|---|
 | `postgres` | Deployment, `replicas: 1`, `strategy: Recreate`. **The primary.** |
 | `postgres` (Service) | `ClusterIP`, `selector: app: postgres`. What pgbouncer's write pools resolve. |
-| `postgres-replica` | StatefulSet, `app: postgres-replica`. The standby, seeded by `pg_basebackup -R` with a permanent per-pod slot. On eks a KEDA `ScaledObject` owns the count (`PG_READ_REPLICA_MIN`…`MAX`, ceiling 2); on ec2/minikube it is a fixed 1. |
+| `postgres-replica` | StatefulSet, `app: postgres-replica`. The standby, seeded by `pg_basebackup -R` with a permanent per-pod slot. On eks and ec2 a KEDA `ScaledObject` owns the count (`PG_READ_REPLICA_MIN`…`MAX`, default 1…2); on minikube it is a fixed 1. |
 | `postgres-read` (Service) | `selector: app: postgres-replica`. Only consulted when `DB_READ_HOST` is set, which is **unset on every shipped target**. |
 
 Every service writes through `DB_HOST=pgbouncer:6432`, and pgbouncer's
@@ -196,7 +196,7 @@ Drop the slot before reusing the volume for anything, or discard the volume.
 | `DB_REPLICATION_USER` / `DB_REPLICATION_PASSWORD` | The standby's streaming credentials. A failed authentication in the standby's logs is the **expected** symptom after rotating these — see [Secret Rotation](secret-rotation.md). Re-seeding needs them. |
 | `DB_HOST` / `DB_PORT` | `pgbouncer` / `6432` on every target. Unchanged by failover — the Service patch is what moves. |
 | `DB_READ_HOST` | Unset on every shipped target, so nothing reads from the standby today. If you have enabled it, note that after promotion `postgres-read` selects the pod that is now the primary: correct, but no longer offloading anything. |
-| `PG_READ_REPLICA_MIN` / `MAX` | eks only. KEDA owns the standby count; the StatefulSet declares no `replicas`. Scaling the StatefulSet by hand is re-applied away. |
+| `PG_READ_REPLICA_MIN` / `MAX` | eks and ec2. KEDA owns the standby count; the StatefulSet declares no `replicas`. Scaling the StatefulSet by hand is re-applied away. |
 
 ## What this does not cover
 

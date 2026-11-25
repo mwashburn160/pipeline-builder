@@ -220,6 +220,15 @@ export interface OrganizationData {
    */
   kmsVerifyDueAt?: Date;
   /**
+   * The config the org's runner signing keys (pipeline Postgres) were wrapped
+   * under before a KMS config change whose re-wrap of them FAILED — the only
+   * durable copy of it once that request ends. Both fields absent = the shared
+   * provider. `POST .../kms-config/runner-keys/reencrypt` retries the re-wrap
+   * with it and clears it on success; so does any later change whose own
+   * re-wrap succeeds. Set only when absent, so the oldest unmigrated config wins.
+   */
+  kmsRunnerRewrapFrom?: { keyId?: string; ciphertextBase64?: string; pendingSince: Date };
+  /**
    * Durable "paid-signup billing bootstrap still pending" marker. Set when a
    * new org selected a paid `planId` at signup but the fire-and-forget billing
    * subscription call couldn't be provisioned (billing down/unreachable, all
@@ -245,6 +254,12 @@ export interface OrganizationData {
    * (only tombstoned docs carry it).
    */
   deletedAt?: Date | null;
+  /**
+   * Set (true) when the soft-delete was made by a platform operator — a
+   * takedown, which only the platform may restore. Absent on a tenant's own
+   * team delete, which stays self-serve restorable. Cleared on restore.
+   */
+  deletedByPlatform?: boolean;
   /**
    * When the purge sweep may run the destructive cascade for this soft-deleted
    * org (= `deletedAt` + `orgPurgeRetentionMs()`, i.e. the greater of
@@ -626,6 +641,15 @@ const organizationSchema = new Schema<OrganizationData>(
       default: undefined,
       index: { sparse: true },
     },
+    // Pending runner-signing-key re-wrap after a failed KMS change (see interface docs).
+    kmsRunnerRewrapFrom: {
+      type: new Schema({
+        keyId: { type: String },
+        ciphertextBase64: { type: String },
+        pendingSince: { type: Date, required: true },
+      }, { _id: false }),
+      default: undefined,
+    },
     // Durable paid-signup billing-bootstrap marker (see interface docs). Indexed
     // so the reconcile pass's `{ pendingBillingPlanId: { $exists: true, $ne: null } }`
     // scan is a cheap targeted lookup (sparse — only failed bootstraps carry it).
@@ -646,6 +670,8 @@ const organizationSchema = new Schema<OrganizationData>(
       default: null,
       index: { sparse: true },
     },
+    // Platform takedown marker on a soft-delete (see interface docs).
+    deletedByPlatform: { type: Boolean, default: undefined },
     purgeAfter: {
       type: Date,
       default: null,

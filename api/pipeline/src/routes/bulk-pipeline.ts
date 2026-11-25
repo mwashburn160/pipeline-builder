@@ -27,7 +27,7 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
-import { auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, createElectionRefusal, createOnePipeline, pluginWarningsField, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
+import { alignPipelineUpdateIdentity, auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, createElectionRefusal, createOnePipeline, pluginWarningsField, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
 import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
 import type { PluginWarning } from '../helpers/plugin-save-check.js';
 import { electionRefusal } from '../helpers/remediation-settings.js';
@@ -307,13 +307,20 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     // isn't visible to the caller, so the update couldn't touch it either — it is
     // skipped rather than written unchecked.
     const matchedById = new Map(matched.map((p) => [p.id, p]));
+    const renames = updateData.pipelineName !== undefined || updateData.props !== undefined;
     const batchId = randomUUID();
     const settled = await Promise.allSettled(
       ids.map(async (id) => {
+        // Each row's name and props agree (see alignPipelineUpdateIdentity): a
+        // rename alone rewrites that row's STORED props, guarded on the row read
+        // above so a concurrent props edit fails that row instead of being lost.
+        const existing = matchedById.get(id);
+        if (!existing && renames) return null;
+        const aligned = existing && renames ? alignPipelineUpdateIdentity(updateData, existing) : { data: updateData, fromStored: false };
+        const rowData = aligned.data;
         if (complianceRelevant) {
-          const existing = matchedById.get(id);
           if (!existing) return null;
-          const verdict = await checkPipelineUpdateCompliance(orgId, existing, updateData);
+          const verdict = await checkPipelineUpdateCompliance(orgId, existing, rowData);
           if (verdict.status === 'blocked') {
             recordAudit({
               action: 'pipeline.update',
@@ -330,7 +337,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
             throw new Error('Compliance service unavailable — pipeline update rejected');
           }
         }
-        return pipelineService.update(id, updateData as PipelineUpdate, orgId, userId);
+        return pipelineService.update(id, rowData as PipelineUpdate, orgId, userId, aligned.fromStored && existing?.updatedAt ? { expectedUpdatedAt: existing.updatedAt } : {});
       }),
     );
 

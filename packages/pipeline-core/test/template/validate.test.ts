@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 import { ErrorCode } from '@pipeline-builder/api-core';
+import { MAX_FIELD_SIZE_BYTES, MAX_PATH_DEPTH } from '../../src/template/tokenizer.js';
 import {
   validateTemplates,
   detectCycles,
@@ -30,6 +31,22 @@ describe('validateTemplates', () => {
     const r = validateTemplates(doc, isTemplatable, isKnown);
     expect(r.valid).toBe(false);
     expect(r.errors[0]!.code).toBe(ErrorCode.TEMPLATE_UNKNOWN_PATH);
+  });
+
+  it('reports a size / depth / identifier-length limit as TEMPLATE_SIZE_EXCEEDED, a malformed template as TEMPLATE_PARSE_ERROR', () => {
+    const deep = Array(MAX_PATH_DEPTH + 1).fill('a').join('.');
+    const doc = {
+      description: `{{ pipeline.${'x'.repeat(MAX_FIELD_SIZE_BYTES)} }}`,
+      commands: [`{{ pipeline.${deep} }}`, `{{ pipeline.${'i'.repeat(65)} }}`, '{{ pipeline.x'],
+    };
+    const r = validateTemplates(doc, isTemplatable, isKnown);
+    const byField = Object.fromEntries(r.errors.map((e) => [e.field, e.code]));
+    expect(byField).toEqual({
+      'description': ErrorCode.TEMPLATE_SIZE_EXCEEDED,
+      'commands[0]': ErrorCode.TEMPLATE_SIZE_EXCEEDED,
+      'commands[1]': ErrorCode.TEMPLATE_SIZE_EXCEEDED,
+      'commands[2]': ErrorCode.TEMPLATE_PARSE_ERROR,
+    });
   });
 
   it('reports reserved secrets.* path', () => {

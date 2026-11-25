@@ -17,7 +17,7 @@
  * purged by the existing soft-delete sweep 30 days later (N+60).
  */
 
-import { envStr } from '@pipeline-builder/api-core';
+import { envStr, parseRemediationEnabled } from '@pipeline-builder/api-core';
 
 export const DAY_MS = 86_400_000;
 /** Days before N the owner is warned (and the least time between warning and deactivation). */
@@ -35,7 +35,11 @@ export const TIDY_NEVER_MAX_NAMES = 500;
 /** A version's `last_used_at` is written at most this often. */
 export const TIDY_USE_THROTTLE_MS = 60 * 60_000;
 
-/** Whether the operator lets the daily job run (`PLUGIN_AUTO_TIDY_ENABLED`; only the literal `false` disables). */
+/**
+ * Whether the operator lets the daily job run (`PLUGIN_AUTO_TIDY_ENABLED`):
+ * on unless the value is `false` in any case — the same parsing as
+ * `PLUGIN_REMEDIATION_ENABLED`.
+ */
 export function tidyOperatorEnabled(): boolean {
-  return envStr('PLUGIN_AUTO_TIDY_ENABLED', 'true').trim() !== 'false';
+  return parseRemediationEnabled(envStr('PLUGIN_AUTO_TIDY_ENABLED', 'true'));
 }

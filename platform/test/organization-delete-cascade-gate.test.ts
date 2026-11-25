@@ -119,7 +119,7 @@ describe('deleteOrganization — soft-delete', () => {
     await (deleteOrganization as unknown as (req: any, res: any) => Promise<void>)(req(), res);
 
     // Soft-delete was invoked with (orgId, actorOrgId, deletedBy).
-    expect(mockSoftDelete).toHaveBeenCalledWith('org-acme', 'sysorg', 'admin-1');
+    expect(mockSoftDelete).toHaveBeenCalledWith('org-acme', 'sysorg', 'admin-1', { byPlatform: true });
     // No inline hard delete.
     expect(mockDelete).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(202);
@@ -163,6 +163,16 @@ describe('deleteOrganization — soft-delete', () => {
 });
 
 describe('restoreOrganization', () => {
+  it('answers 403 (not restored) for a platform takedown the caller may not undo', async () => {
+    mockRestore.mockRejectedValue(new Error('ORG_RESTORE_PLATFORM_DELETED'));
+    const res = mockRes();
+    await (restoreOrganization as unknown as (req: any, res: any) => Promise<void>)(req(), res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    // The code rides the body, so the client can tell a takedown from any other 403.
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'ORG_RESTORE_PLATFORM_DELETED' }));
+    expect(mockAudit).not.toHaveBeenCalledWith(expect.anything(), 'org.restore', expect.anything());
+  });
+
   it('restores within the window (200 + org.restore audit)', async () => {
     mockRestore.mockResolvedValue({ id: 'org-acme', name: 'Acme', membersInvalidated: 3 });
     const res = mockRes();
@@ -171,7 +181,7 @@ describe('restoreOrganization', () => {
 
     // Passes the acting admin's id so restore excludes them from the member
     // token-invalidation (restoring an org must not log out the restorer).
-    expect(mockRestore).toHaveBeenCalledWith('org-acme', 'admin-1');
+    expect(mockRestore).toHaveBeenCalledWith('org-acme', 'admin-1', true);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'org.restore', expect.objectContaining({ affectedOrgId: 'org-acme' }));
   });
@@ -251,7 +261,7 @@ describe('deleteTeam — parent admin soft-deletes its own team', () => {
     // The caller administers root-1 and nothing else, so reaching 202 is itself
     // the proof the gate is evaluated against the PARENT (`:id`) — see the
     // 'gates on the PARENT org' case below for the converse.
-    expect(mockSoftDelete).toHaveBeenCalledWith('team-1', 'root-1', 'admin-1');
+    expect(mockSoftDelete).toHaveBeenCalledWith('team-1', 'root-1', 'admin-1', { byPlatform: false });
     expect(res.status).toHaveBeenCalledWith(202);
     expect((res.json.mock.calls[0] as any)[0].data).toEqual(expect.objectContaining({ purgeAfter, snapshotId: 'snap-9' }));
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'org.team.delete', expect.objectContaining({
@@ -310,7 +320,7 @@ describe('listDeletedTeams', () => {
     mockListDeletedTeams.mockResolvedValue({ teams });
     const res = mockRes();
     await (listDeletedTeams as any)({ user: { sub: 'a', organizationId: 'root-1', role: 'admin' }, params: { id: 'root-1' } }, res);
-    expect(mockListDeletedTeams).toHaveBeenCalledWith('root-1');
+    expect(mockListDeletedTeams).toHaveBeenCalledWith('root-1', false);
     expect(res.status).toHaveBeenCalledWith(200);
     expect((res.json.mock.calls[0] as any)[0].data).toEqual({ teams });
   });

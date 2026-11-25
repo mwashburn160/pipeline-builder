@@ -22,6 +22,11 @@ export interface TemplateValidationResult {
   errors: TemplateError[];
 }
 
+/** The error code for a tokenizer failure: a limit breach is `TEMPLATE_SIZE_EXCEEDED`. */
+function tokenizerErrorCode(err: TokenizerError): ErrorCode {
+  return err.kind === 'limit' ? ErrorCode.TEMPLATE_SIZE_EXCEEDED : ErrorCode.TEMPLATE_PARSE_ERROR;
+}
+
 /**
  * Build a predicate that accepts a template path when its root is in the
  * given allow-list. Used by the validator to check that every `{{ path }}`
@@ -63,7 +68,7 @@ export function validateTemplates<T extends object>(
       entries.push({ field, tokens: tokenize(source) });
     } catch (err) {
       if (err instanceof TokenizerError) {
-        errors.push({ field, line: err.pos.line, col: err.pos.col, code: ErrorCode.TEMPLATE_PARSE_ERROR, message: err.message });
+        errors.push({ field, line: err.pos.line, col: err.pos.col, code: tokenizerErrorCode(err), message: err.message });
       } else {
         errors.push({ field, code: ErrorCode.TEMPLATE_PARSE_ERROR, message: String(err) });
       }

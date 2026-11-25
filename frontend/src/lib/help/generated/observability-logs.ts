@@ -1,6 +1,6 @@
 // GENERATED FROM docs/observability-logs.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: be4c9296b1eacbd1dd6813fc7313f3ad5ebcf3ba7a0d7fb127a9971cbb8afd5e
+// SOURCE-SHA256: c85b2fc3377e644b6ce54a9989f0449501865cbaac7140eedb8cd037be944eda
 // SPDX-License-Identifier: Apache-2.0
 import { FileSearch } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -61,7 +61,7 @@ export const observabilityLogsTopic: HelpTopic = {
           "items": [
             "A service logs a line inside a request scope. The logger stamps the line with the request's orgId from the tenant scope (setLogContextProvider, wired once in api-server's tenant-context.ts).",
             "Masking runs at ingest. Credential-shaped values are replaced with [REDACTED] before the line is stored — and again on the way out.",
-            "Promtail routes the line. It promotes orgId to structured metadata and uses its tenant stage to send the line to that organization's Loki tenant.",
+            "Grafana Alloy routes the line. Its loki.process pipeline promotes orgId to structured metadata and uses stage.tenant to send the line to that organization's Loki tenant.",
             "A line with no orgId goes to _infra. Anything written outside a request scope — service startup, background workers, nginx, Postgres, Loki itself — lands in the infrastructure tenant, visible only to system administrators. This is fail-closed by construction.",
             "A search compiles to LogQL server-side. Your filter is parsed, validated against the field allow-list, and combined with the tenant header taken from your token.",
             "Loki answers within its tenant only. The organization scope is a property of the request to Loki, not a clause in the query."
@@ -107,12 +107,12 @@ export const observabilityLogsTopic: HelpTopic = {
           "rows": [
             [
               "LOKI_URL",
-              "platform env",
+              "ops-center env",
               "Defaults to http://loki:3100"
             ],
             [
               "LOKI_BASE_SELECTOR",
-              "platform env",
+              "ops-center env",
               "Anchor matcher when no label is constrained; defaults to service_name=~\".+\""
             ]
           ]
@@ -123,7 +123,7 @@ export const observabilityLogsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "All four live in each target's config/loki/loki-config.yml."
+          "content": "All five live in each target's config/loki/loki-config.yml."
         },
         {
           "type": "table",
@@ -142,7 +142,7 @@ export const observabilityLogsTopic: HelpTopic = {
             ],
             [
               "allow_structured_metadata: true",
-              "Required, or Loki rejects the orgId metadata promtail attaches"
+              "Required, or Loki rejects the orgId metadata Alloy attaches"
             ],
             [
               "deletion_mode: filter-and-delete",
@@ -161,19 +161,19 @@ export const observabilityLogsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Set auth_enabled: true in the target's loki-config.yml, along with the other three Loki settings above. Tenancy does not work without it.",
+            "Set auth_enabled: true in the target's loki-config.yml, along with the other Loki settings above. Tenancy does not work without it.",
             "Point every Loki client at a tenant. With auth on, any client that does not send X-Scope-OrgID is refused — including Grafana.",
-            "Confirm orgId reaches promtail. Tenancy depends on it: the logger stamps it, promtail promotes it to structured metadata and routes on it. Lines missing it silently become _infra lines.",
+            "Confirm orgId reaches Alloy. Tenancy depends on it: the logger stamps it, Alloy (config/alloy/config.alloy) promotes it to structured metadata and routes on it. Lines missing it silently become _infra lines.",
             "Regenerate the masking stages rather than hand-editing them:"
           ]
         },
         {
           "type": "text",
-          "content": "bash node scripts/gen-promtail-masking.mjs # print the block node scripts/gen-promtail-masking.mjs --check # CI: fail if a config drifted"
+          "content": "bash node scripts/gen-alloy-masking.mjs # print the block node scripts/gen-alloy-masking.mjs --write # rewrite the block in all four config.alloy files node scripts/gen-alloy-masking.mjs --check # CI: fail if a config drifted"
         },
         {
           "type": "text",
-          "content": "They are generated from packages/api-core/src/utils/sensitive-patterns.ts, the single source shared with the logger and the read path."
+          "content": "They are generated from packages/api-core/src/utils/sensitive-patterns.ts, the single source shared with the logger and the read path. The script reads api-core's built lib/, so rebuild api-core after editing the patterns."
         },
         {
           "type": "list",
@@ -204,7 +204,7 @@ export const observabilityLogsTopic: HelpTopic = {
             ],
             [
               "A system administrator",
-              "The _infra tenant by default; any organization, or several, by selecting them"
+              "The _infra tenant by default; any organization, or several (up to 100 tenants per query, _infra included), by selecting them. Reading an organization's tenant is audited as observability.logs.cross-org-read"
             ]
           ]
         }
@@ -257,7 +257,7 @@ export const observabilityLogsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Presets (15m / 1h / 6h / 24h / 7d / 30d), or an absolute range. Clicking a bar in the volume histogram zooms to that bucket. Because retention is 7 days, a wider request is narrowed to that window with a banner."
+          "content": "Presets (15m / 1h / 6h / 24h / 7d / 30d), or an absolute range. Clicking a bar in the volume histogram zooms to that bucket. A request wider than LOG_RETENTION_HOURS (30 days by default) is narrowed to that window with a banner; a to in the future is refused."
         }
       ]
     },
@@ -304,11 +304,11 @@ export const observabilityLogsTopic: HelpTopic = {
           "rows": [
             [
               "Permission",
-              "logs:export (separate from viewing)"
+              "logs:export (separate from viewing), plus the org's administrative actions require MFA policy when it is on (machine credentials pass)"
             ],
             [
               "Cap",
-              "100 MB or 60 seconds, whichever comes first"
+              "100 MB, 1,000,000 entries or 60 seconds, whichever comes first"
             ],
             [
               "Truncation",
@@ -332,7 +332,7 @@ export const observabilityLogsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "JWTs, Bearer tokens, AWS access keys, Stripe / GitHub / Slack tokens, credentials embedded in connection strings and URLs, ?token=-style query parameters, inline secret= assignments, private-key headers, and AWS account identifiers."
+          "content": "JWTs, Bearer tokens, AWS access keys, Stripe / GitHub (classic and fine-grained) / GitLab / Slack tokens, credentials embedded in connection strings and URLs, ?token=-style query parameters, inline secret= assignments, private-key headers, and AWS account identifiers."
         }
       ]
     },

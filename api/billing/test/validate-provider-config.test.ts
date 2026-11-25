@@ -23,7 +23,7 @@ const billing = {
     { id: 'pro', tier: 'pro', prices: { monthly: 4900, annual: 49000 } },
     { id: 'unlimited', tier: 'unlimited', prices: { monthly: 1, annual: 1 } },
   ],
-  bundles: [{ id: 'seat_pack', prices: { monthly: 1000 } }] as Array<{ id: string; prices?: Record<string, number> }> | undefined,
+  bundles: [{ id: 'seat_pack', isActive: true, prices: { monthly: 1000 } }] as Array<{ id: string; isActive: boolean; prices?: Record<string, number> }> | undefined,
 };
 jest.unstable_mockModule('../src/config/billing-config.js', () => ({ getBillingConfig: () => billing }));
 
@@ -37,7 +37,7 @@ const warnings = () => logger.warn.mock.calls.map((c) => c[0] as string);
 beforeEach(() => {
   jest.clearAllMocks();
   for (const k of Object.keys(cfg)) delete cfg[k];
-  billing.bundles = [{ id: 'seat_pack', prices: { monthly: 1000 } }];
+  billing.bundles = [{ id: 'seat_pack', isActive: true, prices: { monthly: 1000 } }];
 });
 
 describe('stripe', () => {
@@ -52,6 +52,16 @@ describe('stripe', () => {
     validateProviderConfig();
     expect(warnings()[0]).toContain('STRIPE_WEBHOOK_SECRET is not set');
     expect(logger.warn).toHaveBeenLastCalledWith(expect.stringContaining('STRIPE_PRICE_MAP is missing entries'), { missing: ['pro_monthly', 'pro_annual', 'seat_pack_monthly'] });
+  });
+
+  it('never asks for a Price for a bundle a deployment switch has withdrawn (e.g. SUPPORT_ENABLED=false)', () => {
+    billing.bundles = [
+      { id: 'seat_pack', isActive: true, prices: { monthly: 1000 } },
+      { id: 'support_standard', isActive: false, prices: { monthly: 1999, annual: 19999 } },
+    ];
+    Object.assign(cfg, { billingProvider: 'stripe', stripe: { webhookSecret: 'whsec', priceToPlanMap: { pro_monthly: 'p1', pro_annual: 'p2', seat_pack_monthly: 'p3' } } });
+    validateProviderConfig();
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('tolerates a config with no bundles and no plan prices', () => {

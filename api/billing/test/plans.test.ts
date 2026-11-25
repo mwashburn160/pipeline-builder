@@ -50,7 +50,12 @@ jest.unstable_mockModule('../src/models/plan.js', () => ({
   },
 }));
 
+// A plan's prices are in the billing currency, named on every plan.
+const priorCurrency = process.env.BILLING_CURRENCY;
+process.env.BILLING_CURRENCY = 'EUR';
 const { createReadPlanRoutes } = await import('../src/routes/read-plans.js');
+// Read once at import; restored so no later suite in this worker inherits it.
+if (priorCurrency === undefined) delete process.env.BILLING_CURRENCY; else process.env.BILLING_CURRENCY = priorCurrency;
 
 const planRouter = createReadPlanRoutes();
 
@@ -97,8 +102,8 @@ describe('GET /plans', () => {
 
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, {
       plans: expect.arrayContaining([
-        expect.objectContaining({ id: 'dev', name: 'Developer' }),
-        expect.objectContaining({ id: 'pro', name: 'Pro' }),
+        expect.objectContaining({ id: 'dev', name: 'Developer', currency: 'eur' }),
+        expect.objectContaining({ id: 'pro', name: 'Pro', currency: 'eur' }),
       ]),
       total: 2,
     });

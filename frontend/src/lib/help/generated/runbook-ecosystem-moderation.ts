@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/ecosystem-moderation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0344cb9ad2a18b6b4590ac4ea8eb63577ba2c6e6fc0d37493f3690b6877f4858
+// SOURCE-SHA256: 8662e25e92d3158f4091a988a083edd6a01334348618a8760bbae32ae21b1706
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -82,7 +82,7 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
             "Switch your active org to the system organization, then go to Dashboard → Admin → Ecosystem.",
             "Sign in at aal2. Suspensions, yanks, rule changes, re-signs, review removals, reserved-name changes and every publishers:verify decision will also step you up.",
             "Assign both ecosystem roles to at least three people each. Only a superadmin can assign them. Ecosystem Manager grants plugins:moderate (the publish queue, yanks, advisories, rules, reserved names, review moderation); Publisher Verifier grants publishers:verify (Verified, suspend, unsuspend). They are separate roles so triaging the queue does not also carry the power to award Verified status.",
-            "Set the SLAs if the defaults do not fit — see Queues and SLAs.",
+            "Know the SLAs — 48 hours standard, 4 hours security. They are fixed in code (REQUEST_SLA_HOURS in api-core), not configurable — see Queues and SLAs.",
             "Configure auto-approval rules deliberately, and watch their caps — see Auto-approval rules.",
             "Know where the kill switches are before you need them — see Kill switches.",
             "Wire the alerts. The Grafana Plugin ecosystem dashboard and the Ecosystem* alert rules are in every target; see Alerts and SLA breaches."
@@ -141,7 +141,7 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
             [
               "Standard",
               "New listings, new versions, listing updates, unpauses, publisher-level requests",
-              "2 business days (48 h)"
+              "48 hours (wall clock)"
             ],
             [
               "Security",
@@ -312,7 +312,7 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Enterprise, or a self-hosted instance);"
+          "content": "Business, Enterprise, or the unlimited tier of a billing-disabled instance);"
         },
         {
           "type": "list",
@@ -854,7 +854,7 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
           "rows": [
             [
               "PUBLIC_DIRECTORY_ENABLED",
-              "on",
+              "on (and effective only while ECOSYSTEM_PUBLIC_READER_PASSWORD is set)",
               "/plugins and /api/public/plugins* return 404"
             ],
             [

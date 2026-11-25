@@ -28,6 +28,8 @@ export interface QuotaPackOffer {
   /** The pack unit's name, when the quota has one (`GB`, `credits`). */
   unitName: string | null;
   priceCents: number;
+  /** The currency of `priceCents` (the bundle's, lower-case ISO 4217). */
+  currency: string;
   interval: BillingInterval;
 }
 
@@ -70,6 +72,7 @@ export function packForQuota(
     grantDisplay: unit ? grantRaw / unit.per : grantRaw,
     unitName: unit?.name ?? null,
     priceCents: priceFor(cheapest, interval),
+    currency: cheapest.currency,
     interval,
   };
 }

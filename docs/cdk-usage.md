@@ -49,7 +49,7 @@ For the other four ways to create a pipeline see the [Developer Guide](developer
 4. **Define stages and steps**, pinning each plugin with a `filter`.
 5. **Add networking** if builds must run in a VPC — [VPC and network configuration](#vpc-and-network-configuration).
 6. **Decide the IAM posture** — [IAM roles](#iam-roles) covers all three levels.
-7. **Deploy**, then confirm the stack and the platform registration.
+7. **Deploy**, then confirm the stack and the platform registration. In your own CDK app you name the `Stack`; `pipeline-manager pipeline synth` / `deploy` name it from `project` and `organization` — plain `<project>-<organization>` (lowercased) only when the organization has no hyphen and the name meets CloudFormation's rules, otherwise a sanitized base plus `-<8-hex digest>` ([Pipeline stack names](pipeline-manager.md#pipeline-stack-names)).
 
 ## Quick Start
 
@@ -93,17 +93,21 @@ new PipelineBuilder(stack, 'MyPipeline', {
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `project` | `string` | Yes | Project identifier (sanitized to lowercase alphanumeric) |
-| `organization` | `string` | Yes | Organization identifier |
+| `project` | `string` | Yes | Project identifier (sanitized for resource names: non-alphanumerics → `_`, lowercased) |
+| `organization` | `string` | Yes | Organization identifier (sanitized the same way) |
+| `environment` | `string` | No | Deploy environment (e.g. `production`) for a single-environment pipeline: marks the deploy stage in the `pb.deploys` tag for DORA metrics. Multi-environment pipelines set `environment` per stage instead |
 | `orgId` | `string` | No | Tenant ID for resolving per-org secrets from Secrets Manager |
+| `pipelineId` | `string` | No | The platform's pipeline record id, injected as `PIPELINE_ID` for the autonomous synth (set by `pipeline-manager`) |
 | `pipelineName` | `string` | No | Custom name. Default: `{organization}-{project}-pipeline` (non-alphanumerics → `_`, lowercased), plus `-<8-hex hash>` of the raw pair when either name holds anything but letters, digits and `-` (so `spring_boot` and `spring-boot` never share a pipeline) |
 | `synth` | `SynthOptions` | Yes | Synthesis step configuration (source + plugin) |
 | `stages` | `StageOptions[]` | No | Pipeline stages, each with one or more build steps |
 | `global` | `MetaDataType` | No | Metadata inherited by all steps |
+| `vars` | `Record<string, unknown>` | No | Pipeline-level template variables, exposed as `{{ pipeline.vars.* }}` ([Template Syntax](templates.md)) |
 | `defaults` | `CodeBuildDefaults` | No | Pipeline-level CodeBuild defaults (VPC, env vars) |
 | `role` | `RoleConfig` | No | IAM role for the CodePipeline (omit for auto-creation) |
 | `schedule` | `string` | No | Cron/rate expression for scheduled execution |
 | `tags` | `Record<string, string>` | No | Tags applied to all pipeline resources |
+| `resolvedPlugins` | `Record<string, ResolvedPlugin>` | No | Plugins pre-resolved from the platform, keyed by artifact alias. `pipeline-manager pipeline synth` fills it; a plugin missing from it fails the synth |
 | `toolchain` | `{ release: string }` | No | Pin the whole managed toolchain release (`pipeline-bootstrap` + `cdk-synth`, e.g. `{ "release": "1.4.2" }`). Omit to follow your organization's default, its canary or the platform default. Must name an eligible release when it changes (`TOOLCHAIN_RELEASE_NOT_ELIGIBLE`); a pin whose release is later yanked keeps resolving, with a warning. Templates never carry it. See [Pipeline Manager → The toolchain release](pipeline-manager.md#the-toolchain-release-synth-and-deploy) |
 
 ---
@@ -272,8 +276,7 @@ new PipelineBuilder(stack, 'Pipeline', {
   defaults: {
     network: {
       type: 'vpcId',
-      vpcId: 'vpc-abc123',
-      subnetType: 'PRIVATE_WITH_EGRESS',
+      options: { vpcId: 'vpc-abc123', subnetType: 'PRIVATE_WITH_EGRESS' },
     },
   },
   synth: { ... },
@@ -290,9 +293,11 @@ stages: [{
     plugin: { name: 'cdk-deploy' },
     network: {
       type: 'subnetIds',
-      vpcId: 'vpc-abc123',
-      subnetIds: ['subnet-111', 'subnet-222'],
-      securityGroupIds: ['sg-abc'],
+      options: {
+        vpcId: 'vpc-abc123',
+        subnetIds: ['subnet-111', 'subnet-222'],
+        securityGroupIds: ['sg-abc'],
+      },
     },
   }],
 }],
@@ -320,8 +325,7 @@ The pipeline-level role uses `codepipeline.amazonaws.com` as trust principal.
 new PipelineBuilder(stack, 'Pipeline', {
   role: {
     type: 'roleArn',
-    roleArn: 'arn:aws:iam::123456789012:role/MyPipelineRole',
-    mutable: false,
+    options: { roleArn: 'arn:aws:iam::123456789012:role/MyPipelineRole', mutable: false },
   },
   // ...
 });
@@ -506,10 +510,10 @@ Metadata controls fine-grained CDK behavior. Set at global, defaults, or step le
 | `buildenvironment:privileged` | `'true'/'false'` | Docker-in-Docker mode |
 | `buildenvironment:computetype` | `'BUILD_GENERAL1_SMALL'` etc. | Instance size |
 | `network:vpcid` | VPC ID | VPC for builds |
-| `network:subnetids` | JSON array of subnet IDs | Subnet placement |
+| `network:subnetids` | Comma list (or array) of subnet IDs | Subnet placement |
 | `notifications:topic:arn` | SNS topic ARN | Pipeline event notifications |
 
-See [Metadata Keys](metadata-keys.md) for the complete list of 80 keys.
+See [Metadata Keys](metadata-keys.md) for the complete list of 81 keys.
 
 ---
 

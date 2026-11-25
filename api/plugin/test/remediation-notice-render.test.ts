@@ -10,7 +10,7 @@
 import { describe, it, expect } from '@jest/globals';
 
 const {
-  NOTICE_FINDINGS_MAX, NOTICE_PATCH_MAX, remainingLine, remainingText, renderFixPublished, renderOwnerRequest, renderPublisherFixRequest,
+  NOTICE_FINDINGS_MAX, remainingLine, remainingText, renderFixPublished, renderOwnerRequest, renderPublisherFixRequest,
   renderRollback, renderRollout,
 } = await import('../src/services/remediation-notices.js');
 
@@ -144,12 +144,11 @@ describe('N39 owner request and N40 publisher fix request', () => {
     expect(renderOwnerRequest({ code: 'N39', ...base, remaining: [left()] }).subject).toBe('Remediation request: 1 finding in lint@1.0.0 needs your fix');
   });
 
-  it('publisher fix request: a truncated suggested patch for the publisher, and a plain notice for installers', () => {
-    const r = renderPublisherFixRequest('acme/lint', { code: 'N40', listingId: 'l-1', version: '2.0.0', remaining: [left()], suggestedPatch: 'x'.repeat(NOTICE_PATCH_MAX + 10) } as never);
+  it('publisher fix request: the findings for the publisher, and a plain notice for installers', () => {
+    const r = renderPublisherFixRequest('acme/lint', { code: 'N40', listingId: 'l-1', version: '2.0.0', remaining: [left()] });
     expect(r.publisher.subject).toBe('Fix request: 1 vulnerability in acme/lint 2.0.0');
-    expect(r.publisher.text).toContain('…(truncated)');
+    expect(r.publisher.text).toContain('please publish a fixed version');
     expect(r.installers.subject).toBe('Fix requested from the publisher of acme/lint');
-    expect(r.installers.text).not.toContain('Suggested patch');
-    expect(renderPublisherFixRequest('acme/lint', { code: 'N40', listingId: 'l-1', version: '2.0.0', remaining: [left(), left()], suggestedPatch: null } as never).publisher.text).not.toContain('Suggested patch');
+    expect(renderPublisherFixRequest('acme/lint', { code: 'N40', listingId: 'l-1', version: '2.0.0', remaining: [left(), left()] }).publisher.subject).toBe('Fix request: 2 vulnerabilities in acme/lint 2.0.0');
   });
 });

@@ -138,12 +138,29 @@ describe('audited() actions are referenced by their service', () => {
 describe('audit actions are documented', () => {
   const DOC = resolve(ROOT, 'docs/audit-events.md');
 
-  /** Declared action names, from the api-core source of truth. */
-  function declared(): string[] {
-    const src = readFileSync(resolve(ROOT, 'packages/api-core/src/types/remote-audit-actions.ts'), 'utf8');
+  /** Action names declared in one catalog file (`'a.b.c',` one per line, after the `=`). */
+  function catalog(rel: string): string[] {
+    const src = readFileSync(resolve(ROOT, rel), 'utf8');
     const body = src.slice(src.indexOf('='));
-    return [...body.matchAll(/^\s*'([a-z0-9_]+(?:\.[a-z0-9_]+)+)',\s*$/gm)].map((m) => m[1]).sort();
+    return [...body.matchAll(/^\s*'([a-z0-9_-]+(?:\.[a-z0-9_-]+)+)',\s*$/gm)].map((m) => m[1]);
   }
+
+  /**
+   * Declared action names: the remote catalog (api-core) AND the platform's own
+   * (`PLATFORM_AUDIT_ACTIONS`). Reading only the remote list let 12 platform
+   * actions — onboarding, the domain/join flows, `org.ai-key.read`,
+   * `admin.console.session` — go undocumented.
+   */
+  function declared(): string[] {
+    return [...new Set([
+      ...catalog('packages/api-core/src/types/remote-audit-actions.ts'),
+      ...catalog('platform/src/constants/audit-actions.ts'),
+    ])].sort();
+  }
+
+  it('reads the platform catalog too', () => {
+    expect(declared()).toEqual(expect.arrayContaining(['user.login', 'org.ai-key.read']));
+  });
 
   /** Action names the doc mentions, expanding `a.b.create/update` shorthand. */
   function documented(): Set<string> {

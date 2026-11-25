@@ -48,6 +48,8 @@ import { DeletedPluginBatches } from '@/components/plugin/DeletedPluginBatches';
 import { TidyKeepBanner } from '@/components/plugin/PluginTidyControls';
 import { invalidate, queryTags } from '@/lib/api-cache';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
+import { pluginPagePath } from '@/lib/public-directory/links';
+import type { ListingState, ListingView } from '@/types/ecosystem';
 
 // Modals and the recently-deleted panel load on first use — none of them is
 // part of the list's first paint, and the create modal carries the AI builder.
@@ -67,6 +69,9 @@ type PageTab = typeof PAGE_TABS[number];
 /** Plugin management page. Lists, creates, edits, and deletes plugins with filtering by type, compute, and access. */
 /** The two states of the list, as the query string spells them. */
 const DELETED_VIEWS = ['active', 'deleted'] as const;
+
+/** Listing states the public directory serves (see the `public_listings` view). */
+const PUBLIC_LISTING_STATES: ReadonlySet<ListingState> = new Set<ListingState>(['listed', 'unmaintained']);
 
 export default function PluginsPage() {
   const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
@@ -162,6 +167,28 @@ export default function PluginsPage() {
     }
     return m;
   }, [shadowingData]);
+
+  // The org's own publisher listings, each with its versions: whether a version
+  // is already in the ecosystem (no "Publish to ecosystem…"; "View public page"
+  // instead). Read once per page, only by someone who may publish. Null while
+  // unknown or on failure — then the publish link shows and the server refuses
+  // a duplicate on its own.
+  const { data: ownListings } = useFetch(async () => {
+    if (!isAuthenticated || !canPublish) return null;
+    try {
+      return (await api.listPublisherListings()).data?.listings ?? null;
+    } catch {
+      return null;
+    }
+  }, [isAuthenticated, canPublish]);
+  /** `name@version` → the own listing that holds that version. */
+  const listedVersions = useMemo(() => {
+    const m = new Map<string, ListingView>();
+    for (const l of ownListings ?? []) {
+      for (const v of l.versions ?? []) m.set(`${l.name}@${v.version}`, l);
+    }
+    return m;
+  }, [ownListings]);
 
   // ── Data ──
 
@@ -430,6 +457,19 @@ export default function PluginsPage() {
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
+
+  // The detail modal's ecosystem links, for an OWN version (the listings are
+  // this org's publisher's): a version already listed links to its public page
+  // (while the directory serves the listing) and is never offered for publishing
+  // again; an unlisted public version is.
+  const viewOwn = !!viewPlugin && viewPlugin.orgId === user.organizationId;
+  const viewListing = viewOwn ? listedVersions.get(`${viewPlugin.name}@${viewPlugin.version}`) : undefined;
+  const viewPublicUrl = viewListing && PUBLIC_LISTING_STATES.has(viewListing.state) && !viewListing.pausedAt
+    ? pluginPagePath(viewListing.publisherHandle, viewListing.name)
+    : undefined;
+  const viewPublishHref = canPublish && viewOwn && !viewListing && viewPlugin.visibility === 'public'
+    ? `/dashboard/publisher?tab=publish&pluginId=${encodeURIComponent(viewPlugin.id)}`
+    : undefined;
 
   const emptyDescription = canWrite
     ? 'Get started by creating your first plugin.'
@@ -703,9 +743,6 @@ export default function PluginsPage() {
       )}
 
       {viewPlugin && (
-        // `publicUrl` ("View public page") is left unset: the in-app list API doesn't
-        // say yet whether a plugin is listed in the public directory. When it does,
-        // pass `pluginPagePath(publisher, name)` from `@/lib/public-directory/links`.
         <PluginDetailModal
           plugin={viewPlugin}
           shadows={shadowedById.get(viewPlugin.id) ?? null}
@@ -714,9 +751,8 @@ export default function PluginsPage() {
           remediation={{ canWrite, isSystemOrg: isSystemOrgActive(user), onOpenPlugin: openPluginById }}
           showStorage={{ canWrite }}
           onDeleteAll={canWrite ? () => setDeleteAllName(viewPlugin.name) : undefined}
-          publishHref={can('plugins:publish') && viewPlugin.visibility === 'public' && viewPlugin.orgId === user?.organizationId
-            ? `/dashboard/publisher?tab=publish&pluginId=${encodeURIComponent(viewPlugin.id)}`
-            : undefined}
+          publicUrl={viewPublicUrl}
+          publishHref={viewPublishHref}
         />
       )}
 

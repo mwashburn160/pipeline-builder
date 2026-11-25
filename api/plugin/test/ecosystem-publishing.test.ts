@@ -545,6 +545,36 @@ describe('bootstrap exception', () => {
     expect((await bootstrap.bootstrapState()).reason).toBe('window_elapsed');
   });
 
+  it('a request that read the window before a concurrent opener committed still rides it, even once that opener listed', async () => {
+    // Build A opened the window and its publish already inserted a listing;
+    // build B read the setting a moment before A's open committed. B must
+    // re-judge under the lock and ride the open window, not close it as
+    // `listings_exist` for every catalog plugin still building.
+    const { official } = seedPublishers(db);
+    db.seed('ecosystem_settings', { key: 'bootstrap', value: { openedAt: new Date().toISOString(), closedAt: null, reason: null, approved: 1 } });
+    seedListed(official, 'first-of-the-load', '1.0.0');
+    const store = await import('../src/services/ecosystem/store.js');
+    const stale = jest.spyOn(store.settings, 'get').mockResolvedValueOnce(null);
+    try {
+      const r = { id: 'r-b', kind: 'new_listing' } as any;
+      expect(await bootstrap.bootstrapEligible(r, official as any, loader() as any)).toBe(true);
+    } finally {
+      stale.mockRestore();
+    }
+    expect((await bootstrap.bootstrapState()).closedAt).toBeNull();
+  });
+
+  it('opens the window under an advisory lock: concurrent first openers serialize even though no settings row exists yet to lock', async () => {
+    const { official } = seedPublishers(db);
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const dialect = new PgDialect();
+    db.execute.calls.length = 0;
+    expect(await bootstrap.bootstrapEligible({ id: 'r-a', kind: 'new_listing' } as any, official as any, loader() as any)).toBe(true);
+    const locks = db.execute.calls.map((q) => dialect.sqlToQuery(q as never)).filter((q) => /pg_advisory_xact_lock/.test(q.sql));
+    expect(locks.map((q) => q.params)).toContainEqual(['ecosystem-bootstrap']);
+    expect((await bootstrap.bootstrapState()).openedAt).toEqual(expect.any(String));
+  });
+
   it('never applies to a person, and closes when the instance already has listings', async () => {
     const { official } = seedPublishers(db);
     const lint = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG }));

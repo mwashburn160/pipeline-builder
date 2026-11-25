@@ -26,8 +26,8 @@ export function mountRoutes(app: Express, { quotaService }: AskRouteDeps): void 
   // rate limit below: reporting what became of a draft is not an Ask, so it must
   // neither spend the org's apiCalls / Ask allowance nor be refused because they
   // ran out. Auth + orgId run only for this path; the router keeps its own gates
-  // (requireAskAccess, ai_generation, the per-user cap) and the single-use draft
-  // id check. Any other /ask-agent request falls through it untouched.
+  // (requireAskAccess, ai_generation, the org's AI switch, the per-user cap) and
+  // the single-use draft id check. Any other /ask-agent request falls through it untouched.
   app.use('/ask-agent/draft-outcome', ...createAuthenticatedWithOrgRoute());
   app.use('/ask-agent', createDraftOutcomeRoutes());
 

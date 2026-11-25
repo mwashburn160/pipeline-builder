@@ -166,13 +166,21 @@ describe('listDeletedTeams', () => {
     const purgeAfter = new Date(Date.now() + 86400_000);
     mockOrgFind.mockReturnValue([{ _id: TEAM, name: 'T', deletedAt, purgeAfter }]);
 
-    const result = await orgHierarchyService.listDeletedTeams(ROOT_A);
+    const result = await orgHierarchyService.listDeletedTeams(ROOT_A, false);
 
     const [q] = mockOrgFind.mock.calls[0] as [any];
     expect(q.parentOrgId).toBe(ROOT_A);
     expect(q.deletedAt).toEqual({ $ne: null });
     expect(q.purgeAfter.$gt).toBeInstanceOf(Date);
-    expect(result).toEqual({ teams: [{ orgId: TEAM, orgName: 'T', deletedAt, purgeAfter }] });
+    expect(result).toEqual({ teams: [{ orgId: TEAM, orgName: 'T', deletedAt, purgeAfter, deletedByPlatform: false, restorable: true }] });
+  });
+
+  it('marks a platform takedown as not restorable by a tenant viewer (restorable by the platform)', async () => {
+    const row = { _id: TEAM, name: 'T', deletedAt: new Date(), purgeAfter: new Date(Date.now() + 86400_000), deletedByPlatform: true };
+    mockOrgFind.mockReturnValue([row]);
+    expect((await orgHierarchyService.listDeletedTeams(ROOT_A, false)).teams[0]).toMatchObject({ deletedByPlatform: true, restorable: false });
+    mockOrgFind.mockReturnValue([row]);
+    expect((await orgHierarchyService.listDeletedTeams(ROOT_A, true)).teams[0]).toMatchObject({ restorable: true });
   });
 });
 

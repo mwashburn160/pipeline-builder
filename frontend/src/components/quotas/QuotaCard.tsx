@@ -222,7 +222,7 @@ export function QuotaPackHint({
   return (
     <p className="mt-2 text-xs text-fg-muted" data-testid={`quota-pack-hint-${quotaKey}`}>
       {pack.name} adds <strong className="tabular-nums">{amount}{unit}</strong> for{' '}
-      <strong className="tabular-nums">{formatPrice(pack.priceCents)}</strong>/{per}.
+      <strong className="tabular-nums">{formatPrice(pack.priceCents, pack.currency)}</strong>/{per}.
     </p>
   );
 }

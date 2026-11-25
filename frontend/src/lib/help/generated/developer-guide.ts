@@ -1,6 +1,6 @@
 // GENERATED FROM docs/developer-guide.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 30e1422347e0a222a0d1d282e956e85b4d5299acf342c519a4e9367c9de73064
+// SOURCE-SHA256: 9eff137471ca91f246024ef6b003f49b5f6ace7f545ae4f629e353b34087a393
 // SPDX-License-Identifier: Apache-2.0
 import { Code2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -63,7 +63,7 @@ export const developerGuideTopic: HelpTopic = {
             "Choose a creation method — dashboard, AI prompt, CLI, REST API, or the CDK construct.",
             "Select plugins for each stage from the catalog — language, test, lint, security, deploy, and so on.",
             "Assemble stages — copy a language or common pattern block and add steps such as Docker build, Terraform, manual approval or notifications.",
-            "Tune step behaviour — commands, failureBehavior, timeouts, compute size and metadata.",
+            "Tune step behaviour — plugin env knobs in metadata, preCommands / postCommands, failureBehavior, timeout (minutes), and compute size.",
             "Deploy — pipeline-manager pipeline create then pipeline deploy. Each plugin runs as an isolated container in AWS CodePipeline."
           ]
         }
@@ -167,11 +167,15 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "A step runs the plugin's own commands. There is no step-level commands field — the API refuses one with a 400. To change what a step does, set one of the plugin's env knobs in the step's metadata (non-namespaced metadata keys become environment variables, e.g. GRADLE_TASK below), add preCommands / postCommands around the plugin's commands, or replace them outright with the aws:cdk:pipelines:codebuildstep:commands metadata key. Each plugin's knobs are listed in its catalog page."
+        },
+        {
+          "type": "text",
           "content": "Java (Spring Boot)"
         },
         {
           "type": "code",
-          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"java-corretto\" },\n        \"commands\": [\"./gradlew assemble --no-daemon\"]\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"java-corretto\" },\n        \"commands\": [\"./gradlew test --no-daemon\"]\n      }]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"checkstyle\" }, \"commands\": [\"./gradlew checkstyleMain\"] },\n        { \"plugin\": { \"name\": \"spotbugs\" }, \"failureBehavior\": \"warn\", \"commands\": [\"./gradlew spotbugsMain\"] }\n      ]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"snyk-java\" } },\n        { \"plugin\": { \"name\": \"trivy\" } }\n      ]\n    }\n  ]\n}",
+          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"java-corretto\" },\n        \"metadata\": { \"GRADLE_TASK\": \"assemble\" }\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"java-corretto\" },\n        \"metadata\": { \"GRADLE_TASK\": \"test\" }\n      }]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"checkstyle\" } },\n        { \"plugin\": { \"name\": \"spotbugs\" }, \"failureBehavior\": \"warn\" }\n      ]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"snyk-java\" } },\n        { \"plugin\": { \"name\": \"trivy\" } }\n      ]\n    }\n  ]\n}",
           "language": "json"
         },
         {
@@ -180,7 +184,7 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"nodejs\" },\n        \"commands\": [\"npm ci\", \"npm run build\"]\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"jest\" }, \"commands\": [\"npm test -- --coverage\"] },\n        { \"plugin\": { \"name\": \"cypress\" }, \"commands\": [\"npx cypress run\"] }\n      ]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"eslint\" }, \"commands\": [\"npx eslint .\"] },\n        { \"plugin\": { \"name\": \"prettier\" }, \"commands\": [\"npx prettier --check .\"] }\n      ]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"snyk-nodejs\" } },\n        { \"plugin\": { \"name\": \"trivy\" } }\n      ]\n    }\n  ]\n}",
+          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"nodejs\" }\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"jest\" } },\n        { \"plugin\": { \"name\": \"cypress\" } }\n      ]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"eslint\" } },\n        { \"plugin\": { \"name\": \"prettier\" } }\n      ]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"snyk-nodejs\" } },\n        { \"plugin\": { \"name\": \"trivy\" } }\n      ]\n    }\n  ]\n}",
           "language": "json"
         },
         {
@@ -189,7 +193,7 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"python\" },\n        \"commands\": [\"pip install -r requirements.txt\"]\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"python-pytest\" }, \"commands\": [\"pytest --cov=src tests/\"] },\n        { \"plugin\": { \"name\": \"coverage-py\" }, \"commands\": [\"coverage report --fail-under=80\"] }\n      ]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"ruff\" }, \"commands\": [\"ruff check .\"] },\n        { \"plugin\": { \"name\": \"mypy\" }, \"commands\": [\"mypy src/\"] }\n      ]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"bandit\" }, \"commands\": [\"bandit -r src/\"] },\n        { \"plugin\": { \"name\": \"snyk-python\" } }\n      ]\n    }\n  ]\n}",
+          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"python\" }\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"python-pytest\" } },\n        { \"plugin\": { \"name\": \"coverage-py\" } }\n      ]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"ruff\" } },\n        { \"plugin\": { \"name\": \"mypy\" } }\n      ]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"bandit\" } },\n        { \"plugin\": { \"name\": \"snyk-python\" } }\n      ]\n    }\n  ]\n}",
           "language": "json"
         },
         {
@@ -198,7 +202,7 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"go\" },\n        \"commands\": [\"go build ./...\"]\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"go-test\" },\n        \"commands\": [\"go test -v -race -coverprofile=coverage.out ./...\"]\n      }]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"golangci-lint\" },\n        \"commands\": [\"golangci-lint run ./...\"]\n      }]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"gosec\" } },\n        { \"plugin\": { \"name\": \"govulncheck\" }, \"commands\": [\"govulncheck ./...\"] }\n      ]\n    }\n  ]\n}",
+          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"go\" }\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"go-test\" }\n      }]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"golangci-lint\" }\n      }]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"gosec\" } },\n        { \"plugin\": { \"name\": \"govulncheck\" } }\n      ]\n    }\n  ]\n}",
           "language": "json"
         },
         {
@@ -207,7 +211,7 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"rust\" },\n        \"commands\": [\"cargo build --release\"]\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"cargo-test\" },\n        \"commands\": [\"cargo test --all\"]\n      }]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"clippy\" }, \"commands\": [\"cargo clippy -- -D warnings\"] },\n        { \"plugin\": { \"name\": \"rustfmt\" }, \"commands\": [\"cargo fmt --check\"] }\n      ]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"cargo-audit\" }, \"commands\": [\"cargo audit\"] },\n        { \"plugin\": { \"name\": \"snyk-rust\" } }\n      ]\n    }\n  ]\n}",
+          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"rust\" }\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"cargo-test\" }\n      }]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"clippy\" } },\n        { \"plugin\": { \"name\": \"rustfmt\" } }\n      ]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"cargo-audit\" } },\n        { \"plugin\": { \"name\": \"snyk-rust\" } }\n      ]\n    }\n  ]\n}",
           "language": "json"
         },
         {
@@ -216,7 +220,7 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"dotnet\" },\n        \"commands\": [\"dotnet build --configuration Release\"]\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"dotnet-test\" },\n        \"commands\": [\"dotnet test --configuration Release --collect:\\\"XPlat Code Coverage\\\"\"]\n      }]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"dotnet-format\" }, \"commands\": [\"dotnet format --verify-no-changes\"] },\n        { \"plugin\": { \"name\": \"roslyn-analyzers\" } }\n      ]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"snyk-dotnet\" } },\n        { \"plugin\": { \"name\": \"trivy\" } }\n      ]\n    }\n  ]\n}",
+          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"dotnet\" }\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"dotnet-test\" }\n      }]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"dotnet-format\" } },\n        { \"plugin\": { \"name\": \"roslyn-analyzers\" } }\n      ]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"snyk-dotnet\" } },\n        { \"plugin\": { \"name\": \"trivy\" } }\n      ]\n    }\n  ]\n}",
           "language": "json"
         },
         {
@@ -225,7 +229,7 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"ruby\" },\n        \"commands\": [\"bundle install\"]\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"rails-test\" }, \"commands\": [\"bundle exec rails test\"] },\n        { \"plugin\": { \"name\": \"minitest-coverage\" } }\n      ]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"rubocop\" },\n        \"commands\": [\"bundle exec rubocop\"]\n      }]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"brakeman\" }, \"commands\": [\"brakeman --no-pager\"] },\n        { \"plugin\": { \"name\": \"bundler-audit\" }, \"commands\": [\"bundle audit check --update\"] }\n      ]\n    }\n  ]\n}",
+          "content": "{\n  \"stages\": [\n    {\n      \"stageName\": \"Build\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"ruby\" }\n      }]\n    },\n    {\n      \"stageName\": \"Test\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"rails-test\" } },\n        { \"plugin\": { \"name\": \"minitest-coverage\" } }\n      ]\n    },\n    {\n      \"stageName\": \"Lint\",\n      \"steps\": [{\n        \"plugin\": { \"name\": \"rubocop\" }\n      }]\n    },\n    {\n      \"stageName\": \"Security\",\n      \"steps\": [\n        { \"plugin\": { \"name\": \"brakeman\" } },\n        { \"plugin\": { \"name\": \"bundler-audit\" } }\n      ]\n    }\n  ]\n}",
           "language": "json"
         }
       ]
@@ -244,7 +248,7 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"stageName\": \"Publish\",\n  \"steps\": [{\n    \"plugin\": { \"name\": \"docker-build\" },\n    \"metadata\": {\n      \"DOCKER_REPO\": \"your-account.dkr.ecr.us-east-1.amazonaws.com/your-app\",\n      \"DOCKER_TAG\": \"latest\"\n    }\n  }]\n}",
+          "content": "{\n  \"stageName\": \"Publish\",\n  \"steps\": [{\n    \"plugin\": { \"name\": \"docker-build\" },\n    \"metadata\": {\n      \"ECR_REGISTRY\": \"123456789012.dkr.ecr.us-east-1.amazonaws.com\",\n      \"IMAGE_NAME\": \"123456789012.dkr.ecr.us-east-1.amazonaws.com/your-app\",\n      \"IMAGE_TAG\": \"latest\"\n    }\n  }]\n}",
           "language": "json"
         },
         {
@@ -253,7 +257,7 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"stageName\": \"Deploy\",\n  \"steps\": [{\n    \"plugin\": { \"name\": \"terraform\" },\n    \"commands\": [\n      \"terraform init\",\n      \"terraform plan -out=tfplan\",\n      \"terraform apply -auto-approve tfplan\"\n    ]\n  }]\n}",
+          "content": "{\n  \"stageName\": \"Deploy\",\n  \"steps\": [{\n    \"plugin\": { \"name\": \"terraform\" },\n    \"metadata\": { \"TF_ACTION\": \"apply\", \"TF_AUTO_APPROVE\": \"true\" }\n  }]\n}",
           "language": "json"
         },
         {
@@ -271,8 +275,12 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"stageName\": \"Notify\",\n  \"steps\": [{\n    \"plugin\": { \"name\": \"slack-notify\" },\n    \"metadata\": {\n      \"SLACK_WEBHOOK_URL\": \"${SLACK_WEBHOOK}\",\n      \"SLACK_CHANNEL\": \"#deployments\"\n    }\n  }]\n}",
+          "content": "{\n  \"stageName\": \"Notify\",\n  \"steps\": [{\n    \"plugin\": { \"name\": \"slack-notify\" },\n    \"metadata\": { \"SLACK_CHANNEL\": \"#deployments\" }\n  }]\n}",
           "language": "json"
+        },
+        {
+          "type": "text",
+          "content": "The webhook URL is the plugin's required SLACK_WEBHOOK_URL secret — create it at pipeline-builder/{orgId}/SLACK_WEBHOOK_URL rather than putting it in the definition."
         },
         {
           "type": "text",
@@ -308,7 +316,7 @@ export const developerGuideTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"project\": \"my-api\",\n  \"organization\": \"backend-team\",\n  \"visibility\": \"public\",\n  \"props\": {\n    \"project\": \"my-api\",\n    \"organization\": \"backend-team\",\n    \"synth\": {\n      \"source\": {\n        \"type\": \"github\",\n        \"options\": { \"repo\": \"my-org/my-api\", \"branch\": \"main\", \"trigger\": \"AUTO\" }\n      },\n      \"plugin\": { \"name\": \"cdk-synth\" }\n    },\n    \"stages\": [\n      {\n        \"stageName\": \"Build\",\n        \"steps\": [{\n          \"plugin\": { \"name\": \"java-corretto\" },\n          \"commands\": [\"./gradlew assemble --no-daemon --parallel\"],\n          \"timeout\": 30\n        }]\n      },\n      {\n        \"stageName\": \"Test\",\n        \"steps\": [{\n          \"plugin\": { \"name\": \"java-corretto\" },\n          \"commands\": [\"./gradlew test --no-daemon\"],\n          \"timeout\": 45\n        }]\n      },\n      {\n        \"stageName\": \"Security\",\n        \"steps\": [\n          { \"plugin\": { \"name\": \"semgrep\" } },\n          { \"plugin\": { \"name\": \"trivy\" } }\n        ]\n      },\n      {\n        \"stageName\": \"Approval\",\n        \"steps\": [{\n          \"plugin\": { \"name\": \"manual-approval\" },\n          \"metadata\": { \"APPROVAL_COMMENT\": \"Deploy to production?\" }\n        }]\n      },\n      {\n        \"stageName\": \"Deploy\",\n        \"steps\": [{\n          \"plugin\": { \"name\": \"cdk-deploy\" },\n          \"commands\": [\"cdk deploy --all --require-approval never\"]\n        }]\n      }\n    ]\n  }\n}",
+          "content": "{\n  \"project\": \"my-api\",\n  \"organization\": \"backend-team\",\n  \"visibility\": \"public\",\n  \"props\": {\n    \"project\": \"my-api\",\n    \"organization\": \"backend-team\",\n    \"synth\": {\n      \"source\": {\n        \"type\": \"github\",\n        \"options\": { \"repo\": \"my-org/my-api\", \"branch\": \"main\", \"trigger\": \"AUTO\" }\n      },\n      \"plugin\": { \"name\": \"cdk-synth\" }\n    },\n    \"stages\": [\n      {\n        \"stageName\": \"Build\",\n        \"steps\": [{\n          \"plugin\": { \"name\": \"java-corretto\" },\n          \"metadata\": { \"GRADLE_TASK\": \"assemble\" },\n          \"timeout\": 30\n        }]\n      },\n      {\n        \"stageName\": \"Test\",\n        \"steps\": [{\n          \"plugin\": { \"name\": \"java-corretto\" },\n          \"metadata\": { \"GRADLE_TASK\": \"test\" },\n          \"timeout\": 45\n        }]\n      },\n      {\n        \"stageName\": \"Security\",\n        \"steps\": [\n          { \"plugin\": { \"name\": \"semgrep\" } },\n          { \"plugin\": { \"name\": \"trivy\" } }\n        ]\n      },\n      {\n        \"stageName\": \"Approval\",\n        \"steps\": [{\n          \"plugin\": { \"name\": \"manual-approval\" },\n          \"metadata\": { \"APPROVAL_COMMENT\": \"Deploy to production?\" }\n        }]\n      },\n      {\n        \"stageName\": \"Deploy\",\n        \"steps\": [{\n          \"plugin\": { \"name\": \"cdk-deploy\" }\n        }]\n      }\n    ]\n  }\n}",
           "language": "json"
         },
         {

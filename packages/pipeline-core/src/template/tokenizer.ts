@@ -50,10 +50,19 @@ export interface ExprToken {
 
 export type Token = LiteralToken | ExprToken;
 
+/**
+ * Why a template failed to tokenize: `syntax` — malformed text; `limit` — a
+ * size cap was exceeded (field bytes, path depth, identifier length), which
+ * callers report as `TEMPLATE_SIZE_EXCEEDED` rather than a parse error. A plain
+ * string so this module stays dependency-free (no api-core `ErrorCode` here).
+ */
+export type TokenizerErrorKind = 'syntax' | 'limit';
+
 export class TokenizerError extends Error {
   constructor(
     message: string,
     public readonly pos: SourcePosition,
+    public readonly kind: TokenizerErrorKind = 'syntax',
   ) {
     super(`${message} at line ${pos.line}, col ${pos.col}`);
     this.name = 'TokenizerError';
@@ -72,6 +81,7 @@ export function tokenize(source: string): Token[] {
     throw new TokenizerError(
       `Field exceeds max size of ${MAX_FIELD_SIZE_BYTES} bytes`,
       { line: 1, col: 1 },
+      'limit',
     );
   }
 
@@ -199,6 +209,7 @@ function readExpression(
       throw new TokenizerError(
         `Identifier exceeds max length of ${MAX_IDENTIFIER_LENGTH}`,
         { line, col: col - ident.length },
+        'limit',
       );
     }
     return ident;
@@ -247,6 +258,7 @@ function readExpression(
       throw new TokenizerError(
         `Path depth exceeds max of ${MAX_PATH_DEPTH}`,
         { line, col },
+        'limit',
       );
     }
   }
