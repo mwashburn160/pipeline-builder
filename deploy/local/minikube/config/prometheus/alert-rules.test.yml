@@ -141,6 +141,28 @@ tests:
               summary: "platform is not responding to scrapes"
               description: "Prometheus has failed to scrape platform (pod platform-abc) for 5m. The pod exists but is unreachable — crashloop, OOM, or a hung process. Check: kubectl get pods -n pipeline-builder | grep platform"
 
+  # 6a. kube-state-metrics is scraped by its OWN job (honor_labels, so kube_*
+  #     series keep the observed pod's labels) — ServiceDown must still see it,
+  #     or the exporter behind every compute and CronJob alert goes unwatched.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="kube-state-metrics",service="kube-state-metrics",pod="kube-state-metrics-abc"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: platform
+              tenancy: platform
+              job: kube-state-metrics
+              service: kube-state-metrics
+              pod: kube-state-metrics-abc
+            exp_annotations:
+              summary: "kube-state-metrics is not responding to scrapes"
+              description: "Prometheus has failed to scrape kube-state-metrics (pod kube-state-metrics-abc) for 5m. The pod exists but is unreachable — crashloop, OOM, or a hung process. Check: kubectl get pods -n pipeline-builder | grep kube-state-metrics"
+
   # 7. A healthy service does NOT fire.
   - interval: 1m
     input_series:
@@ -2070,7 +2092,7 @@ tests:
               phase: Pending
             exp_annotations:
               summary: "Pod platform-abc-999 has been Pending for 15m"
-              description: "platform-abc-999 (namespace pipeline-builder) has not started for 15 minutes. On ec2 - one node - the usual cause is that no node has the CPU or memory left to fit its requests, which is what an HPA scale-out or a Postgres rung increase can produce. Check: kubectl -n pipeline-builder describe pod platform-abc-999 (the scheduler's reason is in Events)."
+              description: "platform-abc-999 (namespace pipeline-builder) has not started for 15 minutes. A pod also reports Pending while its init containers run, so a long-running init container (a wait or a delayed-action sleep) looks the same. Otherwise the usual cause is that no node has the CPU or memory left to fit its requests - on ec2 (one node) that is what an HPA scale-out or a Postgres rung increase produces; on eks, a node pool that cannot add capacity. Check: kubectl -n pipeline-builder describe pod platform-abc-999 (the scheduler's reason is in Events)."
 
   # Six restarts in an hour fires. ONE restart must not: a Postgres rung change
   # restarts its container by design, and paging for a supported operation is

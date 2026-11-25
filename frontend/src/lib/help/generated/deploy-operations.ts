@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f16b2b3505a478d6cf63c07ceb610cc3a6711e02938ebe023f25d47f34df8a7a
+// SOURCE-SHA256: b539c2dafe3ee8eb6f1d7bd4c3cc89c0c4fdfbe3a6b10d340cbecda10e55e0a9
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1556,7 +1556,15 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "kube-state-metrics itself is covered by ServiceDown — it is discovered by the same kubernetes-pods scrape job as everything else, so if it stops answering, that fires."
+          "content": "Its own scrape job. kube-state-metrics is scraped by a dedicated kube-state-metrics job with honor_labels: true, and the generic kubernetes-pods job drops it. Its series describe other objects in their pod/namespace/container labels; under kubernetes-pods the target's own pod relabel overwrote them (the real pod survived only as exported_pod), so PodNotScheduled named kube-state-metrics-… instead of the stuck pod and ContainerOOMKilled's on (namespace, pod, container) join matched across pods. When querying data recorded before this change, the observed pod is in exported_pod."
+        },
+        {
+          "type": "text",
+          "content": "kube-state-metrics itself is covered by ServiceDown, whose matcher is up{job=~\"kubernetes-pods|kube-state-metrics\"}, so if it stops answering, that fires."
+        },
+        {
+          "type": "text",
+          "content": "PodNotScheduled reads kube_pod_status_phase{phase=\"Pending\"}, and Kubernetes keeps a pod in Pending while its init containers run — so a pod with a long init step (a dependency wait, or a delayed-action Job that sleeps in an init container) fires it without any scheduling problem. Check the pod's init container state before looking at node capacity."
         },
         {
           "type": "text",

@@ -281,6 +281,14 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
         action: keep
         regex: true
+      # kube-state-metrics has its own job below (honor_labels). Scraped here,
+      # this job's `pod` relabel overwrote the label KSM reports the OBSERVED
+      # pod in, so every kube_pod_* series read pod="kube-state-metrics-..."
+      # (the real pod demoted to `exported_pod`) and PodNotScheduled named
+      # the exporter instead of the stuck pod.
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: drop
+        regex: kube-state-metrics
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
         action: replace
         target_label: __metrics_path__
@@ -315,6 +323,39 @@ scrape_configs:
         target_label: track
     tls_config:
       insecure_skip_verify: true
+
+  # kube-state-metrics, on its own job for ONE reason: honor_labels. KSM
+  # describes OTHER objects, so its series carry `pod`, `namespace`,
+  # `container` and `service` labels that name the observed object. Under
+  # `kubernetes-pods` the target's own `pod`/`service` relabels won and KSM's
+  # were renamed `exported_*` — so PodNotScheduled, ContainerRestartLooping
+  # and ContainerOOMKilled all named the exporter's pod, and OOMKilled's
+  # `on (namespace, pod, container)` join matched across unrelated pods.
+  # With honor_labels the scraped labels win; the target labels below apply
+  # only where a series has none (e.g. `up`, which ServiceDown reads).
+  - job_name: 'kube-state-metrics'
+    honor_labels: true
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - pipeline-builder
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: kube-state-metrics
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        target_label: service
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
 
   # Istio ambient mesh (istio-system). A SEPARATE job from `kubernetes-pods`
   # rather than widening that job's namespace list, because the two need
