@@ -281,6 +281,10 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
         action: keep
         regex: true
+      # nginx has its own job below (honor_labels), so its route label survives.
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: drop
+        regex: nginx
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
         action: replace
         target_label: __metrics_path__
@@ -313,6 +317,49 @@ scrape_configs:
       # own error budget paging the on-call under the stable service's name.
       - source_labels: [__meta_kubernetes_pod_label_track]
         target_label: track
+    tls_config:
+      insecure_skip_verify: true
+
+  # nginx, on its own job for the same reason as kube-state-metrics above:
+  # honor_labels. Its request metrics carry `service` = the ROUTE label
+  # (metrics.js, `$service` per location). Under `kubernetes-pods` the target's
+  # own `service` relabel (= the pod's app label, "nginx") won and the route
+  # was demoted to `exported_service`, so GatewayLatencyHigh's
+  # service!~"ws|plugin-logs|registry-v2|metrics" excluded nothing and the 5xx
+  # rules and dashboards saw one service called "nginx". With honor_labels the
+  # route wins; the target labels below still apply to series without one
+  # (`up`, nginx_up, nginx_connections_*).
+  - job_name: 'nginx'
+    honor_labels: true
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - pipeline-builder
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: nginx
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+        action: replace
+        target_label: __scheme__
+        regex: (.+)
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        target_label: service
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
     tls_config:
       insecure_skip_verify: true
 
@@ -440,10 +487,3 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_pod_name]
         target_label: pod
 
-  # Static targets not auto-discovered by kubernetes-pods
-  - job_name: 'nginx'
-    scheme: https
-    tls_config:
-      insecure_skip_verify: true
-    static_configs:
-      - targets: ['nginx:8443']

@@ -154,11 +154,11 @@ groups:
       # this with an always-firing watchdog alert and an external check on
       # Alertmanager, so silence itself becomes a signal.
       #
-      # kube-state-metrics is scraped by its own job (honor_labels — see
-      # prometheus.yml), so the matcher names both; dropping it would leave the
-      # exporter every compute and CronJob alert reads from unwatched.
+      # kube-state-metrics and nginx are scraped by their own jobs (honor_labels
+      # — see prometheus.yml), so the matcher names all three; dropping one would
+      # leave that exporter (or the gateway itself) unwatched.
       - alert: ServiceDown
-        expr: up{job=~"kubernetes-pods|kube-state-metrics"} == 0
+        expr: up{job=~"kubernetes-pods|kube-state-metrics|nginx"} == 0
         for: 5m
         labels:
           severity: critical
