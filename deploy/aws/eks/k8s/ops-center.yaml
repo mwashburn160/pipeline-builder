@@ -384,7 +384,6 @@ rules:
       - alertmanager-data
       - ask-model-models
       - grafana-data
-      - grype-db
       - mongodb-data
       - pgadmin-data
       - postgres-data

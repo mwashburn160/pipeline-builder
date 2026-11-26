@@ -1875,7 +1875,7 @@ tests:
   # percentage alerts and would otherwise be double-reported.
   - interval: 1m
     input_series:
-      - series: 'kubelet_volume_stats_used_bytes{namespace="pipeline-builder",persistentvolumeclaim="grype-db"}'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="pipeline-builder",persistentvolumeclaim="alertmanager-data"}'
         values: '64424509440+0x90'
       - series: 'kubelet_volume_stats_used_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
         values: '64424509440+0x90'
@@ -1888,15 +1888,15 @@ tests:
               component: storage
               tenancy: platform
               namespace: pipeline-builder
-              persistentvolumeclaim: grype-db
+              persistentvolumeclaim: alertmanager-data
             exp_annotations:
-              summary: "EFS claim grype-db has grown to 60GiB"
-              description: "grype-db (namespace pipeline-builder) is on pb-efs, which enforces no quota and reports no meaningful free percentage, so no capacity alert can fire for it. It now holds far more than this claim is for - Alertmanager state and the Grype DB are single-digit GiB. EFS bills per GiB-month for whatever is there, so find what is accumulating rather than waiting for it to stop."
+              summary: "EFS claim alertmanager-data has grown to 60GiB"
+              description: "alertmanager-data (namespace pipeline-builder) is on pb-efs, which enforces no quota and reports no meaningful free percentage, so no capacity alert can fire for it. It now holds far more than this claim is for - Alertmanager state is single-digit GiB. EFS bills per GiB-month for whatever is there, so find what is accumulating rather than waiting for it to stop."
 
-  # A Grype DB at its normal couple of GiB must stay quiet.
+  # Alertmanager state at its normal couple of GiB must stay quiet.
   - interval: 1m
     input_series:
-      - series: 'kubelet_volume_stats_used_bytes{namespace="pipeline-builder",persistentvolumeclaim="grype-db"}'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="pipeline-builder",persistentvolumeclaim="alertmanager-data"}'
         values: '2147483648+0x90'
     alert_rule_test:
       - eval_time: 70m
@@ -3490,7 +3490,7 @@ tests:
               component: plugin
               tenancy: platform
             exp_annotations:
-              description: "The installed grype DB was built 2d 1h 0m 0s ago. The nightly rescan refuses to run on it (plugin_vuln_rescan_runs_total{outcome=\"stale_db\"}) and build scans warn that their result predates the DB. Check whatever refreshes it: plugin_vuln_db_updates_total{outcome=\"failed\"} and the plugin logs for the in-process refresh, or the grype-db CronJob on EKS."
+              description: "The installed grype DB was built 2d 1h 0m 0s ago. The nightly rescan refuses to run on it (plugin_vuln_rescan_runs_total{outcome=\"stale_db\"}) and build scans warn that their result predates the DB. Check whatever refreshes it: plugin_vuln_db_updates_total{outcome=\"failed\"} and the plugin logs for the in-process refresh, or the operator job where PLUGIN_GRYPE_DB_AUTO_UPDATE=false."
               summary: "Plugin vulnerability DB is older than 36h"
       - eval_time: 1h
         # The age is KNOWN here, so the twin must stay quiet: firing both would

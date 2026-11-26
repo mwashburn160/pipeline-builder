@@ -795,8 +795,8 @@ groups:
         # sits beside the old copy). Fire when that PROJECTED peak passes 80% of
         # the emptyDir sizeLimit the deploy declares, so the limit is raised
         # BEFORE the kubelet evicts pods mid-build ("Usage of EmptyDir volume
-        # grype-db exceeds the limit"). Absent where no limit is declared (EKS
-        # shares one EFS copy; docker uses a named volume), so nothing fires.
+        # grype-db exceeds the limit"). Absent where no limit is declared
+        # (docker uses a named volume), so nothing fires.
         expr: plugin_vuln_db_cache_bytes * 2.2 > 0.8 * plugin_vuln_db_cache_limit_bytes
         for: 15m
         labels:
@@ -816,8 +816,8 @@ groups:
       - alert: PluginVulnDbStale
         # grype's DB build time, read by the plugin service at every build scan
         # and every rescan tick (hourly) — so it is live whichever process
-        # refreshes the DB: in-process `grype db update`, or the EKS grype-db
-        # CronJob with PLUGIN_GRYPE_DB_AUTO_UPDATE=false. 129600 s = 36 h, the
+        # refreshes the DB: in-process `grype db update`, or an operator job
+        # with PLUGIN_GRYPE_DB_AUTO_UPDATE=false. 129600 s = 36 h, the
         # default PLUGIN_VULN_DB_MAX_AGE_HOURS: past it the nightly rescan
         # REFUSES to run and builds warn, so this is the page that says why.
         # Keep the literal in step with that env var if it is changed.
@@ -829,7 +829,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Plugin vulnerability DB is older than 36h"
-          description: "The installed grype DB was built {{ $value | humanizeDuration }} ago. The nightly rescan refuses to run on it (plugin_vuln_rescan_runs_total{outcome=\"stale_db\"}) and build scans warn that their result predates the DB. Check whatever refreshes it: plugin_vuln_db_updates_total{outcome=\"failed\"} and the plugin logs for the in-process refresh, or the grype-db CronJob on EKS."
+          description: "The installed grype DB was built {{ $value | humanizeDuration }} ago. The nightly rescan refuses to run on it (plugin_vuln_rescan_runs_total{outcome=\"stale_db\"}) and build scans warn that their result predates the DB. Check whatever refreshes it: plugin_vuln_db_updates_total{outcome=\"failed\"} and the plugin logs for the in-process refresh, or the operator job where PLUGIN_GRYPE_DB_AUTO_UPDATE=false."
 
       - alert: PluginVulnDbAgeUnknown
         # The twin of PluginVulnDbStale for the case it cannot see: no valid DB
@@ -4049,21 +4049,21 @@ groups:
 
       # ---- EFS claims --------------------------------------------------------
       # pb-efs reports an effectively unbounded capacity, so every percentage
-      # rule above is STRUCTURALLY unable to fire for the two claims that bind it
-      # (alertmanager-data, grype-db). That is usually stated as "EFS cannot fill
+      # rule above is STRUCTURALLY unable to fire for the claim that binds it
+      # (alertmanager-data; grype-db left EFS on 2026-11-25). That is usually stated as "EFS cannot fill
       # up", which is true and is also why it needs its own rule: unbounded
       # growth is unbounded COST with no signal at all, and the `storage: 20Gi`
       # in those manifests is ignored by EFS rather than enforced.
       #
-      # So this one watches absolute size. Both claims hold small things by
-      # nature — Alertmanager's notification state and a Grype vulnerability DB,
-      # single-digit GiB — so tens of GiB means something is looping, not that
+      # So this one watches absolute size. The claim holds a small thing by
+      # nature — Alertmanager's notification state, single-digit GiB — so tens
+      # of GiB means something is looping, not that
       # demand grew. The claims are named explicitly because the kubelet's volume
       # series carry no storageclass label to match on; a new pb-efs claim has to
       # be added here, which is the trade for having any coverage at all.
       - alert: PersistentVolumeEfsOversized
         expr: |
-          kubelet_volume_stats_used_bytes{persistentvolumeclaim=~"alertmanager-data|grype-db"}
+          kubelet_volume_stats_used_bytes{persistentvolumeclaim=~"alertmanager-data"}
           > 50 * 1024 * 1024 * 1024
         for: 1h
         labels:
@@ -4072,7 +4072,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "EFS claim {{ $labels.persistentvolumeclaim }} has grown to {{ $value | humanize1024 }}B"
-          description: "{{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) is on pb-efs, which enforces no quota and reports no meaningful free percentage, so no capacity alert can fire for it. It now holds far more than this claim is for - Alertmanager state and the Grype DB are single-digit GiB. EFS bills per GiB-month for whatever is there, so find what is accumulating rather than waiting for it to stop."
+          description: "{{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) is on pb-efs, which enforces no quota and reports no meaningful free percentage, so no capacity alert can fire for it. It now holds far more than this claim is for - Alertmanager state is single-digit GiB. EFS bills per GiB-month for whatever is there, so find what is accumulating rather than waiting for it to stop."
 
       # ---- PersistentVolumeClaim binding -------------------------------------
       # A claim that never binds, which is a different failure from one that

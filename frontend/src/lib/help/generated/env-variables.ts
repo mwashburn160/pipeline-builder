@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 824051bac96a072d8d7e5522bfa5b4262bce871cd15e7ff09ad6ce698f47ef76
+// SOURCE-SHA256: c03d056ddb1c1f283df28a5428bd28c7629b3b9a33c3c5674eb0a15d24b51f24
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1774,7 +1774,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "GRYPE_DB_CACHE_DIR",
               "$TMPDIR/grype-db (deploys set /var/cache/grype)",
-              "grype's vulnerability DB for the build-time scan and the nightly rescan. Every deploy mounts a volume here — the plugin container's root filesystem is read-only. eks: one shared, read-only copy on the grype-db EFS claim, written only by the grype-db-refresh CronJob (every 6 h, and once per deploy); the pods run with PLUGIN_GRYPE_DB_AUTO_UPDATE=false. ec2 / minikube: a per-pod 12 Gi emptyDir. compose: the grype-db named volume. The DB is ~3.3 GiB installed, and a refresh over an existing copy peaks around 7.3 GiB on disk"
+              "grype's vulnerability DB for the build-time scan and the nightly rescan. Every deploy mounts a volume here — the plugin container's root filesystem is read-only. eks / ec2 / minikube: a per-pod 12 Gi emptyDir, refreshed in-process. (eks used one shared EFS copy written by a CronJob until 2026-11-25; grype reads the whole DB on every run, and those reads exhausted the bursting file system's credits.) compose: the grype-db named volume. The DB is ~3.3 GiB installed, and a refresh over an existing copy peaks around 7.3 GiB on disk"
             ],
             [
               "PLUGIN_GRYPE_DB_AUTO_UPDATE",
@@ -1799,7 +1799,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES",
               "unset",
-              "The grype-db volume's size limit, in bytes. Published as plugin_vuln_db_cache_limit_bytes next to the measured plugin_vuln_db_cache_bytes, so the PluginVulnDbCacheNearLimit alert can fire before the kubelet evicts the pod. Keep equal to the emptyDir sizeLimit (ec2 and minikube set 12 Gi). Unset = no limit gauge, so the alert stays silent"
+              "The grype-db volume's size limit, in bytes. Published as plugin_vuln_db_cache_limit_bytes next to the measured plugin_vuln_db_cache_bytes, so the PluginVulnDbCacheNearLimit alert can fire before the kubelet evicts the pod. Keep equal to the emptyDir sizeLimit (eks, ec2 and minikube set 12 Gi). Unset = no limit gauge, so the alert stays silent"
             ],
             [
               "PLUGIN_RESCAN_ENABLED",

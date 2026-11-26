@@ -9,6 +9,7 @@
  */
 
 import * as fs from 'fs';
+import { DatabaseSync } from 'node:sqlite';
 import * as os from 'os';
 import path from 'path';
 
@@ -351,6 +352,48 @@ describe('uncataloguedBinaries — executables no SBOM package owns', () => {
 
 describe('vulnerability DB age', () => {
   const status = (built: string | undefined, valid = true) => JSON.stringify({ schemaVersion: 'v6.1.3', built, path: '/db/6/vulnerability.db', valid });
+
+  describe('from the DB\'s own metadata', () => {
+    let cache: string;
+    beforeEach(() => {
+      cache = fs.mkdtempSync(path.join(os.tmpdir(), 'grype-meta-'));
+      process.env.GRYPE_DB_CACHE_DIR = cache;
+    });
+    afterEach(() => {
+      delete process.env.GRYPE_DB_CACHE_DIR;
+      fs.rmSync(cache, { recursive: true, force: true });
+    });
+    /** A schema-v6-shaped DB: just the table this reads. */
+    const writeDb = (dir: string, buildTimestamp: string) => {
+      fs.mkdirSync(path.join(cache, dir), { recursive: true });
+      const db = new DatabaseSync(path.join(cache, dir, 'vulnerability.db'));
+      db.exec('CREATE TABLE db_metadata (build_timestamp datetime NOT NULL, model integer NOT NULL, revision integer NOT NULL, addition integer NOT NULL)');
+      db.prepare('INSERT INTO db_metadata VALUES (?, 6, 1, 10)').run(buildTimestamp);
+      db.close();
+    };
+
+    it('reads build_timestamp from db_metadata without running grype (which reads the whole DB)', async () => {
+      writeDb('6', '2026-11-25 06:22:21+00:00');
+      await expect(vs.vulnDbBuiltAt()).resolves.toEqual(new Date('2026-11-25T06:22:21Z'));
+      expect(mockRun).not.toHaveBeenCalled();
+      expect(mockSetGauge).toHaveBeenCalledWith('plugin_vuln_db_built_timestamp_seconds', {}, Date.parse('2026-11-25T06:22:21Z') / 1000);
+    });
+
+    it('never reads an in-flight download, and falls back to `grype db status` when no schema dir holds a DB', async () => {
+      writeDb('grype-db-download123', '2099-01-01 00:00:00+00:00');
+      mockRun.mockResolvedValue(status('2026-11-01T06:12:44Z'));
+      await expect(vs.vulnDbBuiltAt()).resolves.toEqual(new Date('2026-11-01T06:12:44Z'));
+      expect(mockRun).toHaveBeenCalledWith('grype', ['db', 'status', '-o', 'json'], 30_000, expect.objectContaining({ GRYPE_DB_CACHE_DIR: cache }), { captureStdout: true });
+    });
+
+    it('falls back to `grype db status` when the file is not a grype DB', async () => {
+      fs.mkdirSync(path.join(cache, '6'));
+      fs.writeFileSync(path.join(cache, '6', 'vulnerability.db'), 'not sqlite');
+      mockRun.mockResolvedValue(status('2026-11-01T06:12:44Z'));
+      await expect(vs.vulnDbBuiltAt()).resolves.toEqual(new Date('2026-11-01T06:12:44Z'));
+      expect(mockRun).toHaveBeenCalledTimes(1);
+    });
+  });
 
   it('reads the DB build time from `grype db status -o json` and exports it as a gauge', async () => {
     mockRun.mockResolvedValue(status('2026-11-01T06:12:44Z'));

@@ -383,7 +383,7 @@ describe('deploy/bin/sync-image-tags.sh — moves the label with the tag', () =>
   });
 
   it('rewrites labels by IMAGE, not by file name', () => {
-    // CI caught this: `grype-db.yaml` is a CronJob that runs the PLUGIN image,
+    // CI caught this: `grype-db.yaml` (eks, removed 2026-11-25) was a CronJob running the PLUGIN image,
     // so a sweep of `<svc>.yaml` alone re-pinned its ref and left its label at
     // the previous release. Image refs are rewritten in every deploy file;
     // labels have to be too.
