@@ -83,7 +83,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: billing
-          image: ghcr.io/mwashburn160/billing:6.3.1@sha256:6641beaa3ebee362506b2ed043192566f4df2e54b8f8ad54ce688effc9a2d949
+          image: ghcr.io/mwashburn160/billing:6.3.1@sha256:1954db0db977c51ade11f2774ff66adbdf81e87f7165f9dd7ab5dff9234f25a4
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

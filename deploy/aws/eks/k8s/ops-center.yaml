@@ -110,7 +110,7 @@ spec:
           # on the release that first publishes ops-center;
           # test/deploy-contracts/test/version-label-contract.test.ts allows the
           # tag-only form for this image ONLY while it is listed as unpublished.
-          image: ghcr.io/mwashburn160/ops-center:0.2.22@sha256:77615e39f0e219d6d53d210a0cb06b63d8dd43779083ffbd0fb0346f965c3417
+          image: ghcr.io/mwashburn160/ops-center:0.2.22@sha256:a6ff7927cca290a8bfa0c1fbf898bd3cb8c0b852fa55d779f44c15427f332ade
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
