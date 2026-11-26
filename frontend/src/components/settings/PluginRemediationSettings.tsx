@@ -118,7 +118,7 @@ export function PluginRemediationSettings({ orgId, canEdit, readOnly }: {
   }
 
   const rolloutOptions = isTeam ? TEAM_REMEDIATION_ROLLOUTS : PLUGIN_REMEDIATION_ROLLOUTS;
-  const severities = view.severities.length > 0 ? view.severities : ['critical', 'high'];
+  const severities = view.severities.length > 0 ? view.severities : ['critical'];
   const allowApply = isTeam ? view.root?.allowPipelineApply ?? true : draft.allowPipelineApply;
 
   return (

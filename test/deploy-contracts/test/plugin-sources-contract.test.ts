@@ -251,7 +251,7 @@ describe('remediation operator knobs', () => {
   it('reads every knob from the contract (guards a vacuous pass)', () => {
     expect(knobs).toEqual({
       PLUGIN_REMEDIATION_ENABLED: 'true',
-      PLUGIN_REMEDIATION_SEVERITIES: 'critical,high',
+      PLUGIN_REMEDIATION_SEVERITIES: 'critical',
       PLUGIN_REMEDIATION_CONCURRENCY: '2',
       PLUGIN_REMEDIATION_BASE_CONCURRENCY: '4',
       PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY: '20',

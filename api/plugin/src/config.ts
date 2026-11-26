@@ -55,7 +55,7 @@ export function loadPluginServiceConfig(warn: (message: string) => void = (m) =>
   return {
     remediation: {
       enabled: parseRemediationEnabled(envStr('PLUGIN_REMEDIATION_ENABLED', 'true')),
-      severities: parseRemediationSeverities(envStr('PLUGIN_REMEDIATION_SEVERITIES', 'critical,high'), warn),
+      severities: parseRemediationSeverities(envStr('PLUGIN_REMEDIATION_SEVERITIES', 'critical'), warn),
       concurrency: envInt('PLUGIN_REMEDIATION_CONCURRENCY', 2, { min: 1 }),
       baseConcurrency: envInt('PLUGIN_REMEDIATION_BASE_CONCURRENCY', 4, { min: 1 }),
       maxPerOrgPerDay: envInt('PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY', 20, { min: 0 }),

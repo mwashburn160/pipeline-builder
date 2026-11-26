@@ -971,12 +971,13 @@ export function remediationQueuePriority(p: RemediationPriorityInput): number {
 /** The severities remediation may target (PLUGIN_REMEDIATION_SEVERITIES). */
 export const REMEDIATION_SEVERITIES = ['critical', 'high'] as const;
 export type RemediationSeverity = typeof REMEDIATION_SEVERITIES[number];
-export const DEFAULT_REMEDIATION_SEVERITIES: readonly RemediationSeverity[] = ['critical', 'high'];
+export const DEFAULT_REMEDIATION_SEVERITIES: readonly RemediationSeverity[] = ['critical'];
 
 /**
  * PLUGIN_REMEDIATION_SEVERITIES: a comma list of `critical` / `high`
  * (case-insensitive, whitespace and duplicates ignored), in catalog order.
- * Unset or blank → the default (both). Any unknown entry, or a list with no
+ * Unset or blank → the default (critical; KEV-listed findings are targeted
+ * regardless). Any unknown entry, or a list with no
  * valid entry, → the default plus ONE `warn` call naming the value.
  */
 export function parseRemediationSeverities(
@@ -987,7 +988,7 @@ export function parseRemediationSeverities(
   const parts = raw.split(',').map((p) => p.trim().toLowerCase()).filter((p) => p !== '');
   const valid = parts.every((p) => isOneOf(REMEDIATION_SEVERITIES, p));
   if (!valid || parts.length === 0) {
-    warn(`PLUGIN_REMEDIATION_SEVERITIES=${JSON.stringify(raw)} is not a comma list of critical, high; using critical,high`);
+    warn(`PLUGIN_REMEDIATION_SEVERITIES=${JSON.stringify(raw)} is not a comma list of critical, high; using ${DEFAULT_REMEDIATION_SEVERITIES.join(',')}`);
     return [...DEFAULT_REMEDIATION_SEVERITIES];
   }
   return REMEDIATION_SEVERITIES.filter((s) => parts.includes(s));
@@ -1025,7 +1026,7 @@ export const PLUGIN_REMEDIATION_ENV = {
   /** Only the literal `false` disables: no jobs queued or run, nothing published or rolled out. */
   enabled: { name: 'PLUGIN_REMEDIATION_ENABLED', default: true },
   /** Comma list of critical, high; KEV-listed findings are always targeted. */
-  severities: { name: 'PLUGIN_REMEDIATION_SEVERITIES', default: 'critical,high' },
+  severities: { name: 'PLUGIN_REMEDIATION_SEVERITIES', default: 'critical' },
   concurrency: { name: 'PLUGIN_REMEDIATION_CONCURRENCY', default: 2 },
   baseConcurrency: { name: 'PLUGIN_REMEDIATION_BASE_CONCURRENCY', default: 4 },
   maxPerOrgPerDay: { name: 'PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY', default: 20 },
