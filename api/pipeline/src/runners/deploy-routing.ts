@@ -52,7 +52,7 @@ export interface DeployPipelineFacts {
 }
 
 /** Why `runner` cannot deploy a pipeline named `pipelineName` (null: it can). */
-export function deployBlocker(deps: RunnerDeps, entry: EligibleRunner, pipelineName: string): DeployTargetReason | null {
+function deployBlocker(deps: RunnerDeps, entry: EligibleRunner, pipelineName: string): DeployTargetReason | null {
   const { runner } = entry;
   if (!runnerSupportsAction(runner.capabilities ?? [], 'deploy')) return 'deploy_not_enabled';
   if (updateGraceExpired(runner, deps.now())) return 'update_required';

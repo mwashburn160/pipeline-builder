@@ -79,10 +79,8 @@ describe('drizzle schema ⇔ postgres-init.sql', () => {
 
   it('every drizzle table exists with exactly the same columns', async () => {
     const mismatches: string[] = [];
-    // A table may be mapped by more than one drizzle object — `pipeline_registry`
-    // is (the runner-link view maps `runner_id`, which the main mapping must not,
-    // so no pre-runner database is ever asked for it). Their columns UNION to
-    // the SQL table's; each mapping on its own is a subset.
+    // Should a table ever be mapped by more than one drizzle object, their
+    // columns UNION to the SQL table's.
     const byName = new Map<string, Set<string>>();
     for (const table of TABLES) {
       const cfg = getTableConfig(table);
@@ -103,36 +101,74 @@ describe('drizzle schema ⇔ postgres-init.sql', () => {
     expect(mismatches).toEqual([]);
   });
 
-  it('the registry\'s main mapping never names runner_id (pre-runner databases lack it)', () => {
-    expect(getTableConfig(drizzleSchema.pipelineRegistry).columns.map((c) => c.name)).not.toContain('runner_id');
-    expect(getTableConfig(drizzleSchema.pipelineRegistryRunnerLink).columns.map((c) => c.name)).toContain('runner_id');
-  });
-
-  it('foreign keys agree on both sides (target and ON DELETE)', async () => {
+  it('foreign keys agree on both sides (every column, target and ON DELETE)', async () => {
+    // Keyed by the FULL local column list, and the target carries every target
+    // column: a composite key (pipeline_runner_deploys (request_id, org_id))
+    // that one side narrows to its first column is drift too.
     const mismatches: string[] = [];
     for (const table of TABLES) {
       const cfg = getTableConfig(table);
       const drizzleFks = new Map<string, string>();
       for (const fk of cfg.foreignKeys) {
         const ref = fk.reference();
-        const col = ref.columns[0].name;
-        const target = `${getTableConfig(ref.foreignTable).name}.${ref.foreignColumns[0].name}`;
-        drizzleFks.set(col, `${target} ${ON_DELETE[fk.onDelete ?? 'no action']}`);
+        const cols = ref.columns.map((c) => c.name).join(',');
+        const target = `${getTableConfig(ref.foreignTable).name}(${ref.foreignColumns.map((c) => c.name).join(',')})`;
+        drizzleFks.set(cols, `${target} ${ON_DELETE[fk.onDelete ?? 'no action']}`);
       }
-      const r = await db.query<{ col: string; target: string; deltype: string }>(
-        `SELECT a.attname AS col, cf.relname || '.' || af.attname AS target, c.confdeltype AS deltype
+      const r = await db.query<{ cols: string; target: string; deltype: string }>(
+        `SELECT (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                   FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+                   JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum) AS cols,
+                cf.relname || '(' || (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                   FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
+                   JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum) || ')' AS target,
+                c.confdeltype AS deltype
            FROM pg_constraint c
            JOIN pg_class t ON t.oid = c.conrelid
            JOIN pg_class cf ON cf.oid = c.confrelid
-           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
-           JOIN pg_attribute af ON af.attrelid = c.confrelid AND af.attnum = c.confkey[1]
           WHERE c.contype = 'f' AND t.relname = $1`, [cfg.name]);
-      const sqlFks = new Map(r.rows.map((x) => [x.col, `${x.target} ${x.deltype}`]));
-      for (const [col, want] of drizzleFks) {
-        if (sqlFks.get(col) !== want) mismatches.push(`${cfg.name}.${col}: drizzle ${want} vs SQL ${sqlFks.get(col) ?? 'none'}`);
+      const sqlFks = new Map(r.rows.map((x) => [x.cols, `${x.target} ${x.deltype}`]));
+      for (const [cols, want] of drizzleFks) {
+        if (sqlFks.get(cols) !== want) mismatches.push(`${cfg.name}(${cols}): drizzle ${want} vs SQL ${sqlFks.get(cols) ?? 'none'}`);
       }
-      for (const [col, have] of sqlFks) {
-        if (!drizzleFks.has(col)) mismatches.push(`${cfg.name}.${col}: SQL ${have}, not in drizzle`);
+      for (const [cols, have] of sqlFks) {
+        if (!drizzleFks.has(cols)) mismatches.push(`${cfg.name}(${cols}): SQL ${have}, not in drizzle`);
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  it('unique constraints agree on both sides', async () => {
+    // drizzle `unique()` is a table constraint, not an index, so the index
+    // tests skip it; an FK target (pipeline_run_requests (id, org_id)) needs it.
+    // A named table-level constraint must match by name and columns. A
+    // column-level `.unique()` gets Postgres' own name (`<table>_<col>_key`),
+    // so it matches by column: a UNIQUE constraint or a full unique index.
+    const mismatches: string[] = [];
+    for (const table of TABLES) {
+      const cfg = getTableConfig(table);
+      const named = new Map(cfg.uniqueConstraints.map((uq) => [uq.getName() ?? '(unnamed)', uq.columns.map((c) => c.name).join(',')]));
+      const columnLevel = new Set(cfg.columns.filter((c) => c.isUnique).map((c) => c.name));
+      const r = await db.query<{ name: string; cols: string; kind: string }>(
+        `SELECT ic.relname AS name, CASE WHEN c.oid IS NULL THEN 'index' ELSE 'constraint' END AS kind,
+                (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                   FROM unnest(ix.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord)
+                   JOIN pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = k.attnum) AS cols
+           FROM pg_index ix
+           JOIN pg_class ic ON ic.oid = ix.indexrelid
+           JOIN pg_class t ON t.oid = ix.indrelid
+           LEFT JOIN pg_constraint c ON c.conindid = ix.indexrelid AND c.contype = 'u'
+          WHERE t.relname = $1 AND ix.indisunique AND NOT ix.indisprimary AND ix.indpred IS NULL`, [cfg.name]);
+      const sqlConstraints = new Map(r.rows.filter((x) => x.kind === 'constraint').map((x) => [x.name, x.cols]));
+      const sqlUniqueCols = new Set(r.rows.map((x) => x.cols));
+      for (const [name, cols] of named) {
+        if (sqlConstraints.get(name) !== cols) mismatches.push(`${cfg.name}.${name}: drizzle (${cols}) vs SQL (${sqlConstraints.get(name) ?? 'none'})`);
+      }
+      for (const col of columnLevel) {
+        if (!sqlUniqueCols.has(col)) mismatches.push(`${cfg.name}.${col}: unique in drizzle, not in SQL`);
+      }
+      for (const [name, cols] of sqlConstraints) {
+        if (!named.has(name) && !columnLevel.has(cols)) mismatches.push(`${cfg.name}.${name}: SQL (${cols}), not in drizzle`);
       }
     }
     expect(mismatches).toEqual([]);

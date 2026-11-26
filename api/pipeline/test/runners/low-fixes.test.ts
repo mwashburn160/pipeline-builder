@@ -3,7 +3,7 @@
 
 /**
  * Regression tests for the low-severity review items (health race, the
- * pending-start race, admin-ping version bookkeeping, pre-runner databases)
+ * pending-start race, admin-ping version bookkeeping, runners unavailable)
  * — each failed before its fix.
  */
 

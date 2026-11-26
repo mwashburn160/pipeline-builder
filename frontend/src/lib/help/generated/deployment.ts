@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f0f04f118c04d8342e7a676ddf0704680d02298c247b4e55da5b1170a1e522a6
+// SOURCE-SHA256: c6965008dad0676272c84a8967c44e32cc94c2cda405281534a9dfeda5966e61
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2774,7 +2774,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Deleting a pipeline never touches its stack. Purging it (hard delete, from Recently deleted) asks its linked runner, when that runner has deploys enabled, to run the same project in undeploy mode, which deletes the stack only if it is tagged pb.pipeline-id for this pipeline; the outcome is audited pipeline.undeploy.complete. The delete dialog and the Recently deleted purge dialog state which of the two will happen (each deleted row carries its deployment: the stack, the linked runner and stackRemovedOnPurge), and after a purge the panel shows the result: the undeploy requested through the runner, or the stack retained and why (no runner linked, deploys not enabled on it, a toolchain too old for the undeploy job, or no stack recorded). A pipeline whose stack no runner can remove keeps it: the purge is refused (409, details.stackRetainedReason) until you remove the stack with cdk destroy or in the CloudFormation console and deregister it (or purge with ?force=true once it is gone)."
+          "content": "Deleting a pipeline never touches its stack. Purging it (hard delete, from Recently deleted) asks its linked runner, when that runner has deploys enabled, to run the same project in undeploy mode, which deletes the stack only if it is tagged pb.pipeline-id for this pipeline; the outcome is audited pipeline.undeploy.complete. The delete dialog and the Recently deleted purge dialog state which of the two will happen (each deleted row carries its deployment: the stack, the linked runner and stackRemovedOnPurge), and after a purge the panel shows the result: the undeploy requested through the runner, or the stack retained and why (no runner linked, deploys not enabled on it, a toolchain too old for the undeploy job, or no stack recorded). A pipeline whose stack no runner can remove keeps it: the purge is refused (409, details.stackRetainedReason) until you remove the stack with cdk destroy or in the CloudFormation console and deregister it (or purge with ?force=true once it is gone). The retention sweep (SOFT_DELETE_RETENTION_DAYS) never purges such a pipeline on its own: a deleted pipeline that is still registered as deployed, or has a deploy through a runner in flight, is kept past its purge date until you purge it by hand."
         },
         {
           "type": "text",

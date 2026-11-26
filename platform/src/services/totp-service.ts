@@ -159,22 +159,29 @@ export async function beginEnrolment(userId: string): Promise<TotpEnrolment> {
   const encrypted = await wrapEncrypted(secret, secretContext(userId));
   // Upsert, resetting every piece of per-enrolment state: a stale `lastUsedStep`
   // from a previous enrolment would silently reject the new secret's first codes,
-  // and a stale lockout would block confirming it.
-  await UserTotp.findOneAndUpdate(
-    { userId },
-    {
-      $set: {
-        secret: encrypted,
-        activatedAt: null,
-        lastUsedStep: 0,
-        failedAttempts: 0,
-        lockedUntil: null,
-        lastUsedAt: null,
+  // and a stale lockout would block confirming it. Conditional on the enrolment
+  // still being PENDING: an activation that landed since the check above misses
+  // the filter, and the upsert's insert then collides on the unique `userId`.
+  try {
+    await UserTotp.findOneAndUpdate(
+      { userId, activatedAt: null },
+      {
+        $set: {
+          secret: encrypted,
+          activatedAt: null,
+          lastUsedStep: 0,
+          failedAttempts: 0,
+          lockedUntil: null,
+          lastUsedAt: null,
+        },
+        $setOnInsert: { createdAt: new Date() },
       },
-      $setOnInsert: { createdAt: new Date() },
-    },
-    { upsert: true, new: true },
-  );
+      { upsert: true, new: true },
+    );
+  } catch (err) {
+    if ((err as { code?: number })?.code === 11000) throw new Error(TOTP_ALREADY_ENROLLED);
+    throw err;
+  }
 
   return {
     secret,

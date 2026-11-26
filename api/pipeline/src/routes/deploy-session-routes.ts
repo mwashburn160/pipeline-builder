@@ -42,10 +42,9 @@ import { pipelineService } from '../services/pipeline-service.js';
 const logger = createLogger('deploy-session-routes');
 
 /** Calls one deploy's job may make per minute (a job makes a handful, plus one lookup per plugin). */
-export const DEPLOY_SESSION_REQUESTS_PER_MINUTE = 120;
+const DEPLOY_SESSION_REQUESTS_PER_MINUTE = 120;
 /** The per-IP backstop (CodeBuild shares AWS egress addresses). */
-export const DEPLOY_SESSION_IP_REQUESTS_PER_MINUTE = 1200;
-
+const DEPLOY_SESSION_IP_REQUESTS_PER_MINUTE = 1200;
 
 const SessionBody = z.object({ grant: z.string().min(1).max(200) }).strict();
 const ProgressBody = z.object({ stage: z.enum(DEPLOY_STAGES) }).strict();

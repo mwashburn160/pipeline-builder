@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 09508d18a9f5ef58d18317cf6ebf1f285edb8558bd2d88c093290b25b1c6bdd2
+// SOURCE-SHA256: deb4d2797c6c70bb005c3d916ab2cd103d0cfba946b2f9b37abd5cb8aeb1a8ae
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1307,7 +1307,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "SOFT_DELETE_RETENTION_DAYS",
               "30",
-              "How long a soft-deleted pipeline/plugin/template stays restorable before the purge sweep hard-deletes it"
+              "How long a soft-deleted pipeline/plugin/template stays restorable before the purge sweep hard-deletes it. The sweep keeps a pipeline that is still registered as deployed, or has a deploy through a runner in flight, until it is purged by hand (so its stack is never orphaned)"
             ],
             [
               "SOFT_DELETE_PURGE_ENABLED",

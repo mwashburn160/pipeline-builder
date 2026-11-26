@@ -3,7 +3,7 @@
 
 import { useCallback, useState } from 'react';
 import {
-  GRYPE_PACKAGE_TYPES, LIBRARY_UPGRADE_LEVELS, PLUGIN_REMEDIATION_MODES, PLUGIN_REMEDIATION_ROLLOUTS, TEAM_REMEDIATION_ROLLOUTS,
+  DEFAULT_REMEDIATION_SEVERITIES, GRYPE_PACKAGE_TYPES, LIBRARY_UPGRADE_LEVELS, PLUGIN_REMEDIATION_MODES, PLUGIN_REMEDIATION_ROLLOUTS, TEAM_REMEDIATION_ROLLOUTS,
   type GrypePackageType, type LibraryUpgradeLevel,
 } from '@pipeline-builder/api-core/plugin-scan';
 import { Button } from '@/components/ui/Button';
@@ -118,7 +118,7 @@ export function PluginRemediationSettings({ orgId, canEdit, readOnly }: {
   }
 
   const rolloutOptions = isTeam ? TEAM_REMEDIATION_ROLLOUTS : PLUGIN_REMEDIATION_ROLLOUTS;
-  const severities = view.severities.length > 0 ? view.severities : ['critical'];
+  const severities = view.severities.length > 0 ? view.severities : DEFAULT_REMEDIATION_SEVERITIES;
   const allowApply = isTeam ? view.root?.allowPipelineApply ?? true : draft.allowPipelineApply;
 
   return (

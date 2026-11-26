@@ -11,7 +11,7 @@
  */
 
 import { ACTIVE_DEPLOY_STATUSES, IN_PROGRESS_RUN_REQUEST_STATUSES, type RunnerLinkDetail, type RunnerLinkStatus } from '@pipeline-builder/api-core/pipeline-runners';
-import { pipelineRegistryRunnerLink, runWithTenantContext, schema, withTenantTx, type RunRequestStatus } from '@pipeline-builder/pipeline-data';
+import { runWithTenantContext, schema, withTenantTx, type RunRequestStatus } from '@pipeline-builder/pipeline-data';
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 
 export type RunnerRow = typeof schema.pipelineRunner.$inferSelect;
@@ -145,8 +145,7 @@ const elevated = <T>(fn: Parameters<typeof withTenantTx<T>>[0]): Promise<T> =>
 
 const R = schema.pipelineRunner;
 const Q = schema.pipelineRunRequest;
-// The registry through its runner-link mapping — the only one naming `runner_id`.
-const G = pipelineRegistryRunnerLink;
+const G = schema.pipelineRegistry;
 const D = schema.pipelineRunnerDeploy;
 const IN_PROGRESS = [...IN_PROGRESS_RUN_REQUEST_STATUSES];
 

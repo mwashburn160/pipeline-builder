@@ -448,8 +448,9 @@ runner keys reading them under the current config, then the recorded outgoing
 one, then the shared provider; it is safe to repeat, answers 409 when nothing is
 pending, and clears the record on success. Re-sending the same `PUT`, or
 `reencrypt-runner-keys --org`, cannot do this: neither knows the outgoing config.
-While a re-wrap is pending, further `PUT`/`DELETE` of the org's KMS config are
-refused with 409 CONFLICT until the retry succeeds.
+From the moment a change saves until its runner-key re-wrap succeeds (in the
+same request, or later through the retry route), further `PUT`/`DELETE` of the
+org's KMS config are refused with 409 CONFLICT.
 
 **One change at a time.** The `PUT`/`DELETE` saves the new config only if the
 config it read (keyId and wrapped ciphertext) is still the org's current one.

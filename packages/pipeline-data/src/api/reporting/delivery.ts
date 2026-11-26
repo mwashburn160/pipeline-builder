@@ -20,15 +20,9 @@
  *    refused; any other `failed` → failed; `queued` / `delivering` → pending.
  *    The failure rate is (failed + expired + refused) / everything that
  *    finished; pending requests are in neither side.
- *  - LATENCY. Time to acceptance over accepted START requests. EXACT when the
- *    row has `accepted_at` (stamped by the dispatcher when the runner accepted
- *    it): `requested_at → accepted_at`. Rows from before that column existed
- *    are ESTIMATED as request → the START of the execution the runner reported
- *    (`result_execution_id`, matched to the earliest ingested event of that
- *    execution). CodePipeline stamps that start while the runner's
- *    StartPipelineExecution call is in flight, so it bounds the acceptance
- *    from above by at most the runner's own call. A row with neither is not in
- *    the sample. `n` is the sample; `nExact` / `nEstimated` split it.
+ *  - LATENCY. Time to acceptance over accepted START requests:
+ *    `requested_at → accepted_at` (stamped by the dispatcher on every start
+ *    the runner accepts). `n` is the sample.
  *  - FAILURE CODES. Bounded by api-core's RUNNER_ERRORS catalog: a stored code
  *    outside it (an older runner's, a typo) is counted as `OTHER`, so the list
  *    can never carry free text.
@@ -120,12 +114,8 @@ export interface RunnerReliabilityReport {
   window: { from: string; to: string };
   totals: RunOutcomeCounts & { failureRatePct: number | null };
   trend: RunRequestTrendPoint[];
-  /**
-   * Request → acceptance over accepted start requests: exact (`accepted_at`)
-   * where the row has it, else estimated from the started execution's start.
-   * `n = nExact + nEstimated`.
-   */
-  latency: { n: number; nExact: number; nEstimated: number; medianSeconds: number | null; p90Seconds: number | null };
+  /** Request → `accepted_at` over accepted start requests; `n` is the sample. */
+  latency: { n: number; medianSeconds: number | null; p90Seconds: number | null };
   topFailureCodes: RunnerFailureCode[];
   runners: RunnerReliabilityRow[];
 }
@@ -249,7 +239,7 @@ export async function getRunnerReliability(
 
   const scoped = await securityRead(scope, async (org, tx) => {
     const reqs = sql`
-      SELECT r.id, r.runner_id, r.status, r.error_code, r.action, r.requested_at, r.accepted_at, r.result_execution_id, r.pipeline_id,
+      SELECT r.id, r.runner_id, r.status, r.error_code, r.action, r.requested_at, r.accepted_at,
              ${outcomeSql} AS outcome
       FROM pipeline_run_requests r
       WHERE r.org_id ${org}
@@ -271,19 +261,10 @@ export async function getRunnerReliability(
       await tx.execute(sql`
         WITH q AS (${reqs}),
         l AS (
-          SELECT (q.accepted_at IS NOT NULL) AS exact,
-                 EXTRACT(EPOCH FROM (COALESCE(q.accepted_at, MIN(e.started_at)) - q.requested_at)) AS s
+          SELECT EXTRACT(EPOCH FROM (q.accepted_at - q.requested_at)) AS s
           FROM q
-          LEFT JOIN pipeline_events e
-            ON q.accepted_at IS NULL
-           AND e.execution_id = q.result_execution_id AND e.pipeline_id = q.pipeline_id AND e.org_id ${org}
-           AND e.started_at IS NOT NULL
-          WHERE q.action = 'start' AND q.outcome = 'started'
-            AND (q.accepted_at IS NOT NULL OR q.result_execution_id IS NOT NULL)
-          GROUP BY q.id, q.requested_at, q.accepted_at
-          HAVING q.accepted_at IS NOT NULL OR MIN(e.started_at) IS NOT NULL)
+          WHERE q.action = 'start' AND q.outcome = 'started' AND q.accepted_at IS NOT NULL)
         SELECT COUNT(*)::int AS n,
-               COUNT(*) FILTER (WHERE exact)::int AS n_exact,
                percentile_cont(0.5) WITHIN GROUP (ORDER BY GREATEST(s, 0)) AS median_s,
                percentile_cont(0.9) WITHIN GROUP (ORDER BY GREATEST(s, 0)) AS p90_s
         FROM l`),
@@ -368,12 +349,11 @@ export async function getRunnerReliability(
     .slice(0, FAILURE_CODE_LIMIT);
 
   const n = num(scoped.latency.n);
-  const nExact = num(scoped.latency.n_exact);
   return {
     window: { from, to },
     totals: { ...scoped.totals, failureRatePct: failureRate(scoped.totals) },
     trend: scoped.trend,
-    latency: { n, nExact, nEstimated: n - nExact, medianSeconds: n > 0 ? roundOrNull(scoped.latency.median_s) : null, p90Seconds: n > 0 ? roundOrNull(scoped.latency.p90_s) : null },
+    latency: { n, medianSeconds: n > 0 ? roundOrNull(scoped.latency.median_s) : null, p90Seconds: n > 0 ? roundOrNull(scoped.latency.p90_s) : null },
     topFailureCodes,
     runners,
   };

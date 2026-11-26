@@ -464,6 +464,14 @@ describe('the session wiped (401 from the facade: cancelled or past the deadline
     expect(t.world.posts.some((p) => p.url.endsWith('/registry'))).toBe(false);
   });
 
+  it('a 401 once cdk deploy has finished (registering) leaves the deployed result as it is: OK, nothing more posted to the dead session', async () => {
+    const t = setup({ facade: (url, body) => (url.endsWith('/progress') && (body as { stage?: string })?.stage === 'registering' ? sessionGone() : undefined) });
+    expect(await t.run()).toEqual({ code: 'OK', stage: 'done' });
+    expect(t.world.calls).toEqual(['synth', 'deploy']);
+    expect(t.world.posts.some((p) => p.url.endsWith('/registry'))).toBe(false);
+    expect(readFileSync(t.resultFile, 'utf-8')).toBe('PB_DEPLOY_RESULT=OK\nPB_DEPLOY_STAGE=done\n');
+  });
+
   it('a heartbeat that fails for another reason (5xx, network) does not stop cdk', async () => {
     let seenSignal: AbortSignal | undefined;
     const t = setup({

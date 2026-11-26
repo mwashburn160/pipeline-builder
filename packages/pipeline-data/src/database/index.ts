@@ -203,7 +203,6 @@ export {
   pipelineRunner,
   pipelineRunRequest,
   pipelineRunnerDeploy,
-  pipelineRegistryRunnerLink,
   pipelineRunnerSigningKey,
   pipelineRunnerKeySettings,
   pipelineRunnerPlatformSettings,

@@ -69,9 +69,9 @@
  * A pass does not run, and does not count as completed, when the DB refresh
  * fails OR when the DB — however it is refreshed — is older than
  * `PLUGIN_VULN_DB_MAX_AGE_HOURS`: rescanning with last week's DB would stamp a
- * fresh `scannedAt` on stale data. On EKS the DB is refreshed by a CronJob
- * (`PLUGIN_GRYPE_DB_AUTO_UPDATE=false`), so the refresh here is a no-op and the
- * age check is the ONLY thing that notices the CronJob has stopped.
+ * fresh `scannedAt` on stale data. Where an operator job refreshes the DB
+ * (`PLUGIN_GRYPE_DB_AUTO_UPDATE=false`) the refresh here is a no-op and the age
+ * check is the ONLY thing that notices that job has stopped.
  * A single image that fails to rescan keeps its previous scan (its `scannedAt`
  * still says when that was) and is counted in the progress metrics.
  */
@@ -771,7 +771,7 @@ export async function runRescanTick(
     pass = await rescanAllPlugins();
   } catch (err) {
     // A stale DB is its own outcome: the pass was REFUSED, deliberately, and
-    // the fix (the DB refresh — on EKS the grype-db CronJob) is somewhere else
+    // the fix (the DB refresh — in-process, or the operator's job) is somewhere else
     // than for a pass that broke.
     const stale = err instanceof VulnDbStaleError;
     incCounter('plugin_vuln_rescan_runs_total', { outcome: stale ? 'stale_db' : 'failed' });

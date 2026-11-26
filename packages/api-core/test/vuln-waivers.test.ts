@@ -173,6 +173,15 @@ describe('parseVulnWaiversVerbose', () => {
     expect(problems[1]!.reason).toContain('YYYY-MM-DD');
   });
 
+  it('rejects an impossible calendar date instead of rolling it over', () => {
+    // new Date('2026-02-31T…') is 2026-03-03: accepted as-is, the waiver would
+    // run days past what the operator wrote.
+    const { waivers, problems } = parseVulnWaiversVerbose('artillery:2026-02-31:chromium;cypress:2026-13-01:chrome');
+    expect(waivers).toEqual([]);
+    expect(problems.map((p) => p.entry)).toEqual(['artillery:2026-02-31:chromium', 'cypress:2026-13-01:chrome']);
+    expect(problems[0]!.reason).toContain('not a real date');
+  });
+
   it('rejects a trailing @ rather than reading it as "every version"', () => {
     // Ambiguous between a typo and an intent to cover everything. Refusing says
     // so; guessing would silently widen the waiver.

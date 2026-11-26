@@ -4,6 +4,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, VISIBILITY_WRITE_REFUSAL, createLogger, entityEvents, createCacheService, errorMessage, toComplianceAttributes } from '@pipeline-builder/api-core';
 import type { VisibilityWriteRefusal, WriteAccess } from '@pipeline-builder/api-core';
+import { ACTIVE_DEPLOY_STATUSES } from '@pipeline-builder/api-core/pipeline-runners';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import {
   CrudService, buildPipelineConditions, closePipelineExposures, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type CrudTx, type PipelineFilter,
@@ -21,6 +22,9 @@ const logger = createLogger('pipeline-service');
  * triggered them — this is how that route learns the count for its audit event.
  */
 const closedExposureTally = new AsyncLocalStorage<{ closed: number }>();
+
+/** Set while the retention sweep's `purgeExpired` runs (see `PipelineService.purgeGuard`). */
+const retentionSweep = new AsyncLocalStorage<true>();
 
 /**
  * Run a pipeline delete/purge and report how many plugin vulnerability
@@ -281,8 +285,8 @@ export class PipelineService extends CrudService<
    *   - the STEP MANIFEST kept counting as installs / verified use in cross-org
    *     plugin stats, and kept its image digests "referenced" for the `public/*`
    *     GC guard;
-   *   - the REGISTRY row (reachable only through a forced purge — see the purge
-   *     route) kept mapping a stack's events to a pipeline that no longer exists;
+   *   - the REGISTRY row (reachable only through a manual purge — forced, or
+   *     with an undeploy; see the purge route and `purgeGuard`) kept mapping a stack's events to a pipeline that no longer exists;
    *   - the RESOLUTION rows kept reporting steps of a pipeline nobody can open;
    *   - the STEP LOOKUPS and SECURITY REPORTS kept answering for it too.
    */
@@ -295,6 +299,26 @@ export class PipelineService extends CrudService<
     // both name the pipeline, so they go with it.
     await tx.delete(schema.pipelineStepLookup).where(inArray(schema.pipelineStepLookup.pipelineId, ids));
     await tx.delete(schema.pipelineSecurityReport).where(inArray(schema.pipelineSecurityReport.pipelineId, ids));
+  }
+
+  /**
+   * The retention sweep keeps a tombstone whose stack may still run: one with a
+   * registration (any org's), or with a deploy through a runner in flight. A
+   * manual purge of such a pipeline is the person's decision (an undeploy
+   * through the linked runner, or `?force=true` once the stack is gone, and
+   * never during a deploy — see the purge route); the sweep has nobody to make
+   * it, and purging would orphan the stack. Kept, it is retried every tick, and
+   * a deregistration or a manual purge releases it.
+   */
+  override async purgeExpired(now: Date, limit?: number): Promise<number> {
+    return retentionSweep.run(true, () => super.purgeExpired(now, limit));
+  }
+
+  protected override purgeGuard(): SQL | null {
+    if (!retentionSweep.getStore()) return null;
+    return sql`NOT EXISTS (SELECT 1 FROM ${schema.pipelineRegistry} WHERE ${schema.pipelineRegistry.pipelineId} = ${schema.pipeline.id})
+      AND NOT EXISTS (SELECT 1 FROM ${schema.pipelineRunRequest} WHERE ${schema.pipelineRunRequest.pipelineId} = ${schema.pipeline.id}
+        AND ${schema.pipelineRunRequest.action} = 'deploy' AND ${inArray(schema.pipelineRunRequest.status, [...ACTIVE_DEPLOY_STATUSES])})`;
   }
 
   /** Every exposure of a purged pipeline — declared and deployed — closes as `removed`. */

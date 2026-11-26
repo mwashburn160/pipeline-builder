@@ -48,7 +48,7 @@ export {
 // ---- cascade legs (shared shapes) ----
 export { CASCADE_LEG_AUTH, CascadeOrgParams, CascadeUserParams, OrgPurgeResponse, OrgPurgeWithRemainderResponse } from './cascade.js';
 // ---- pipeline / compliance / reporting ----
-export { PIPELINE_INTERNAL } from './pipeline.js';
+export { MAX_FIRST_EVENT_ORGS, MAX_FIRST_EVENT_PIPELINES, PIPELINE_INTERNAL } from './pipeline.js';
 export { COMPLIANCE_INTERNAL } from './compliance.js';
 export { REPORTING_INTERNAL, OWNER_LEFT_PAUSE_REASONS } from './reporting.js';
 export { OPS_CENTER_INTERNAL } from './ops-center.js';

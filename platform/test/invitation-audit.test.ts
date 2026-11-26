@@ -72,7 +72,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   ...Object.fromEntries(INV.map((k) => [k, k])),
 }));
 
-const { sendInvitation, acceptInvitation, revokeInvitation, resendInvitation } =
+const { sendInvitation, acceptInvitation, acceptInvitationViaOAuth, revokeInvitation, resendInvitation } =
   await import('../src/controllers/invitation.js');
 
 function makeRes() {
@@ -403,5 +403,26 @@ describe('invitation controller — the requireOrgMembership gate', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockSend).not.toHaveBeenCalled();
     expect(mockAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe('invitation controller — a token that is not a string', () => {
+  // The token is hashed with createHash().update(), which throws a TypeError for
+  // an object or array: that surfaced as a 500 instead of a refused request.
+  it.each([
+    ['an object', { $ne: null }],
+    ['an array', ['a', 'b']],
+    ['a number', 42],
+  ])('accept: %s is a 400 that never reaches the service', async (_label, token) => {
+    const res = makeRes();
+    await (acceptInvitation as any)({ user: ACTOR, headers: {}, body: { token } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockAccept).not.toHaveBeenCalled();
+  });
+
+  it('accept-oauth: an object token is a 400', async () => {
+    const res = makeRes();
+    await (acceptInvitationViaOAuth as any)({ headers: {}, body: { token: { $gt: '' }, oauthProvider: 'google', code: 'c', state: 's' } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
   });
 });

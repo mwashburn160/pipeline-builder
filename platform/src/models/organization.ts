@@ -221,11 +221,13 @@ export interface OrganizationData {
   kmsVerifyDueAt?: Date;
   /**
    * The config the org's runner signing keys (pipeline Postgres) were wrapped
-   * under before a KMS config change whose re-wrap of them FAILED — the only
-   * durable copy of it once that request ends. Both fields absent = the shared
-   * provider. `POST .../kms-config/runner-keys/reencrypt` retries the re-wrap
-   * with it and clears it on success. While it is set, a further PUT/DELETE of
-   * the config is refused (409): one marker can name only one outgoing config.
+   * under before a KMS config change — the only durable copy of it once the
+   * config is saved. Written by the change's save itself and cleared when its
+   * re-wrap succeeds, so it outlives a failed re-wrap or a crash mid-request.
+   * Both fields absent = the shared provider. `POST .../kms-config/runner-keys/reencrypt`
+   * retries the re-wrap with it and clears it on success. While it is set, a
+   * further PUT/DELETE of the config is refused (409): one marker can name only
+   * one outgoing config.
    */
   kmsRunnerRewrapFrom?: { keyId?: string; ciphertextBase64?: string; pendingSince: Date };
   /**
@@ -641,7 +643,7 @@ const organizationSchema = new Schema<OrganizationData>(
       default: undefined,
       index: { sparse: true },
     },
-    // Pending runner-signing-key re-wrap after a failed KMS change (see interface docs).
+    // Pending runner-signing-key re-wrap of a KMS change (see interface docs).
     kmsRunnerRewrapFrom: {
       type: new Schema({
         keyId: { type: String },

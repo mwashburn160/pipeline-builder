@@ -31,9 +31,9 @@ const REMEDIATION_AUTH = 'plugin service token (the remediation job, as SYSTEM_P
   + 'audited pipeline.plugin.upgraded with actor SYSTEM_PLUGIN_REMEDIATION.';
 
 /** Upper bound on pipelines per first-event registration (an ingest batch's cap). */
-const MAX_FIRST_EVENT_PIPELINES = 100;
+export const MAX_FIRST_EVENT_PIPELINES = 100;
 /** Upper bound on the ingest caller's org roll-up (its org plus descendant teams). */
-const MAX_FIRST_EVENT_ORGS = 1000;
+export const MAX_FIRST_EVENT_ORGS = 1000;
 
 const RemediationParams = z.object({ remediationId: z.string().uuid() });
 

@@ -15,6 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { defaultPipelineName, pipelineStackName } from '@pipeline-builder/api-core';
+import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { bootTenantDb, type TenantTestDb } from '@pipeline-builder/pipeline-data/testing';
 
 process.env.JWT_SECRET ||= 'registry-deploy-race-test-secret';
@@ -61,6 +62,15 @@ beforeAll(async () => { tdb = await bootTenantDb(); }, 120_000);
 afterAll(async () => { await tdb?.close(); });
 
 describe('registerDeployment — the one upsert the deploy path and first-event registration share', () => {
+  it('the registry list never answers the runner-link columns (the route joins the runner as `runner`)', async () => {
+    const [id, r] = [await pipeline(), await runner()];
+    await deployRegistration(id, r);
+    const { rows: listed } = await runWithTenantContext({ orgId: ORG, isSuperAdmin: false }, () => pipelineRegistryService.list(ORG, 100, 0));
+    const row = listed.find((x) => x.pipelineId === id)!;
+    expect(row).toBeDefined();
+    for (const k of ['runnerId', 'runnerLinkStatus', 'runnerLinkCheckedAt', 'runnerLinkDetail']) expect(row).not.toHaveProperty(k);
+  });
+
   it('inserts the row with the runner link when none exists, and is idempotent', async () => {
     const [id, r] = [await pipeline(), await runner()];
     await expect(deployRegistration(id, r)).resolves.toMatchObject({ inserted: true, linked: true });

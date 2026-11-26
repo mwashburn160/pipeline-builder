@@ -7,7 +7,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { deployedPipelineNames, pluginImageRepository, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
 import {
-  closePipelineExposures, drizzleListingSource, installModeFor, listingBlock, loadOrgInstallContext, pipelineRegistryRunnerLink, reconcilePipelineExposures, runWithTenantContext, schema, withTenantTx,
+  closePipelineExposures, drizzleListingSource, installModeFor, listingBlock, loadOrgInstallContext, reconcilePipelineExposures, runWithTenantContext, schema, withTenantTx,
   type ExposureStep, type ScanState,
 } from '@pipeline-builder/pipeline-data';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
@@ -91,6 +91,16 @@ export interface FirstEventRegistration {
 }
 
 type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
+
+/**
+ * A registry row as the registry routes answer it: every column but the
+ * runner-link ones (the list joins the linked runner as `runner`; the link's
+ * own state is the runner-link route's).
+ */
+function registryEntry<T extends Partial<typeof schema.pipelineRegistry.$inferSelect>>(row: T) {
+  const { runnerId: _r, runnerLinkStatus: _s, runnerLinkCheckedAt: _c, runnerLinkDetail: _d, ...entry } = row;
+  return entry;
+}
 
 /** What a manifest row records about a step's plugin. */
 interface ManifestPlugin {
@@ -277,7 +287,7 @@ class PipelineRegistryService {
         .offset(offset);
 
       const [countResult, rows] = await Promise.all([countQuery, rowsQuery]);
-      return { rows, total: countResult[0]?.count ?? 0 };
+      return { rows: rows.map(registryEntry), total: countResult[0]?.count ?? 0 };
     });
   }
 
@@ -360,7 +370,7 @@ class PipelineRegistryService {
       const replaced = steps ? await replaceStepManifest(tx, pipelineId, orgId, steps, listed) : undefined;
       deployed = replaced?.plugins;
       const manifestSteps = replaced?.count;
-      return { ...result, ...(manifestSteps !== undefined ? { manifestSteps } : {}), ...(pipelineDeleted ? { pipelineDeleted: true as const } : {}) };
+      return { ...(result ? registryEntry(result) : undefined), ...(manifestSteps !== undefined ? { manifestSteps } : {}), ...(pipelineDeleted ? { pipelineDeleted: true as const } : {}) };
     });
 
     // The DEPLOYED side of exposure tracking, after the manifest committed: open
@@ -448,7 +458,7 @@ class PipelineRegistryService {
       })
       .onConflictDoNothing({ target: schema.pipelineRegistry.pipelineId })
       .returning({ id: schema.pipelineRegistry.id });
-    const G = pipelineRegistryRunnerLink;
+    const G = schema.pipelineRegistry;
     if (input.runnerId) {
       const [linked] = await tx.update(G)
         .set({ runnerId: input.runnerId, runnerLinkStatus: 'linked', runnerLinkCheckedAt: now, runnerLinkDetail: null })
@@ -663,10 +673,10 @@ class PipelineRegistryService {
    * record of a deployment the platform has.
    */
   async deploymentOf(pipelineId: string): Promise<{ registryId: string; stackName: string | null; region: string | null; pipelineName: string; runnerId: string | null } | null> {
-    const G = pipelineRegistryRunnerLink;
+    const G = schema.pipelineRegistry;
     return runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx(async (tx) => {
       const [row] = await tx
-        .select({ registryId: G.id, stackName: sql<string | null>`stack_name`, region: G.region, pipelineName: G.pipelineName, runnerId: G.runnerId })
+        .select({ registryId: G.id, stackName: G.stackName, region: G.region, pipelineName: G.pipelineName, runnerId: G.runnerId })
         .from(G)
         .where(eq(G.pipelineId, pipelineId))
         .limit(1);

@@ -54,11 +54,8 @@ export interface RunnerReliabilityReport {
   window: { from: string; to: string };
   totals: RunOutcomeCounts & { failureRatePct: number | null };
   trend: RunRequestTrendPoint[];
-  /**
-   * Request → acceptance over accepted starts: exact (the runner's `accepted_at`)
-   * where recorded, else estimated from the execution's start. `n = nExact + nEstimated`.
-   */
-  latency: { n: number; nExact: number; nEstimated: number; medianSeconds: number | null; p90Seconds: number | null };
+  /** Request → `accepted_at` over accepted start requests; `n` is the sample. */
+  latency: { n: number; medianSeconds: number | null; p90Seconds: number | null };
   topFailureCodes: RunnerFailureCode[];
   runners: RunnerReliabilityRow[];
 }

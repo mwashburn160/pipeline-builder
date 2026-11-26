@@ -459,7 +459,15 @@ async function deploy(
       executionId: job.requestId,
       platformBaseUrl: job.platformBaseUrl,
       register: async ({ region }) => {
-        await enter('registering');
+        // cdk deploy has finished: the stack is deployed, and the session
+        // ending now (a 401) must not turn that into DEPLOY_CANCELLED.
+        try {
+          await enter('registering');
+        } catch (err) {
+          if (!(err instanceof JobFailure && err.code === 'DEPLOY_CANCELLED')) throw err;
+          printWarning('The platform ended this deploy after cdk deploy finished: the stack is deployed, the registry post is skipped');
+          return;
+        }
         const steps = await readStepManifest(assemblyDir);
         try {
           await session.registry({

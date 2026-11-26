@@ -13,8 +13,8 @@
  *    Off → nothing is queued or run, nothing published or rolled out, no notice
  *    sent; the routes answer `enabled: false`. Org settings stay editable.
  *  - severities: PLUGIN_REMEDIATION_SEVERITIES, a comma list of critical / high
- *    (default both; an invalid value warns once and falls back). KEV-listed
- *    findings are always targeted whatever this says.
+ *    (default critical; high is an explicit opt-in; an invalid value warns once
+ *    and falls back). KEV-listed findings are always targeted whatever this says.
  *  - concurrency / baseConcurrency: tenant remediations and the system-org
  *    shared-base pass running at once (fleet-wide, Redis semaphores).
  *  - maxPerOrgPerDay: remediations queued per org in any 24 h.

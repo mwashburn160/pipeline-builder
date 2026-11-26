@@ -232,6 +232,39 @@ describe('reconcileTemplateDrift (gauge derived from the cluster)', () => {
       throw notFound(path);
     });
     await expect(reconcileTemplateDrift('pb')).resolves.toEqual([]);
-    expect(mockSetGauge).not.toHaveBeenCalled();
+    expect(mockSetGauge).not.toHaveBeenCalledWith('pvc_autoexpand_template_drift', { namespace: 'gone', claim: 'data-rustfs-0' }, expect.anything());
+    expect(mockSetGauge).not.toHaveBeenCalledWith('pvc_autoexpand_template_drift', { namespace: 'pb', claim: 'data-rustfs-0' }, expect.anything());
+  });
+
+  it('zeroes a series it published once the claim or its StatefulSet is gone (a 404 is not drift)', async () => {
+    cluster({ '/statefulsets/redis': sts(1, 'data', '20Gi'), '/persistentvolumeclaims/data-redis-0': pvc({ storage: '30Gi' }) });
+    await reconcileTemplateDrift('gone');
+    expect(mockSetGauge).toHaveBeenCalledWith('pvc_autoexpand_template_drift', { namespace: 'gone', claim: 'data-redis-0' }, 1);
+    mockSetGauge.mockReset();
+    cluster({});
+    await reconcileTemplateDrift('gone');
+    expect(mockSetGauge).toHaveBeenCalledWith('pvc_autoexpand_template_drift', { namespace: 'gone', claim: 'data-redis-0' }, 0);
+  });
+
+  it('still checks a published claim after its StatefulSet scaled below its ordinal', async () => {
+    cluster({ '/statefulsets/redis': sts(2, 'data', '20Gi'), '/persistentvolumeclaims/data-redis-1': pvc({ storage: '30Gi' }) });
+    await reconcileTemplateDrift('scaled');
+    mockSetGauge.mockReset();
+    cluster({ '/statefulsets/redis': sts(1, 'data', '20Gi'), '/persistentvolumeclaims/data-redis-1': pvc({ storage: '30Gi' }) });
+    const r = await reconcileTemplateDrift('scaled');
+    expect(r).toEqual([expect.objectContaining({ claim: 'data-redis-1', drift: true })]);
+    expect(mockSetGauge).not.toHaveBeenCalledWith('pvc_autoexpand_template_drift', { namespace: 'scaled', claim: 'data-redis-1' }, 0);
+  });
+
+  it('keeps a published series when its StatefulSet is unreadable this sweep', async () => {
+    cluster({ '/statefulsets/redis': sts(1, 'data', '20Gi'), '/persistentvolumeclaims/data-redis-0': pvc({ storage: '30Gi' }) });
+    await reconcileTemplateDrift('flaky');
+    mockSetGauge.mockReset();
+    k8s.mockImplementation(async (path: string) => {
+      if (path.endsWith('/statefulsets/redis')) throw new Error(`k8s GET ${path} -> 403 forbidden`);
+      throw notFound(path);
+    });
+    await reconcileTemplateDrift('flaky');
+    expect(mockSetGauge).not.toHaveBeenCalledWith('pvc_autoexpand_template_drift', { namespace: 'flaky', claim: 'data-redis-0' }, expect.anything());
   });
 });

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/release-notes.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cc9323a91f6002c46686bd3006106d6f70a9002bf313c78934fd18a9ef4cd858
+// SOURCE-SHA256: 9829febd956d34304a7338a38f4e6ded7c2c75e20858959f46c590746dca22f8
 // SPDX-License-Identifier: Apache-2.0
 import { Megaphone } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -144,7 +144,7 @@ export const releaseNotesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "PLUGIN_REMEDIATION_ENABLED (default true; only false, in any case, turns it off) and PLUGIN_REMEDIATION_SEVERITIES (default critical,high; KEV findings are always targeted) control the feature for the whole instance. The new plugin-sources bucket is created by rustfs-init on every target and belongs in your backups. See Environment Variables."
+          "content": "PLUGIN_REMEDIATION_ENABLED (default true; only false, in any case, turns it off) and PLUGIN_REMEDIATION_SEVERITIES (default critical, set critical,high to also target Highs; KEV findings are always targeted) control the feature for the whole instance. The new plugin-sources bucket is created by rustfs-init on every target and belongs in your backups. See Environment Variables."
         }
       ]
     },

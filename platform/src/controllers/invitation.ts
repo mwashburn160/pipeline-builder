@@ -240,8 +240,9 @@ async function seatLimitReason(orgId: string): Promise<string> {
 
 /** POST /invitation/accept — accept invitation as the logged-in user. */
 export const acceptInvitation = withController('Accept invitation', async (req, res) => {
-  const { token } = req.body;
-  if (!token) return sendError(res, 400, 'Invitation token is required');
+  const { token } = req.body ?? {};
+  // A string or nothing: the token is hashed, and a JSON object/array there throws (500).
+  if (typeof token !== 'string' || !token) return sendError(res, 400, 'Invitation token is required');
   if (!req.user) return sendError(res, 401, 'You must be logged in to accept an invitation');
 
   // Client-asserted: the service honours it only when the account holds a
@@ -291,7 +292,7 @@ export const acceptInvitation = withController('Accept invitation', async (req, 
  *  the invitee's email to an attacker-chosen account (org/account takeover). */
 export const acceptInvitationViaOAuth = withController('Accept invitation via OAuth', async (req, res) => {
   const { token, oauthProvider, code, state } = req.body ?? {};
-  if (!token) return sendError(res, 400, 'Invitation token is required');
+  if (typeof token !== 'string' || !token) return sendError(res, 400, 'Invitation token is required');
   // Any wired provider: an invitation may restrict acceptance to any of them
   // (`allowedOAuthProviders`), and a google-only check here left an invitation
   // restricted to another provider with no path for a NEW invitee to accept it.

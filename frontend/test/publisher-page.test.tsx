@@ -309,6 +309,15 @@ describe('Publisher page — publish and requests', () => {
     expect(screen.getByRole('link', { name: /open your notices/i })).toHaveAttribute('href', '/dashboard/messages');
   });
 
+  it('the Fix requests tab does not promise High findings (CVE fixes target Critical by default)', async () => {
+    routerQuery = { tab: 'fixes' };
+    render(<PublisherPage />);
+    await screen.findByTestId('fix-requests-notice');
+    expect(screen.queryByText(/Fixable Critical and High findings/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Critical by default/)).toBeInTheDocument();
+    expect(screen.getByText(/known exploited/)).toBeInTheDocument();
+  });
+
   it('the Advisories tab asks for plugins:read rather than failing on it', async () => {
     routerQuery = { tab: 'advisories' };
     mockAuthGuard({ can: (p) => p === 'publishers:manage' });

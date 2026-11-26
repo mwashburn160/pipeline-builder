@@ -317,7 +317,7 @@ export async function pollDeploys(deps: RunnerDeps, now: number): Promise<Deploy
  * build a person cancelled is `cancelled`; any other failure carries the job's
  * result code, else DEPLOY_JOB_ERROR (CodeBuild's own timeout: DEPLOY_TIMED_OUT).
  */
-export function finalStatusOf(
+function finalStatusOf(
   request: Pick<RunRequestRow, 'action'>, deploy: Pick<RunnerDeployRow, 'cancelRequestedAt' | 'resultCode'>, v: Extract<ReplyVerdict, { kind: 'success' }>,
 ): { status: TerminalRunRequestStatus; errorCode?: DeployErrorCode } | null {
   const reported = v.resultCode ?? (deploy.resultCode as DeployErrorCode | null) ?? null;

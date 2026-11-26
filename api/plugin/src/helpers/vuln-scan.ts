@@ -21,13 +21,13 @@
  * {@link refreshVulnDb} runs `grype db update` serialized in-process — before a
  * build scan at most every `PLUGIN_GRYPE_DB_UPDATE_INTERVAL_MS`, and forced at
  * the start of every nightly rescan. `PLUGIN_GRYPE_DB_AUTO_UPDATE=false` hands
- * the DB to the operator (air-gapped installs, and EKS, where a CronJob
- * refreshes one shared copy).
+ * the DB to the operator (air-gapped installs, where an operator job refreshes
+ * it).
  *
  * DB AGE is checked independently of who refreshes it ({@link vulnDbBuiltAt},
  * `PLUGIN_VULN_DB_MAX_AGE_HOURS`). grype's own limit is five days, far too long
  * to stamp "scanned today" on a result — and with auto-update off nothing in
- * this process ever looked at the DB at all, so an operator CronJob that had
+ * this process ever looked at the DB at all, so an operator job that had
  * quietly stopped left every scan matching against an ever-older DB while
  * reporting fresh `scannedAt`s. The DB's build time is exported as a gauge, the
  * nightly rescan refuses to run on a DB past the limit, and a build streams a
@@ -124,7 +124,7 @@ const envMs = (name: string, def: number): number => envInt(name, def, { min: 1 
 const SCAN_TIMEOUT_MS = envMs('PLUGIN_VULN_SCAN_TIMEOUT_MS', 300_000);
 const DB_UPDATE_TIMEOUT_MS = envMs('PLUGIN_GRYPE_DB_UPDATE_TIMEOUT_MS', 600_000);
 const DB_UPDATE_INTERVAL_MS = envMs('PLUGIN_GRYPE_DB_UPDATE_INTERVAL_MS', 3_600_000);
-/** `grype db status` only reads the DB's metadata file. */
+/** The fallback `grype db status` (it reads the whole DB — see builtAtFromMetadata). */
 const DB_STATUS_TIMEOUT_MS = 30_000;
 
 function dbAutoUpdate(): boolean {
@@ -226,7 +226,10 @@ function builtAtFromMetadata(): Date | null {
       const row = db.prepare('SELECT build_timestamp FROM db_metadata LIMIT 1').get() as { build_timestamp?: unknown } | undefined;
       if (typeof row?.build_timestamp !== 'string') return null;
       // `2026-11-25 06:22:21+00:00` — SQLite's datetime text; ISO with a T.
-      const built = new Date(row.build_timestamp.replace(' ', 'T'));
+      // Without an offset it is UTC (SQLite's own convention); `Date` would
+      // read it in the process's local zone.
+      const iso = row.build_timestamp.trim().replace(' ', 'T');
+      const built = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : `${iso}Z`);
       return Number.isNaN(built.getTime()) ? null : built;
     } finally {
       db.close();

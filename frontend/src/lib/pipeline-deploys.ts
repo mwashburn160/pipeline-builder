@@ -275,7 +275,7 @@ export const STACK_RETAINED_REASON_COPY: Readonly<Record<StackRetainedReason | '
   runner_not_deploy_capable: 'Its runner cannot remove it (deploys are not enabled on it)',
   toolchain_too_old: 'Its toolchain is too old for the runner\'s undeploy job',
   no_stack: 'The platform has no stack name and region recorded for it',
-  undeploy_not_queued: 'Its runner was due to delete it, but that removal could not be queued when the pipeline was purged — the stack is still deployed',
+  undeploy_not_queued: 'Its runner was due to delete it, but that removal could not be queued when the pipeline was purged',
 };
 
 const REMOVE_IT = 'remove it with cdk destroy or in the CloudFormation console';
@@ -354,4 +354,24 @@ export function purgeDeployInProgressCopy(code: string | undefined, details: Rec
     text: 'Not purged: this pipeline is being deployed through a pipeline runner right now. Cancel the deploy (or wait for it to finish), then purge it again.',
     requestId: details.requestId,
   };
+}
+
+/**
+ * A pipeline tombstone past its purge date. The retention sweep keeps one that is
+ * still registered as deployed (`deployment` set), or that has a deploy through a
+ * runner in flight (`deployment` null), until it is purged by hand. Null while the
+ * date is still ahead (or unknown), when the date itself is what to show.
+ */
+export function keptPastPurgeCopy(
+  deployment: { stackRemovedOnPurge: boolean } | null | undefined,
+  purgeAfter: string | null | undefined,
+  now: number = Date.now(),
+): string | null {
+  const due = purgeAfter ? Date.parse(purgeAfter) : NaN;
+  if (!Number.isFinite(due) || due > now) return null;
+  if (deployment === null) return 'Kept: a deploy through a runner is in flight. Purge it once the deploy has finished.';
+  if (deployment === undefined) return 'Kept past its purge date: it may still be deployed. Purge it by hand.';
+  return deployment.stackRemovedOnPurge
+    ? 'Kept: still deployed. Purge it to remove the stack.'
+    : 'Kept: still deployed. Remove its stack and deregister it, then purge it.';
 }

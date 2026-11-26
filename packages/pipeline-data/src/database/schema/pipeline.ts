@@ -5,6 +5,7 @@ import {
   SYSTEM_ORG_ID, type Criticality, type PipelineRemediationElection, type EntityLabels, type EntityLink, type Lifecycle, type MetaDataType,
   type OwnerType, type Visibility,
 } from '@pipeline-builder/api-core';
+import type { RunnerLinkDetail, RunnerLinkStatus } from '@pipeline-builder/api-core/pipeline-runners';
 import { sql } from 'drizzle-orm';
 import { bigint, boolean, check, integer, varchar, pgTable, text, timestamp, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { jsonb } from './jsonb.js';
@@ -192,7 +193,7 @@ export const pipelineRegistry = pgTable('pipeline_registry', {
   // against this id, so it IS the event join key (replacing the masked ARN —
   // it carries no AWS account/region, so no masking is needed). Unique: one
   // registry row per pipeline + the upsert key for (re)registration.
-  pipelineId: uuid('pipeline_id').notNull().unique(),
+  pipelineId: uuid('pipeline_id').notNull(),
   orgId: varchar('org_id', { length: 255 }).notNull(),
   pipelineName: varchar('pipeline_name', { length: 255 }).notNull(),
   region: varchar('region', { length: 30 }),
@@ -200,11 +201,18 @@ export const pipelineRegistry = pgTable('pipeline_registry', {
   organization: varchar('organization', { length: 255 }),
   lastDeployed: timestamp('last_deployed', { withTimezone: true }),
   stackName: varchar('stack_name', { length: 255 }),
-  // `runner_id` (the cross-account runner link) is deliberately NOT mapped
-  // here: every query over this table object selects its mapped columns, and a
-  // database created before runners has no such column. It is reached only
-  // through `pipelineRegistryRunnerLink` (schema/runner.ts), and only when the
-  // deployment has a runner signing key.
+  // The cross-account runner link:
+  //  - `runner_id` — the runner that starts/stops the pipeline. Set by a single
+  //    match (discovery, rediscovery, the background probe at registration, or
+  //    Find runner again) or a verified run; cleared when the runner is revoked
+  //    or answers that the pipeline's identity tag is missing/mismatched.
+  //  - `runner_link_status` / `runner_link_checked_at` / `runner_link_detail` —
+  //    the last probe's outcome, written by every probe. The detail carries
+  //    runner LABELS only, never an account id or a URL.
+  runnerId: uuid('runner_id'),
+  runnerLinkStatus: varchar('runner_link_status', { length: 16 }).$type<RunnerLinkStatus>().notNull().default('unlinked'),
+  runnerLinkCheckedAt: timestamp('runner_link_checked_at', { withTimezone: true }),
+  runnerLinkDetail: jsonb('runner_link_detail').$type<RunnerLinkDetail>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({

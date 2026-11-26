@@ -122,11 +122,13 @@ async function restoreKmsConfig(
     // The restore is a config change too: a replica that picked up the briefly
     // saved `next` keeps it for a full cache TTL from now, so the verification
     // is re-stamped from the restore rather than left due from the save.
+    // The runner keys were never touched, so the save's pending re-wrap marker
+    // goes with it.
     const restored = await Organization.updateOne(
       { _id: org._id, ...kmsConfigMatch(next) },
       previous
-        ? { $set: { kmsConfig: { keyId: previous.keyId, ciphertextBase64: previous.ciphertextBase64 }, ...kmsVerifySchedule() } }
-        : { $unset: { kmsConfig: 1 }, $set: kmsVerifySchedule() },
+        ? { $set: { kmsConfig: { keyId: previous.keyId, ciphertextBase64: previous.ciphertextBase64 }, ...kmsVerifySchedule() }, $unset: { kmsRunnerRewrapFrom: 1 } }
+        : { $unset: { kmsConfig: 1, kmsRunnerRewrapFrom: 1 }, $set: kmsVerifySchedule() },
     );
     if (restored.matchedCount === 0) {
       logger.error('KMS config restore skipped: the config changed again since this request saved it', { orgId });
@@ -144,26 +146,26 @@ async function restoreKmsConfig(
 const RUNNER_RETRY_HINT = 'retry with POST /api/admin/orgs/:orgId/kms-config/runner-keys/reencrypt '
   + '(it re-wraps with the outgoing config, recorded on the org).';
 
+/** The `kmsRunnerRewrapFrom` marker a change saves with its new config: the
+ *  outgoing config (none = the shared provider), the only durable copy of it. */
+function runnerRewrapMarker(previous: ProposedKmsConfig | null): NonNullable<OrganizationDocument['kmsRunnerRewrapFrom']> {
+  return { ...(previous ? { keyId: previous.keyId, ciphertextBase64: previous.ciphertextBase64 } : {}), pendingSince: new Date() };
+}
+
 /**
- * Keep the outgoing config past this request when the runner-key re-wrap
- * failed: once the new config is saved it survives nowhere else, and the rows
- * still wrapped under it can only be read with it. A change is refused while a
- * marker is pending (see {@link changeKmsConfig}), so at most one config is
- * ever outstanding; the `$exists` guard only keeps a marker from being
- * overwritten. Never throws: the change itself is already committed.
+ * Clear the marker this change's save wrote, once its runner-key re-wrap
+ * succeeded — conditionally on that marker, so a retry's own clear is never
+ * repeated over something newer. Never throws: the change is committed, and a
+ * marker left behind only means the (idempotent) retry route must be run.
  */
-async function recordRunnerRewrapFailure(
-  orgId: string,
-  org: OrganizationDocument,
-  previous: ProposedKmsConfig | null,
-): Promise<void> {
+async function clearRunnerRewrapMarker(orgId: string, org: OrganizationDocument, pendingSince: Date): Promise<void> {
   try {
     await Organization.updateOne(
-      { _id: org._id, kmsRunnerRewrapFrom: { $exists: false } },
-      { $set: { kmsRunnerRewrapFrom: { ...(previous ? { keyId: previous.keyId, ciphertextBase64: previous.ciphertextBase64 } : {}), pendingSince: new Date() } } },
+      { '_id': org._id, 'kmsRunnerRewrapFrom.pendingSince': pendingSince },
+      { $unset: { kmsRunnerRewrapFrom: 1 } },
     );
   } catch (err) {
-    logger.error('Could not record the failed runner-key re-wrap', { orgId, error: errorMessage(err) });
+    logger.error('Could not clear the runner-key re-wrap marker after a successful re-wrap', { orgId, error: errorMessage(err) });
   }
 }
 
@@ -200,11 +202,12 @@ type KmsConfigChange = keyof typeof KMS_CONFIG_CHANGES;
  * `?reencrypt=false` skips phases 1 and 3 only (the platform Mongo secrets):
  * use it only when the org has no stored platform secrets yet, or to push past
  * an unreadable row — those secrets become unreadable. Phase 4 always runs:
- * the runner keys are independent of the Mongo capture, and once the config is
- * saved the previous one survives only in this request. A runner-key failure
- * is reported (500, audited), never swallowed: the config is saved by then, so
- * the outgoing config is recorded on the org (`kmsRunnerRewrapFrom`) for the
- * retry route, and further changes are refused (409) until that retry succeeds.
+ * the runner keys are independent of the Mongo capture. The save records the
+ * outgoing config on the org (`kmsRunnerRewrapFrom`) in the same write, so it
+ * survives a failed re-wrap or a crash mid-request, and every further change
+ * is refused (409) until the re-wrap — this request's, or the retry route's —
+ * succeeds and clears it. A runner-key failure is reported (500, audited),
+ * never swallowed.
  */
 async function changeKmsConfig(
   req: Request,
@@ -216,14 +219,13 @@ async function changeKmsConfig(
 ): Promise<void> {
   const { action, verb, done } = KMS_CONFIG_CHANGES[change];
 
-  // A pending runner-key re-wrap (an earlier change's failed one) must finish
-  // first: the marker records ONE outgoing config, so a second change whose
-  // own re-wrap failed would strand the rows still under the config it
-  // replaces — nothing could name it again.
+  // A pending runner-key re-wrap (an earlier change's, in flight or failed)
+  // must finish first: the marker records ONE outgoing config, so a second
+  // change would leave rows under two configs with only one of them named.
   if (org.kmsRunnerRewrapFrom) {
     return void sendError(
       res, 409,
-      `Cannot ${verb} KMS config: an earlier change's runner signing key re-wrap is still pending. Finish it first: ${RUNNER_RETRY_HINT}`,
+      `Cannot ${verb} KMS config: an earlier change's runner signing key re-wrap is still in progress or failed. Wait for it, or finish it: ${RUNNER_RETRY_HINT}`,
       ErrorCode.CONFLICT,
     );
   }
@@ -254,15 +256,17 @@ async function changeKmsConfig(
   // here — before it re-encrypts anything — instead of re-wrapping secrets it
   // captured under a config that is no longer the org's.
   const previousKmsConfig = activeKmsConfig(org.kmsConfig);
+  const marker = runnerRewrapMarker(previousKmsConfig);
   const saved = await Organization.updateOne(
-    // No re-wrap pending (see above): a failure recorded since the read refuses the save too.
+    // No re-wrap pending (see above): a change saved since the read refuses this one too.
     { _id: org._id, kmsRunnerRewrapFrom: { $exists: false }, ...kmsConfigMatch(previousKmsConfig) },
-    // The verification of every org secret under the new config, due once all
-    // replicas' per-org key caches have lapsed, is scheduled in this same write:
-    // durable, and a later change's save supersedes it.
+    // Scheduled in this same write, so both are durable from the moment the
+    // config changes: the verification of every org secret under the new
+    // config (due once all replicas' per-org key caches have lapsed), and the
+    // outgoing config the runner keys must still be re-wrapped from.
     next
-      ? { $set: { kmsConfig: { keyId: next.keyId, ciphertextBase64: next.ciphertextBase64 }, ...kmsVerifySchedule() } }
-      : { $unset: { kmsConfig: 1 }, $set: kmsVerifySchedule() },
+      ? { $set: { kmsConfig: { keyId: next.keyId, ciphertextBase64: next.ciphertextBase64 }, ...kmsVerifySchedule(), kmsRunnerRewrapFrom: marker } }
+      : { $unset: { kmsConfig: 1 }, $set: { ...kmsVerifySchedule(), kmsRunnerRewrapFrom: marker } },
   );
   if (saved.matchedCount === 0) {
     logger.warn(`KMS config ${verb} refused: the config changed since this request read it`, { orgId });
@@ -308,9 +312,11 @@ async function changeKmsConfig(
   }
 
   const runnerKeys = await reencryptRunnerSigningKeys({ orgId, previousKmsConfig });
-  if (!runnerKeys.ok) {
+  if (runnerKeys.ok) {
+    await clearRunnerRewrapMarker(orgId, org, marker.pendingSince);
+  } else {
+    // The marker the save wrote stays: the retry route re-wraps from it.
     logger.error(`KMS config ${verb}: runner signing key re-encryption failed after config change`, { orgId, error: runnerKeys.error });
-    await recordRunnerRewrapFailure(orgId, org, previousKmsConfig);
   }
 
   audit(req, action, {
@@ -482,10 +488,6 @@ export const retryRunnerKeyReencrypt = withController('Retry runner key re-encry
     logger.error('Runner signing key re-wrap retry failed', { orgId, error: runnerKeys.error });
     return sendError(res, 500, `${runnerKeys.error}. The outgoing config is still recorded; retry once the cause is fixed.`);
   }
-  // Conditional on the marker this retry read, so a newer failure's marker survives.
-  await Organization.updateOne(
-    { '_id': org._id, 'kmsRunnerRewrapFrom.pendingSince': pending.pendingSince },
-    { $unset: { kmsRunnerRewrapFrom: 1 } },
-  );
+  await clearRunnerRewrapMarker(orgId, org, pending.pendingSince);
   sendSuccess(res, 200, runnerKeyDetails(runnerKeys));
 });

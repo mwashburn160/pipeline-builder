@@ -22,7 +22,7 @@ import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals
 import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { DEPLOY_SETUP_COMMAND } from '@pipeline-builder/api-core/pipeline-runners';
-import { ApiError } from '../src/lib/api/errors';
+import { ApiError, StepUpRequiredError } from '../src/lib/api/errors';
 import { PIPELINE_RUNNERS_HREF } from '../src/lib/pipeline-runners';
 import { DEPLOY_ERROR_COPY } from '../src/lib/pipeline-deploys';
 
@@ -315,5 +315,82 @@ describe('round 7 regressions', () => {
     fireEvent.click(within(screen.getByTestId('stepup-modal')).getByText('Confirm step-up'));
     await act(async () => { await jest.advanceTimersByTimeAsync(10); });
     expect(screen.getByTestId('deploy-progress')).not.toHaveTextContent(/Could not cancel/);
+  });
+});
+
+describe('round 8 regressions', () => {
+  it('a Retry refused with DEPLOY_IN_PROGRESS stops showing the old failure (and its Retry) while the running deploy loads', async () => {
+    jest.useFakeTimers();
+    api.getDeployTargets.mockResolvedValue(targets([runner()]));
+    api.getLatestPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'failed', errorCode: 'DEPLOY_TIMED_OUT', failureClass: 'timeout', retryable: true }) });
+    api.startPipelineDeploy.mockRejectedValueOnce(new ApiError('busy', 409, 'DEPLOY_IN_PROGRESS', { requestId: 'd9' }));
+    api.getPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ requestId: 'd9', status: 'deploying', stage: 'deploying' }) });
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    fireEvent.click(screen.getByRole('button', { name: /^Retry/ }));
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByText('Confirm step-up'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    expect(screen.queryByTestId('deploy-failure')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Retry/ })).not.toBeInTheDocument();
+    await act(async () => { await jest.advanceTimersByTimeAsync(2500); });
+    expect(screen.getByTestId('deploy-progress')).toBeInTheDocument();
+  });
+
+  it('a followed deploy whose first read is refused says so (it is not shown as the runner choice)', async () => {
+    jest.useFakeTimers();
+    api.getDeployTargets.mockResolvedValue(targets([runner()]));
+    api.startPipelineDeploy.mockRejectedValueOnce(new ApiError('busy', 409, 'DEPLOY_IN_PROGRESS', { requestId: 'd9' }));
+    api.getPipelineDeploy.mockRejectedValue(new ApiError('Deploy not found.', 404, 'NOT_FOUND'));
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy to prod (us-east-1)' }));
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByText('Confirm step-up'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(2500); });
+    expect(screen.getByTestId('deploy-pipeline-panel')).toHaveTextContent(/Could not read this deploy's progress: Deploy not found\./);
+  });
+
+  it('an accepted cancel shows its answer at once, and a running deploy says the cancel was requested', async () => {
+    jest.useFakeTimers();
+    api.getDeployTargets.mockResolvedValue(targets([runner()]));
+    api.getLatestPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'deploying', stage: 'deploying' }) });
+    api.getPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'deploying', stage: 'deploying' }) });
+    api.cancelPipelineDeploy.mockResolvedValueOnce({ success: true, data: deploy({ status: 'deploying', stage: 'deploying' }) });
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    fireEvent.click(screen.getByRole('button', { name: /Cancel deploy/ }));
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    expect(screen.getByTestId('deploy-progress')).toHaveTextContent(/Cancel requested/);
+    expect(screen.getByRole('button', { name: /Cancel deploy/ })).toBeDisabled();
+
+  });
+
+  it('a queued deploy cancelled by the answer is shown cancelled without waiting for the next read', async () => {
+    jest.useFakeTimers();
+    api.getDeployTargets.mockResolvedValue(targets([runner()]));
+    api.getLatestPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'queued' }) });
+    api.getPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'queued' }) });
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    fireEvent.click(screen.getByRole('button', { name: /Cancel deploy/ }));
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    expect(screen.getByTestId('deploy-failure')).toBeInTheDocument();
+  });
+
+  it('a step-up replay of the start refused with DEPLOY_IN_PROGRESS follows the running deploy', async () => {
+    jest.useFakeTimers();
+    api.getDeployTargets.mockResolvedValue(targets([runner()]));
+    const refusal = new StepUpRequiredError('step up', 'STEP_UP_REQUIRED');
+    const replay = Promise.reject(new ApiError('busy', 409, 'DEPLOY_IN_PROGRESS', { requestId: 'd9' }));
+    replay.catch(() => undefined);
+    refusal.attachResume(replay);
+    api.startPipelineDeploy.mockRejectedValueOnce(refusal);
+    api.getPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ requestId: 'd9', status: 'deploying', stage: 'deploying' }) });
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy to prod (us-east-1)' }));
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByText('Confirm step-up'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(2500); });
+    expect(api.getPipelineDeploy).toHaveBeenCalledWith('p1', 'd9', expect.anything());
+    expect(screen.getByTestId('deploy-progress')).toBeInTheDocument();
   });
 });

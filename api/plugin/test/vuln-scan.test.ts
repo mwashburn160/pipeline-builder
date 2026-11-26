@@ -379,6 +379,18 @@ describe('vulnerability DB age', () => {
       expect(mockSetGauge).toHaveBeenCalledWith('plugin_vuln_db_built_timestamp_seconds', {}, Date.parse('2026-11-25T06:22:21Z') / 1000);
     });
 
+    it('reads an offset-less build_timestamp as UTC, whatever the process time zone', async () => {
+      const tz = process.env.TZ;
+      process.env.TZ = 'America/Chicago';
+      try {
+        writeDb('6', '2026-11-25 06:22:21.123456');
+        await expect(vs.vulnDbBuiltAt()).resolves.toEqual(new Date('2026-11-25T06:22:21.123Z'));
+        expect(mockRun).not.toHaveBeenCalled();
+      } finally {
+        if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz;
+      }
+    });
+
     it('never reads an in-flight download, and falls back to `grype db status` when no schema dir holds a DB', async () => {
       writeDb('grype-db-download123', '2099-01-01 00:00:00+00:00');
       mockRun.mockResolvedValue(status('2026-11-01T06:12:44Z'));

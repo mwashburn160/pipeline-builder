@@ -132,13 +132,10 @@ beforeAll(async () => {
     ));
   }
 
-  // ORG, through its own runner. Latencies: 30s, 90s, 60s (stop: no execution start).
-  await seedRequest({ status: 'started', requestedAt: '2026-09-02T10:00:00Z', resultExecutionId: 'ex-1' });
-  await seedExecutionStart(PIPE, ORG, 'ex-1', '2026-09-02T10:00:30Z');
-  await seedRequest({ status: 'started', requestedAt: '2026-09-03T10:00:00Z', resultExecutionId: 'ex-2' });
-  await seedExecutionStart(PIPE, ORG, 'ex-2', '2026-09-03T10:01:30Z');
-  await seedRequest({ status: 'started', requestedAt: '2026-09-04T10:00:00Z', resultExecutionId: 'ex-3' });
-  await seedExecutionStart(PIPE, ORG, 'ex-3', '2026-09-04T10:01:00Z');
+  // ORG, through its own runner. Latencies to acceptance: 30s, 90s, 60s (a stop is not in the sample).
+  await seedRequest({ status: 'started', requestedAt: '2026-09-02T10:00:00Z', acceptedAt: '2026-09-02T10:00:30Z', resultExecutionId: 'ex-1' });
+  await seedRequest({ status: 'started', requestedAt: '2026-09-03T10:00:00Z', acceptedAt: '2026-09-03T10:01:30Z', resultExecutionId: 'ex-2' });
+  await seedRequest({ status: 'started', requestedAt: '2026-09-04T10:00:00Z', acceptedAt: '2026-09-04T10:01:00Z', resultExecutionId: 'ex-3' });
   await seedRequest({ action: 'stop', status: 'stopped', requestedAt: '2026-09-04T11:00:00Z' });
   await seedRequest({ status: 'failed', errorCode: 'RUNNER_PERMISSION_DENIED', requestedAt: '2026-09-05T10:00:00Z' });
   await seedRequest({ status: 'failed', errorCode: 'PIPELINE_NOT_FOUND', requestedAt: '2026-09-05T11:00:00Z' });
@@ -182,9 +179,9 @@ describe('runner reliability', () => {
     });
   });
 
-  it('measures request → execution start as median and p90', async () => {
+  it('measures request → acceptance as median and p90', async () => {
     const r = await runners();
-    expect(r.latency).toEqual({ n: 3, nExact: 0, nEstimated: 3, medianSeconds: 60, p90Seconds: 84 });
+    expect(r.latency).toEqual({ n: 3, medianSeconds: 60, p90Seconds: 84 });
   });
 
   it('ranks failure codes, collapsing anything outside the catalog to OTHER', async () => {
@@ -283,11 +280,11 @@ describe('runner reliability', () => {
     const r = await runners({ orgId: 'org-nobody', from: FROM, to: TO });
     expect(r.totals.requests).toBe(0);
     expect(r.runners).toEqual([]);
-    expect(r.latency).toEqual({ n: 0, nExact: 0, nEstimated: 0, medianSeconds: null, p90Seconds: null });
+    expect(r.latency).toEqual({ n: 0, medianSeconds: null, p90Seconds: null });
   });
 });
 
-describe('runner latency: exact accepted_at, estimated fallback', () => {
+describe('runner latency: request → accepted_at', () => {
   const ACC = 'org-dlv-accepted';
   const PIPE_ACC = randomUUID();
   const R_ACC = randomUUID();
@@ -303,23 +300,21 @@ describe('runner latency: exact accepted_at, estimated fallback', () => {
        VALUES ($1, $2, 'acc-runner', $3, true, 'healthy', 'active')`, [R_ACC, ACC, SECRET_URL],
     ));
     const base = { org: ACC, pipelineId: PIPE_ACC, runnerId: R_ACC };
-    // accepted_at wins over the execution-start estimate (2 s exact, not 40 s).
+    // Measured to accepted_at, never to the execution's start (2 s, not 40 s).
     await seedRequest({ ...base, status: 'started', requestedAt: '2026-09-02T10:00:00Z', acceptedAt: '2026-09-02T10:00:02Z', resultExecutionId: 'acc-1' });
     await seedExecutionStart(PIPE_ACC, ACC, 'acc-1', '2026-09-02T10:00:40Z');
-    // accepted_at with no ingested execution: still measured, exactly.
+    // accepted_at with no ingested execution: still measured.
     await seedRequest({ ...base, status: 'started', requestedAt: '2026-09-03T10:00:00Z', acceptedAt: '2026-09-03T10:00:04Z', resultExecutionId: 'acc-2' });
-    // A row from before accepted_at existed: estimated from the execution start (20 s).
+    // No accepted_at (whatever the execution's start): not in the sample. A stop: not a start, never in the sample.
     await seedRequest({ ...base, status: 'started', requestedAt: '2026-09-04T10:00:00Z', resultExecutionId: 'acc-3' });
     await seedExecutionStart(PIPE_ACC, ACC, 'acc-3', '2026-09-04T10:00:20Z');
-    // Neither: not in the sample. A stop: not a start, never in the sample.
-    await seedRequest({ ...base, status: 'started', requestedAt: '2026-09-05T10:00:00Z', resultExecutionId: 'acc-none' });
     await seedRequest({ ...base, action: 'stop', status: 'stopped', requestedAt: '2026-09-05T11:00:00Z', acceptedAt: '2026-09-05T11:00:09Z' });
   });
 
-  it('measures request → accepted_at where present and falls back to the estimate, saying how many of each', async () => {
+  it('measures request → accepted_at only', async () => {
     const r = await runners(scope);
-    // Samples 2 (exact), 4 (exact), 20 (estimated): median 4, p90 4 + 0.8 × 16 = 16.8.
-    expect(r.latency).toEqual({ n: 3, nExact: 2, nEstimated: 1, medianSeconds: 4, p90Seconds: 17 });
+    // Samples 2 and 4: median 3, p90 2 + 0.9 × 2 = 3.8.
+    expect(r.latency).toEqual({ n: 2, medianSeconds: 3, p90Seconds: 4 });
   });
 });
 

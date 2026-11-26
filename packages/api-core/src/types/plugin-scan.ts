@@ -509,7 +509,9 @@ export function parseVulnWaiversVerbose(raw: string | undefined = process.env.PL
     if (plugin === WAIVE_ALL_PLUGINS && version !== null) { reject(entry, "'*' covers every plugin, so it cannot pin a version"); continue; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(expires)) { reject(entry, `expiry '${expires}' is not YYYY-MM-DD`); continue; }
     const when = new Date(`${expires}T23:59:59.999Z`);
-    if (Number.isNaN(when.getTime())) { reject(entry, `expiry '${expires}' is not a real date`); continue; }
+    // Date rolls an impossible day over (2026-02-31 → 2026-03-03), so a parsed
+    // date must also round-trip to the string the operator wrote.
+    if (Number.isNaN(when.getTime()) || when.toISOString().slice(0, 10) !== expires) { reject(entry, `expiry '${expires}' is not a real date`); continue; }
     const names = packages.split(',').map((n) => n.trim()).filter(Boolean);
     if (names.length === 0) { reject(entry, 'no package names'); continue; }
     if (plugin === WAIVE_ALL_PLUGINS) {

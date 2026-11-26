@@ -344,7 +344,7 @@ export const restoreOrganization = withController('Restore organization', async 
   // org never logs out the person who did it (they'd otherwise 401 → login screen).
   const restored = await organizationService.restore(id, req.user!.sub, isSystemAdmin(req));
   if (!restored) {
-    return sendError(res, 404, 'No organization pending deletion with this id (already purged or never deleted)');
+    return sendError(res, 404, 'No organization pending deletion with this id (past its restore deadline, already purged, or never deleted)');
   }
 
   logger.info(`Organization ${id} restored by ${req.user!.sub}`, { membersInvalidated: restored.membersInvalidated });

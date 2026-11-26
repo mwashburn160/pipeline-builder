@@ -46,6 +46,8 @@ let passkeys = 0;
 /** Runs once, just before the next non-upsert findOneAndUpdate (a claim) — to
  *  interleave a concurrent write between a read and its conditional claim. */
 let beforeNextClaim: (() => Promise<void>) | null = null;
+/** Runs once, just before the next upsert (an enrolment's write). */
+let beforeNextUpsert: (() => Promise<void>) | null = null;
 
 /** The filter shapes the service uses, and nothing else. */
 function findDoc(filter: Record<string, unknown>): { doc: TotpDoc; recoveryIndex: number } | null {
@@ -80,6 +82,8 @@ function applyUpdate(doc: TotpDoc, update: Record<string, unknown>, _recoveryInd
 function claim(f: Record<string, unknown>, update: Record<string, unknown>, opts: { upsert?: boolean } = {}): TotpDoc | null {
   let found = findDoc(f);
   if (!found && opts.upsert) {
+    // `userId` is a unique index: an upsert whose filter missed an existing row inserts a duplicate.
+    if (docs.some((d) => d.userId === String(f.userId))) throw Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
     const created: TotpDoc = {
       _id: new Types.ObjectId(),
       userId: String(f.userId),
@@ -128,6 +132,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
       update: Record<string, unknown>,
       opts: { upsert?: boolean } = {},
     ) => {
+      if (opts.upsert && beforeNextUpsert) {
+        const hook = beforeNextUpsert;
+        beforeNextUpsert = null;
+        const run = async () => { await hook(); return claim(f, update, opts); };
+        return { select: () => ({}), lean: run, then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => run().then(res, rej) } as never;
+      }
       if (!opts.upsert && beforeNextClaim) {
         const hook = beforeNextClaim;
         beforeNextClaim = null;
@@ -247,6 +257,16 @@ describe('enrolment', () => {
     await expect(totp.activate(USER, code)).rejects.toThrow(errors.TOTP_INVALID_CODE);
     // The new secret — which no code has confirmed — must not be live.
     expect(await hasActiveTotp(USER)).toBe(false);
+  });
+
+  it('refuses to re-enrol over an authenticator activated after its check (another tab confirmed meanwhile)', async () => {
+    const first = await totp.beginEnrolment(USER);
+    // Tab A confirms between tab B's "already active?" check and B's write.
+    beforeNextUpsert = async () => { await totp.activate(USER, totpCodeForStep(first.secret, timeStepAt())); };
+    await expect(totp.beginEnrolment(USER)).rejects.toThrow(errors.TOTP_ALREADY_ENROLLED);
+    // The confirmed authenticator keeps working: its secret was not replaced.
+    expect(await hasActiveTotp(USER)).toBe(true);
+    expect(await unwrapEncrypted(stored().secret, `user:${USER}`, 'totp.secret')).toBe(first.secret);
   });
 
   it('refuses to re-enrol over a working authenticator', async () => {

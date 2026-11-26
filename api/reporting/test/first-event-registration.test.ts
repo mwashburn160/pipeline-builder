@@ -83,4 +83,25 @@ describe('registerFirstEventPipelines', () => {
     const sizes = mockPost.mock.calls.map((c) => ((c as unknown[])[1] as { pipelines: unknown[] }).pipelines.length);
     expect(sizes).toEqual([100, 50]);
   });
+
+  it('splits a roll-up larger than the contract\'s org cap into several allow-lists, and registers across them', async () => {
+    // 1500 orgs: one call naming them all is a 400 (the contract takes 1000).
+    const orgs = Array.from({ length: 1500 }, (_, i) => i.toString(16).padStart(24, '0'));
+    const PID2 = '22222222-2222-4222-8222-222222222222';
+    const ownerOf: Record<string, string> = { [PID]: orgs[10], [PID2]: orgs[1200] };
+    mockPost.mockImplementation(async (_path: unknown, body: unknown) => {
+      const b = body as { allowedOrgIds: string[]; pipelines: Array<{ pipelineId: string }> };
+      if (b.allowedOrgIds.length > 1000) return { statusCode: 400, body: {} };
+      return { statusCode: 200, body: { data: { registered: b.pipelines.map((p) => p.pipelineId).filter((id) => b.allowedOrgIds.includes(ownerOf[id])) } } };
+    });
+    const out = await registerFirstEventPipelines([{ pipelineId: PID }, { pipelineId: PID2 }], orgs);
+    expect([...out].sort()).toEqual([PID, PID2]);
+    for (const c of mockPost.mock.calls) {
+      const b = (c as unknown[])[1] as { allowedOrgIds: string[]; pipelines: Array<{ pipelineId: string }> };
+      expect(b.allowedOrgIds.length).toBeLessThanOrEqual(1000);
+    }
+    // A pipeline the first allow-list registered is not offered again under the next.
+    const second = (mockPost.mock.calls[1] as unknown[])[1] as { pipelines: Array<{ pipelineId: string }> };
+    expect(second.pipelines.map((p) => p.pipelineId)).toEqual([PID2]);
+  });
 });

@@ -181,3 +181,35 @@ describe('RecentlyDeletedPanel — a purge refused while a runner deploy is in f
     expect(screen.getByRole('button', { name: /Cancel the deploy/ })).toBeInTheDocument();
   });
 });
+
+describe('RecentlyDeletedPanel — a pipeline tombstone the retention sweep keeps past its purge date', () => {
+  const PAST = '2026-01-01T00:00:00Z';
+  const FUTURE = '2999-06-15T12:00:00Z';
+  async function renderRow(deployment: unknown, purgeAfter: string) {
+    listDeletedPipelines.mockResolvedValue({ success: true, data: { pipelines: [{ ...row(deployment), purgeAfter }] } });
+    render(<RecentlyDeletedPanel resource="pipeline" />);
+    return screen.findByTestId('pipeline-purge-date-p1');
+  }
+
+  it('a still-deployed pipeline whose runner removes the stack says it is kept, not a past date', async () => {
+    const cell = await renderRow(DEPLOYED_CAPABLE, PAST);
+    expect(cell).toHaveTextContent('Kept: still deployed. Purge it to remove the stack.');
+    expect(cell).not.toHaveTextContent(/2026/);
+  });
+
+  it('a still-deployed pipeline no runner can remove says to remove the stack first', async () => {
+    const cell = await renderRow(DEPLOYED_KEPT, PAST);
+    expect(cell).toHaveTextContent(/Kept: still deployed\. Remove its stack/);
+  });
+
+  it('a never-registered pipeline kept past its date is held by a deploy in flight', async () => {
+    const cell = await renderRow(null, PAST);
+    expect(cell).toHaveTextContent(/Kept: a deploy through a runner is in flight/);
+  });
+
+  it('a purge date still ahead is shown as the date', async () => {
+    const cell = await renderRow(DEPLOYED_CAPABLE, FUTURE);
+    expect(cell).toHaveTextContent(/2999/);
+    expect(cell).not.toHaveTextContent(/Kept/);
+  });
+});

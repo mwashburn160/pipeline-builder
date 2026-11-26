@@ -17,7 +17,7 @@ import { useDeployRequestTracker } from '@/hooks/useDeployRequestTracker';
 import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import type { DeployRequestDto, DeployTargetsDto, QueuedDeployDto } from '@/lib/api/domains/pipelines';
-import { ApiError, MfaRequiredError } from '@/lib/api/errors';
+import { ApiError, MfaRequiredError, stepUpReplayFailed } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import {
   DEPLOY_SETUP_COMMAND, DEPLOY_STATUS_LABEL, DEPLOY_TARGET_REASON_COPY, deployFailureCopy, deployStageSteps,
@@ -123,6 +123,8 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
   const [picked, setPicked] = useState<string | null>(null);
   const [pickedRegion, setPickedRegion] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<DeployChoice | null>(null);
+  // The deploy a cancel was accepted for (a running one keeps running until its build stops).
+  const [cancelRequested, setCancelRequested] = useState<string | null>(null);
 
   const t = targets.data;
   const { deploy, follow } = tracker;
@@ -143,6 +145,14 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
   const selected: TargetRunner | null = deployable.find((r) => r.id === runnerId) ?? null;
   const region = selected ? (pickedRegion && selected.regions.includes(pickedRegion) ? pickedRegion : selected.regions[0] ?? null) : null;
 
+  // A refusal of the start that names the deploy already running: follow it instead. True when handled.
+  const followRunning = (e: unknown): boolean => {
+    if (!(e instanceof ApiError) || e.code !== 'DEPLOY_IN_PROGRESS' || typeof e.details?.requestId !== 'string') return false;
+    startDeploy.reset();
+    follow(e.details.requestId);
+    return true;
+  };
+
   const startDeploy = useMutation({
     fn: async (choice: DeployChoice, stepUpToken: string) => {
       const res = await api.startPipelineDeploy(pipelineId, { runnerId: choice.runnerId, region: choice.region }, stepUpToken);
@@ -157,14 +167,11 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
       if (queued) { cancelDeploy.reset(); tracker.track(queued, choice.runnerId); }
     },
     onError: (e) => {
-      // Another deploy of this pipeline is running: follow it instead.
-      if (e instanceof ApiError && e.code === 'DEPLOY_IN_PROGRESS' && typeof e.details?.requestId === 'string') {
-        startDeploy.reset();
-        follow(e.details.requestId);
-        return;
-      }
+      if (followRunning(e)) return;
       if (e instanceof ApiError && (e.code === 'DEPLOY_RUNNER_REQUIRED' || e.code === 'RUNNER_NOT_DEPLOYABLE')) void targets.refetch();
     },
+    // The global dialog toasts a failed replay; one that names the running deploy is followed too.
+    onStepUpAbandoned: (reason) => { if (stepUpReplayFailed(reason)) followRunning(reason); },
   });
   const startError = startDeploy.error || null;
 
@@ -176,6 +183,13 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
     },
     scopeKey: pipelineId,
     formatError: cancelErrorMessage,
+    // The answer is the deploy as it is now: a queued one is already cancelled, a running one
+    // stops once its build has. Show it at once rather than at the next read.
+    onSuccess: (d) => {
+      if (!d || typeof d.requestId !== 'string') return;
+      setCancelRequested(d.requestId);
+      follow(d.requestId, d);
+    },
   });
   const cancelError = cancelDeploy.error || null;
 
@@ -184,9 +198,11 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
   let body: ReactNode;
   if (targets.error && !t) {
     body = <RetryError message={formatError(targets.error, 'Could not load the pipeline runners that can deploy this pipeline')} onRetry={targets.refetch} />;
-  } else if (!t || !tracker.resumed) {
+  } else if (!t || !tracker.resumed || (!deploy && tracker.following)) {
+    // The latest deploy, or one the server named, is still being read.
     body = <LoadingSpinner size="sm" />;
   } else if (deploy && isActiveDeployStatus(deploy.status)) {
+    const cancelAccepted = cancelRequested === deploy.requestId;
     body = (
       <div className="space-y-3" data-testid="deploy-progress">
         <p className="text-sm text-fg flex items-center gap-2" role="status">
@@ -198,7 +214,8 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
           <Callout variant="warning">{lostMessage(tracker.lost)}</Callout>
         )}
         {cancelError && <Callout variant="danger">{cancelError}</Callout>}
-        <Button type="button" size="sm" variant="danger-outline" disabled={cancelDeploy.pending} onClick={() => void cancelDeploy.run(deploy)}>
+        {cancelAccepted && <p className="text-sm text-fg-muted" role="status">Cancel requested: the runner is stopping the build.</p>}
+        <Button type="button" size="sm" variant="danger-outline" disabled={cancelDeploy.pending || cancelAccepted} onClick={() => void cancelDeploy.run(deploy)}>
           Cancel deploy
         </Button>
       </div>
@@ -293,6 +310,8 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
   return (
     <div className={['space-y-2', className].filter(Boolean).join(' ')} data-testid="deploy-pipeline-panel">
       <h4 className="text-sm font-semibold text-fg">Deploy through a pipeline runner</h4>
+      {/* A followed deploy that could not be read even once: there is nothing else to show it on. */}
+      {!deploy && tracker.lost != null && <Callout variant="warning">{lostMessage(tracker.lost)}</Callout>}
       {body}
       {confirm && (
         <StepUpModal

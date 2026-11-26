@@ -8,8 +8,8 @@
  *
  * A remediation is one record per flagged plugin version (`plugin_remediations`)
  * that moves through {@link PLUGIN_REMEDIATION_STAGES}: Stage 1 rebuilds the
- * version on a freshly pulled base, Stage 2 upgrades the named Critical/High
- * libraries by package type, the fix is published as the next free patch (or
+ * version on a freshly pulled base, Stage 2 upgrades the libraries of the
+ * targeted findings ({@link isRemediationTarget}) by package type, the fix is published as the next free patch (or
  * minor) version, and Stage 3 moves pipelines onto it.
  *
  * Dependency-free apart from the semver and package-version-order modules, so the browser loads it through

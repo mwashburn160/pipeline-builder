@@ -91,7 +91,7 @@ describe('organizationService.restore', () => {
     const result = await organizationService.restore('org-acme', undefined, false);
 
     // Only soft-deleted orgs are targeted.
-    expect(mockOrgFindOne).toHaveBeenCalledWith({ _id: 'org-acme', deletedAt: { $ne: null } });
+    expect(mockOrgFindOne).toHaveBeenCalledWith({ _id: 'org-acme', deletedAt: { $ne: null }, purgeAfter: { $gt: expect.any(Date) } });
     // Tombstone cleared + saved.
     expect(doc.deletedAt).toBeNull();
     expect(doc.purgeAfter).toBeNull();
@@ -99,6 +99,18 @@ describe('organizationService.restore', () => {
     // Members re-invalidated so re-issued tokens see the org live again.
     expect(mockUserUpdateMany).toHaveBeenCalledWith({ _id: { $in: ['u1', 'u2'] } }, { $inc: { claimsVersion: 1 } });
     expect(result).toEqual({ id: 'org-acme', name: 'Acme', membersInvalidated: 2 });
+  });
+
+  it('an org past its purge deadline is not restorable (the purge sweep may already be tearing it down)', async () => {
+    // A stand-in for Mongo's match: the stored deadline has lapsed.
+    const doc: any = { _id: { toString: () => 'org-acme' }, name: 'Acme', deletedAt: new Date(), purgeAfter: new Date(Date.now() - 1000), save: jest.fn<AnyFn>() };
+    mockOrgFindOne.mockImplementation((filter: any) => ({
+      session: () => Promise.resolve(filter.purgeAfter?.$gt && doc.purgeAfter <= filter.purgeAfter.$gt ? null : doc),
+    }));
+    const result = await organizationService.restore('org-acme', undefined, true);
+    expect(result).toBeNull();
+    expect(doc.save).not.toHaveBeenCalled();
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
   });
 
   it('excludes the acting admin so restore never logs out the restorer', async () => {

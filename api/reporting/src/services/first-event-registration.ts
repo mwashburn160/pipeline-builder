@@ -18,6 +18,8 @@ import {
   errorMessage,
   getServiceAuthHeader,
   InternalHttpClient,
+  MAX_FIRST_EVENT_ORGS,
+  MAX_FIRST_EVENT_PIPELINES,
   PIPELINE_INTERNAL,
   serviceEndpoint,
   SYSTEM_ORG_ID,
@@ -42,11 +44,13 @@ function pipelineClient(): InternalHttpClient {
 }
 
 /**
- * Pipelines per call: the contract's cap (an ingest batch's default size).
- * `MAX_EVENTS_PER_BATCH` is tunable past it, and an over-long list is a 400 that
- * registers none of them, so a larger set goes in several calls.
+ * Pipelines and allowed orgs per call: the contract's own caps. An ingest
+ * batch (`MAX_EVENTS_PER_BATCH`) is tunable past the pipeline cap, and an
+ * over-long list is a 400 that registers none of them, so larger sets go in
+ * several calls.
  */
-const MAX_PIPELINES_PER_CALL = 100;
+const MAX_PIPELINES_PER_CALL = MAX_FIRST_EVENT_PIPELINES;
+const MAX_ORGS_PER_CALL = MAX_FIRST_EVENT_ORGS;
 
 /**
  * The candidates the pipeline service registered (or found already registered
@@ -56,11 +60,19 @@ const MAX_PIPELINES_PER_CALL = 100;
  */
 export async function registerFirstEventPipelines(candidates: FirstEventCandidate[], allowedOrgIds: readonly string[]): Promise<string[]> {
   if (candidates.length === 0 || allowedOrgIds.length === 0) return [];
-  const registered: string[] = [];
-  for (let i = 0; i < candidates.length; i += MAX_PIPELINES_PER_CALL) {
-    registered.push(...await registerChunk(candidates.slice(i, i + MAX_PIPELINES_PER_CALL), allowedOrgIds));
+  // The candidates' orgs are unknown here (they have no registry row yet), so a
+  // roll-up past the contract's org cap is offered as several allow-lists; a
+  // pipeline registered under one is not offered again under the next.
+  const registered = new Set<string>();
+  for (let o = 0; o < allowedOrgIds.length; o += MAX_ORGS_PER_CALL) {
+    const orgs = allowedOrgIds.slice(o, o + MAX_ORGS_PER_CALL);
+    const pending = candidates.filter((c) => !registered.has(c.pipelineId));
+    for (let i = 0; i < pending.length; i += MAX_PIPELINES_PER_CALL) {
+      for (const id of await registerChunk(pending.slice(i, i + MAX_PIPELINES_PER_CALL), orgs)) registered.add(id);
+    }
+    if (registered.size === candidates.length) break;
   }
-  return registered;
+  return [...registered];
 }
 
 async function registerChunk(candidates: FirstEventCandidate[], allowedOrgIds: readonly string[]): Promise<string[]> {

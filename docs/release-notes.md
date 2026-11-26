@@ -76,7 +76,7 @@ Until now the platform found and reported vulnerable plugin versions every night
 
 ### For operators
 
-`PLUGIN_REMEDIATION_ENABLED` (default `true`; only `false`, in any case, turns it off) and `PLUGIN_REMEDIATION_SEVERITIES` (default `critical,high`; KEV findings are always targeted) control the feature for the whole instance. The new `plugin-sources` bucket is created by rustfs-init on every target and belongs in your backups. See [Environment Variables](environment-variables.md).
+`PLUGIN_REMEDIATION_ENABLED` (default `true`; only `false`, in any case, turns it off) and `PLUGIN_REMEDIATION_SEVERITIES` (default `critical`, set `critical,high` to also target Highs; KEV findings are always targeted) control the feature for the whole instance. The new `plugin-sources` bucket is created by rustfs-init on every target and belongs in your backups. See [Environment Variables](environment-variables.md).
 
 ## November 2026: reporting accuracy
 

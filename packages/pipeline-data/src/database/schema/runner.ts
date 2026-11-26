@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type {
-  DeployStage, RunnerCapability, RunnerHealth, RunnerKeyMode, RunnerKeyRetiredReason, RunnerKeyState, RunnerKeyTransitionKind, RunnerLinkDetail, RunnerLinkStatus,
+  DeployStage, RunnerCapability, RunnerHealth, RunnerKeyMode, RunnerKeyRetiredReason, RunnerKeyState, RunnerKeyTransitionKind,
   RunnerPublicJwk, RunnerStatus, RunRequestAction, RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { sql } from 'drizzle-orm';
@@ -65,9 +65,9 @@ export const pipelineRunner = pgTable('pipeline_runners', {
 }));
 
 /**
- * One signed run request (start / stop / discovery probe) for a runner, from
- * the moment a user (or the system) asks until the runner answers or the
- * request expires. The row is the durable state; the `runner-dispatch` BullMQ
+ * One signed run request (start / stop / discovery probe / deploy / undeploy)
+ * for a runner, from the moment a user (or the system) asks until the runner
+ * answers or the request expires (a deploy / undeploy: until its job finishes). The row is the durable state; the `runner-dispatch` BullMQ
  * job (jobId = id) only drives push delivery.
  *
  * @table pipeline_run_requests
@@ -91,8 +91,7 @@ export const pipelineRunRequest = pgTable('pipeline_run_requests', {
   errorCode: varchar('error_code', { length: 64 }),
   /**
    * When the runner ACCEPTED a start/stop (the dispatcher's success verdict).
-   * Null until then and for any request never accepted; rows from before the
-   * column existed are null too, so readers fall back to an estimate.
+   * Null until then and for any request never accepted.
    */
   acceptedAt: timestamp('accepted_at', { withTimezone: true }),
 }, (table) => ({
@@ -163,32 +162,6 @@ export const pipelineRunnerDeploy = pgTable('pipeline_runner_deploys', {
   stageCheck: check('pipeline_runner_deploys_stage_check',
     sql`stage IN ('queued', 'starting', 'authenticating', 'fetching', 'prechecking', 'cleaning', 'synthesizing', 'deploying', 'registering', 'removing', 'done')`),
 }));
-
-/**
- * The runner-link VIEW of `pipeline_registry`: the same table, mapped with only
- * the columns runner routing reads plus the link columns:
- *  - `runner_id` — the runner that starts/stops the pipeline. Set by a single
- *    match (discovery, rediscovery, the background probe at registration, or
- *    Find runner again) or a verified run; cleared when the runner is revoked
- *    or answers that the pipeline's identity tag is missing/mismatched.
- *  - `runner_link_status` / `runner_link_checked_at` / `runner_link_detail` —
- *    the last probe's outcome, written by every probe. The detail carries runner
- *    LABELS only, never an account id or a URL.
- *
- * Kept apart from `pipelineRegistry` so registry queries that have nothing to
- * do with runners don't select the link. Not part of the aggregate `schema` object.
- */
-export const pipelineRegistryRunnerLink = pgTable('pipeline_registry', {
-  id: uuid('id').primaryKey(),
-  pipelineId: uuid('pipeline_id').notNull(),
-  orgId: varchar('org_id', { length: 255 }).notNull(),
-  pipelineName: varchar('pipeline_name', { length: 255 }).notNull(),
-  region: varchar('region', { length: 30 }),
-  runnerId: uuid('runner_id'),
-  runnerLinkStatus: varchar('runner_link_status', { length: 16 }).$type<RunnerLinkStatus>().notNull().default('unlinked'),
-  runnerLinkCheckedAt: timestamp('runner_link_checked_at', { withTimezone: true }),
-  runnerLinkDetail: jsonb('runner_link_detail').$type<RunnerLinkDetail>(),
-});
 
 /**
  * The one sequence every runner-key change draws its `runner_key_version` from

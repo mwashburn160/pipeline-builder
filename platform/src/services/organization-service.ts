@@ -547,7 +547,8 @@ class OrganizationService {
    * token chokepoint keyed on `deletedAt`, so it needs the org un-tombstoned AND
    * fresh tokens). Idempotent-safe: returns null when there is no soft-deleted
    * org with this id (already purged, never deleted, or unknown) so the
-   * controller can 404 — a purged org is gone and cannot be restored.
+   * controller can 404 — a purged org (or one past its purge deadline, whose
+   * purge may be under way) is gone and cannot be restored.
    */
   /**
    * `byPlatform`: the caller is a platform operator. A platform delete (a
@@ -557,7 +558,11 @@ class OrganizationService {
   async restore(id: string, excludeUserId: string | undefined, byPlatform: boolean): Promise<{ id: string; name: string; membersInvalidated: number } | null> {
     let bumpedMemberIds: Types.ObjectId[] = [];
     const result = await withMongoTransaction(async (session) => {
-      const org = await Organization.findOne({ _id: toOrgId(id), deletedAt: { $ne: null } }).session(session);
+      // Only INSIDE the retention window: past `purgeAfter` the purge sweep may
+      // already be running the destructive cascade (or have deferred it with
+      // some legs torn down), and reviving the org then would bring back a
+      // half-deleted tenant. Such an org reads as gone, like a purged one.
+      const org = await Organization.findOne({ _id: toOrgId(id), deletedAt: { $ne: null }, purgeAfter: { $gt: new Date() } }).session(session);
       if (!org) return null;
       if (org.deletedByPlatform && !byPlatform) throw new Error(ORG_RESTORE_PLATFORM_DELETED);
 

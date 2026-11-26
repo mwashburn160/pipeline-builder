@@ -46,7 +46,7 @@ export function hashDeployToken(token: string): string {
 }
 
 /** Constant-time comparison of two stored hashes (hex of equal length; anything else is unequal). */
-export function sameHash(a: string | null | undefined, b: string): boolean {
+function sameHash(a: string | null | undefined, b: string): boolean {
   if (!a || a.length !== b.length) return false;
   return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
 }
@@ -60,7 +60,7 @@ export function sameHash(a: string | null | undefined, b: string): boolean {
 const LIVE_STATUSES: readonly RunRequestStatus[] = [...PENDING_RUN_REQUEST_STATUSES, ...IN_PROGRESS_RUN_REQUEST_STATUSES];
 
 /** 401 DEPLOY_GRANT_INVALID with its reason. */
-export function grantInvalid(reason: DeployGrantRejectionReason): RunnerRouteError {
+function grantInvalid(reason: DeployGrantRejectionReason): RunnerRouteError {
   const message = reason === 'expired'
     ? 'The deploy grant expired before the job exchanged it (the build waited too long in the queue). Deploy again.'
     : 'The deploy grant or session is not valid for this request.';

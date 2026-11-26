@@ -47,6 +47,8 @@ jest.unstable_mockModule('../src/services/secret-reencrypt.js', () => ({
 }));
 /** The verification marker the save writes (helpers/org-kms-config.ts kmsVerifySchedule). */
 const DUE = expect.any(Date);
+/** The pending runner-key re-wrap marker the save writes, naming `from` (undefined = the shared provider). */
+const rewrapFrom = (from?: { keyId: string; ciphertextBase64: string }) => ({ ...(from ?? {}), pendingSince: expect.any(Date) });
 jest.unstable_mockModule('../src/services/runner-key-reencrypt.js', () => ({
   reencryptRunnerSigningKeys: (...a: unknown[]) => mockRunnerReencrypt(...a),
 }));
@@ -309,6 +311,8 @@ describe('kms-config: concurrent changes', () => {
     let current = initial ? { ...initial } : undefined;
     mockOrgFindById.mockImplementation(async () => orgDoc(current ? { ...current } : undefined));
     mockOrgUpdateOne.mockImplementation(async (filter: any, update: any) => {
+      // The successful re-wrap's marker clear: not a config write.
+      if (filter['kmsRunnerRewrapFrom.pendingSince']) return { matchedCount: 1, modifiedCount: 1 };
       const matches = filter['kmsConfig.keyId'] !== undefined
         ? current?.keyId === filter['kmsConfig.keyId'] && current?.ciphertextBase64 === filter['kmsConfig.ciphertextBase64']
         : !current?.keyId || !current?.ciphertextBase64;
@@ -328,14 +332,14 @@ describe('kms-config: concurrent changes', () => {
     await put();
     expect(mockOrgUpdateOne).toHaveBeenCalledWith(
       expect.objectContaining({ '_id': ORG, 'kmsConfig.keyId': OLD.keyId, 'kmsConfig.ciphertextBase64': OLD.ciphertextBase64 }),
-      { $set: { kmsConfig: NEW, kmsVerifyDueAt: DUE } },
+      { $set: { kmsConfig: NEW, kmsVerifyDueAt: DUE, kmsRunnerRewrapFrom: rewrapFrom(OLD) } },
     );
   });
 
   it('the save schedules the post-change verification in the same write (durable, and a later change supersedes it)', async () => {
     store({ ...OLD });
     await del();
-    expect(mockOrgUpdateOne.mock.calls[0][1]).toEqual({ $unset: { kmsConfig: 1 }, $set: { kmsVerifyDueAt: DUE } });
+    expect(mockOrgUpdateOne.mock.calls[0][1]).toEqual({ $unset: { kmsConfig: 1 }, $set: { kmsVerifyDueAt: DUE, kmsRunnerRewrapFrom: rewrapFrom(OLD) } });
   });
 
   it('a refused (409) change schedules nothing: its save never matched', async () => {
@@ -353,7 +357,8 @@ describe('kms-config: concurrent changes', () => {
     expect(codes).toEqual([200, 409]);
     const loser = a.statusCode === 409 ? a : b;
     expect(loser.body.message).toMatch(/changed by another request/);
-    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(2);
+    // Two saves, and the winner's marker clear.
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(3);
     expect(mockReencryptOrg).toHaveBeenCalledTimes(1);
     expect(mockRunnerReencrypt).toHaveBeenCalledTimes(1);
     expect(mockAudit).toHaveBeenCalledTimes(1);
@@ -402,7 +407,8 @@ describe('kms-config: re-encrypt failed before any secret was written', () => {
       { '_id': ORG, 'kmsConfig.keyId': NEW.keyId, 'kmsConfig.ciphertextBase64': NEW.ciphertextBase64 },
       // The restore re-stamps the verification: a replica that picked up the
       // briefly-saved NEW config keeps it a full cache TTL from the restore.
-      { $set: { kmsConfig: OLD, kmsVerifyDueAt: DUE } },
+      // The runner keys were never touched: the save's re-wrap marker goes too.
+      { $set: { kmsConfig: OLD, kmsVerifyDueAt: DUE }, $unset: { kmsRunnerRewrapFrom: 1 } },
     ]);
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
     expect(mockAudit.mock.calls[0][2]).toMatchObject({
@@ -416,7 +422,7 @@ describe('kms-config: re-encrypt failed before any secret was written', () => {
     mockReencryptOrg.mockRejectedValue(unwritten());
     const res = await put();
     expect(res.statusCode).toBe(500);
-    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $unset: { kmsConfig: 1 }, $set: { kmsVerifyDueAt: DUE } });
+    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $unset: { kmsConfig: 1, kmsRunnerRewrapFrom: 1 }, $set: { kmsVerifyDueAt: DUE } });
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
   });
 
@@ -426,7 +432,7 @@ describe('kms-config: re-encrypt failed before any secret was written', () => {
     const res = await del();
     expect(res.statusCode).toBe(500);
     expect(mockOrgUpdateOne.mock.calls[1][0]).toHaveProperty('$or');
-    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $set: { kmsConfig: OLD, kmsVerifyDueAt: DUE } });
+    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $set: { kmsConfig: OLD, kmsVerifyDueAt: DUE }, $unset: { kmsRunnerRewrapFrom: 1 } });
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
   });
 
@@ -447,7 +453,9 @@ describe('kms-config: re-encrypt failed before any secret was written', () => {
     mockReencryptOrg.mockRejectedValue(new OrgSecretsReencryptError('mongo down', true));
     const res = await put();
     expect(res.statusCode).toBe(500);
-    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(1);
+    // The save, then the (successful) runner re-wrap's marker clear — no restore.
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(2);
+    expect(mockOrgUpdateOne.mock.calls[1][0]).toHaveProperty(['kmsRunnerRewrapFrom.pendingSince']);
     expect(mockRunnerReencrypt).toHaveBeenCalled();
   });
 });
@@ -460,15 +468,13 @@ describe('kms-config: recovering a failed runner-key re-wrap', () => {
   };
   const PENDING = expect.any(Date);
 
-  it('a failed re-wrap records the outgoing config durably (once — the oldest unmigrated config wins) and names the retry route', async () => {
+  it('a failed re-wrap keeps the outgoing config the save recorded durably and names the retry route', async () => {
     mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
     mockRunnerReencrypt.mockResolvedValue({ ok: false, error: 'pipeline service unreachable' });
     const res = await put();
     expect(res.statusCode).toBe(500);
-    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
-      { _id: ORG, kmsRunnerRewrapFrom: { $exists: false } },
-      { $set: { kmsRunnerRewrapFrom: { keyId: OLD.keyId, ciphertextBase64: OLD.ciphertextBase64, pendingSince: PENDING } } },
-    );
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(1);
+    expect(mockOrgUpdateOne.mock.calls[0][1].$set.kmsRunnerRewrapFrom).toEqual({ keyId: OLD.keyId, ciphertextBase64: OLD.ciphertextBase64, pendingSince: PENDING });
     expect(res.body.message).toMatch(/kms-config\/runner-keys\/reencrypt/);
     expect(res.body.message).not.toMatch(/rerun/);
   });
@@ -477,10 +483,7 @@ describe('kms-config: recovering a failed runner-key re-wrap', () => {
     mockOrgFindById.mockReturnValue(orgDoc(undefined));
     mockRunnerReencrypt.mockResolvedValue({ ok: false, error: 'pipeline service unreachable' });
     await put();
-    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
-      { _id: ORG, kmsRunnerRewrapFrom: { $exists: false } },
-      { $set: { kmsRunnerRewrapFrom: { pendingSince: PENDING } } },
-    );
+    expect(mockOrgUpdateOne.mock.calls[0][1].$set.kmsRunnerRewrapFrom).toEqual({ pendingSince: PENDING });
   });
 
   it('the retry re-runs the re-wrap with the RECORDED outgoing config and clears the marker on success', async () => {
@@ -545,5 +548,76 @@ describe('kms-config: recovering a failed runner-key re-wrap', () => {
     mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
     await put();
     expect(mockOrgUpdateOne.mock.calls[0][0]).toMatchObject({ kmsRunnerRewrapFrom: { $exists: false } });
+  });
+});
+
+describe('kms-config: the pending re-wrap marker is written with the save', () => {
+  const PENDING = expect.any(Date);
+
+  it('the save records the outgoing config as a pending runner-key re-wrap in the same write', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    await put();
+    expect(mockOrgUpdateOne.mock.calls[0][1]).toEqual({
+      $set: { kmsConfig: NEW, kmsVerifyDueAt: DUE, kmsRunnerRewrapFrom: { ...OLD, pendingSince: PENDING } },
+    });
+  });
+
+  it('a DELETE records the cleared config as the pending outgoing one', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    await del();
+    expect(mockOrgUpdateOne.mock.calls[0][1]).toEqual({
+      $unset: { kmsConfig: 1 },
+      $set: { kmsVerifyDueAt: DUE, kmsRunnerRewrapFrom: { ...OLD, pendingSince: PENDING } },
+    });
+  });
+
+  it('a successful re-wrap clears the marker its own save wrote (conditional on that marker)', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    const res = await put();
+    expect(res.statusCode).toBe(200);
+    const since = mockOrgUpdateOne.mock.calls[0][1].$set.kmsRunnerRewrapFrom.pendingSince;
+    expect(mockOrgUpdateOne).toHaveBeenLastCalledWith(
+      { '_id': ORG, 'kmsRunnerRewrapFrom.pendingSince': since },
+      { $unset: { kmsRunnerRewrapFrom: 1 } },
+    );
+  });
+
+  it('a failed re-wrap leaves the marker in place and writes nothing more', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockRunnerReencrypt.mockResolvedValue({ ok: false, error: 'pipeline service unreachable' });
+    const res = await put();
+    expect(res.statusCode).toBe(500);
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('the restore after an unwritten secret failure clears the marker (the runner keys were never touched)', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockReencryptOrg.mockRejectedValue(new OrgSecretsReencryptError('KMS Encrypt denied', false));
+    await put();
+    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $set: { kmsConfig: OLD, kmsVerifyDueAt: DUE }, $unset: { kmsRunnerRewrapFrom: 1 } });
+  });
+
+  it('a change arriving while another change\'s re-wrap is still in flight is refused (409): no second outgoing config', async () => {
+    // Stateful org: the marker the first save writes is visible to the second request.
+    let current: any = { kmsConfig: { ...OLD } };
+    mockOrgFindById.mockImplementation(async () => ({ _id: ORG, ...JSON.parse(JSON.stringify(current)) }));
+    mockOrgUpdateOne.mockImplementation(async (filter: any, update: any) => {
+      if (filter.kmsRunnerRewrapFrom?.$exists === false && current.kmsRunnerRewrapFrom) return { matchedCount: 0, modifiedCount: 0 };
+      if (filter['kmsRunnerRewrapFrom.pendingSince'] && !current.kmsRunnerRewrapFrom) return { matchedCount: 0, modifiedCount: 0 };
+      current = { ...current, ...(update.$set ?? {}) };
+      for (const k of Object.keys(update.$unset ?? {})) delete current[k];
+      return { matchedCount: 1, modifiedCount: 1 };
+    });
+    let releaseFirst!: () => void;
+    mockRunnerReencrypt.mockImplementationOnce(() => new Promise((r) => { releaseFirst = () => r(OK); }));
+    const first = put();
+    await new Promise((r) => setTimeout(r, 5));
+    const second = await del();
+    expect(second.statusCode).toBe(409);
+    releaseFirst();
+    expect((await first).statusCode).toBe(200);
+    expect(mockRunnerReencrypt).toHaveBeenCalledTimes(1);
+    expect(current.kmsRunnerRewrapFrom).toBeUndefined();
+    expect(current.kmsConfig).toEqual(NEW);
   });
 });

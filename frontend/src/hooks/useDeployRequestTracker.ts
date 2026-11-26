@@ -120,7 +120,11 @@ export function useDeployRequestTracker(pipelineId: string, opts: { onSettled?: 
     ctl.current?.abort();
     const c = new AbortController();
     ctl.current = c;
+    // Without a seed, a DIFFERENT deploy on show (a finished one, before a
+    // DEPLOY_IN_PROGRESS refusal named this one) is not this deploy: drop it
+    // until the first read, rather than offer its Retry meanwhile.
     if (seed) setDeploy(seed);
+    else setDeploy((cur) => (cur?.requestId === requestId ? cur : null));
     setLost(null);
     setFollowing(true);
     void (async () => {

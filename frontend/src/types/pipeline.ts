@@ -90,6 +90,8 @@ export interface Pipeline {
   // Deletion tracking (soft delete)
   deletedAt?: string;
   deletedBy?: string;
+  /** When the retention sweep removes the tombstone (it keeps one that may still be deployed past it). */
+  purgeAfter?: string | null;
 }
 
 /**

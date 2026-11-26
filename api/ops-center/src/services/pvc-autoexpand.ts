@@ -257,7 +257,7 @@ export async function expandClaim(
     // immutable — the manifest now disagrees with the live claim, and a replica
     // created later comes back at the old size.
     if (statefulSetOfClaim(claim)) {
-      setGauge('pvc_autoexpand_template_drift', labels, 1);
+      setDrift(namespace, claim, 1);
       logger.warn('Expanded a StatefulSet claim; volumeClaimTemplates still says the old size', { namespace, claim, toGi });
     }
 
@@ -283,6 +283,19 @@ interface StatefulSetBody {
   };
 }
 
+/**
+ * Every claim this process has published a drift series for, so a sweep can
+ * zero the ones it can no longer see (StatefulSet deleted, claim deleted,
+ * scaled away). Without it a series set to 1 keeps its value — and the alert
+ * keeps firing — until the pod restarts.
+ */
+const publishedDrift = new Map<string, { namespace: string; claim: string }>();
+
+function setDrift(namespace: string, claim: string, value: 0 | 1): void {
+  publishedDrift.set(`${namespace}/${claim}`, { namespace, claim });
+  setGauge('pvc_autoexpand_template_drift', { namespace, claim }, value);
+}
+
 const statefulSetPath = (ns: string, name: string) =>
   `/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/statefulsets/${encodeURIComponent(name)}`;
 
@@ -306,17 +319,28 @@ export interface TemplateDrift {
  * restart dropped it while the drift was still real. Deriving it from the
  * cluster makes it true on every replica and after every restart.
  *
- * A StatefulSet this target does not run (404) is skipped. Never throws: one
- * unreadable object is logged and leaves its claims' gauges as they were.
+ * A StatefulSet this target does not run (404) is skipped, and a series this
+ * process published earlier for a claim no longer found is zeroed. Never
+ * throws: one unreadable object is logged and leaves its claims' gauges as
+ * they were.
  */
 export async function reconcileTemplateDrift(namespace: string): Promise<TemplateDrift[]> {
   const results: TemplateDrift[] = [];
   for (const { statefulSet, template } of TEMPLATED_STATEFULSETS) {
+    // Claims of this StatefulSet published earlier: still checked when the set
+    // has since scaled below their ordinal (the claim is retained and comes
+    // back with the replica), and zeroed once they are gone.
+    const earlier = [...publishedDrift.values()]
+      .filter((p) => p.namespace === namespace && statefulSetOfClaim(p.claim)?.statefulSet === statefulSet)
+      .map((p) => p.claim);
     let sts: StatefulSetBody;
     try {
       sts = (await k8sRequest(statefulSetPath(namespace, statefulSet))) as StatefulSetBody;
     } catch (err) {
-      if (!/-> 404\b/.test(errorMessage(err))) {
+      if (/-> 404\b/.test(errorMessage(err))) {
+        // No StatefulSet, so no template for a new replica to provision from.
+        for (const claim of earlier) setDrift(namespace, claim, 0);
+      } else {
         logger.warn('Template drift: StatefulSet unreadable', { namespace, statefulSet, error: errorMessage(err) });
       }
       continue;
@@ -328,18 +352,21 @@ export async function reconcileTemplateDrift(namespace: string): Promise<Templat
       continue;
     }
     const replicas = sts.spec?.replicas ?? 0;
-    for (let i = 0; i < replicas; i++) {
-      const claim = `${template}-${statefulSet}-${i}`;
+    const claims = new Set(Array.from({ length: replicas }, (_, i) => `${template}-${statefulSet}-${i}`));
+    for (const claim of earlier) claims.add(claim);
+    for (const claim of claims) {
       try {
         const pvc = (await k8sRequest(pvcPath(namespace, claim))) as PvcBody;
         const claimBytes = parseQuantityToBytes(pvc.spec?.resources?.requests?.storage ?? '');
         if (claimBytes === null) continue;
         const drift = claimBytes > templateBytes;
-        setGauge('pvc_autoexpand_template_drift', { namespace, claim }, drift ? 1 : 0);
+        setDrift(namespace, claim, drift ? 1 : 0);
         results.push({ claim, statefulSet, claimBytes, templateBytes, drift });
       } catch (err) {
-        // A replica that has not provisioned its claim yet is not drift.
-        if (!/-> 404\b/.test(errorMessage(err))) {
+        if (/-> 404\b/.test(errorMessage(err))) {
+          // Not provisioned yet, or deleted: either way not drift.
+          if (publishedDrift.has(`${namespace}/${claim}`)) setDrift(namespace, claim, 0);
+        } else {
           logger.warn('Template drift: claim unreadable', { namespace, claim, error: errorMessage(err) });
         }
       }

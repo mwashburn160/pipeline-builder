@@ -18,7 +18,8 @@ import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import { ApiError, continueAfterStepUp, stepUpReplayFailed } from '@/lib/api/errors';
 import { Callout } from '@/components/ui/Callout';
-import { purgeDeployInProgressCopy, purgeRefusedCopy, purgeResultCopy } from '@/lib/pipeline-deploys';
+import { keptPastPurgeCopy, purgeDeployInProgressCopy, purgeRefusedCopy, purgeResultCopy } from '@/lib/pipeline-deploys';
+import { formatDateMedium } from '@/lib/format';
 import { useMutation } from '@/hooks/useMutation';
 import type { DeletedPipelineDeploymentDto } from '@pipeline-builder/api-core/pipeline-runners';
 import { visibilityColor } from '@/components/ui/visibility-rungs';
@@ -39,6 +40,8 @@ interface DeletedRow {
   deletedBy?: string | null;
   /** Pipelines: what a purge does to the deployed stack (null = never registered; absent = unknown). */
   deployment?: DeletedPipelineDeploymentDto | null;
+  /** Pipelines: when the retention sweep removes the tombstone. */
+  purgeAfter?: string | null;
 }
 
 /**
@@ -114,6 +117,8 @@ interface ResourceConfig {
   purgeOutcome?: (data: unknown) => { tone: 'info' | 'warning'; text: string } | null;
   /** A refused purge's own explanation (shown above the list instead of a toast), or null. */
   purgeRefusal?: (err: unknown, row: DeletedRow) => PurgeNotice | null;
+  /** The "Purges" cell: the retention sweep's date, or why the sweep keeps the row past it. */
+  purgeDate?: (row: DeletedRow) => string;
 }
 
 /**
@@ -130,6 +135,7 @@ interface PurgeNotice {
 function pipelineToRow(p: Pipeline & { deployment?: DeletedPipelineDeploymentDto | null }): DeletedRow {
   return {
     id: p.id, name: p.pipelineName || p.id, visibility: p.visibility, createdBy: p.createdBy, deletedAt: p.deletedAt, deletedBy: p.deletedBy,
+    purgeAfter: p.purgeAfter ?? null,
     // Absent (an answer without it) stays unknown; null is "never registered".
     ...(p.deployment === undefined ? {} : { deployment: p.deployment }),
   };
@@ -193,6 +199,8 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
       const text = purgeRefusedCopy(err.details);
       return text ? { tone: 'warning', text } : null;
     },
+    // The sweep keeps a tombstone that may still be deployed past its date: say so, not a date gone by.
+    purgeDate: (row) => keptPastPurgeCopy(row.deployment, row.purgeAfter) ?? formatDateMedium(row.purgeAfter),
   },
   plugin: {
     labels: { singular: 'plugin', plural: 'plugins' },
@@ -457,6 +465,12 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
     },
     { id: 'deletedAt', header: 'Deleted', render: (r) => (r.deletedAt ? <RelativeTime value={r.deletedAt} /> : <span className="text-fg-subtle">—</span>) },
     { id: 'deletedBy', header: 'Deleted by', cellClassName: 'text-fg-muted text-sm', render: (r) => r.deletedBy || '—' },
+    ...(config.purgeDate ? [{
+      id: 'purgeAfter',
+      header: 'Purges',
+      cellClassName: 'text-fg-muted text-sm',
+      render: (r: DeletedRow) => <span data-testid={`${resource}-purge-date-${r.id}`}>{config.purgeDate?.(r)}</span>,
+    }] : []),
     {
       id: 'actions',
       header: '',

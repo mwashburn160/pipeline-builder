@@ -564,7 +564,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
             // A build scan is only as current as the DB it matched against. The
             // build does not refuse on an old DB (grype's own five-day limit
             // still does) — blocking every publish because the operator's
-            // refresh CronJob stalled would be the wrong blast radius — but it
+            // DB refresh stalled would be the wrong blast radius — but it
             // must not present a stale result as a current one.
             const dbAgeMs = facts.scan.dbBuiltAt ? Date.now() - facts.scan.dbBuiltAt.getTime() : null;
             if (dbAgeMs === null || dbAgeMs > vulnDbMaxAgeMs()) {

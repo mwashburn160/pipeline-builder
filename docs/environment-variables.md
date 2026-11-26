@@ -416,7 +416,7 @@ owning user, so the master-key rotation notes above apply to them too.
 | `DB_STATEMENT_TIMEOUT_MS` | `30000` | Per-transaction `statement_timeout` set with the RLS context; a runaway query is cancelled instead of pinning a pooled connection |
 | `DB_SSL` | — | `true`/`1` forces TLS to Postgres on, `false`/`0` off. Unset → Postgres' `PGSSLMODE` (`disable` = off), else ON in production and OFF elsewhere |
 | `DB_SSL_REJECT_UNAUTHORIZED` | `false` | With TLS on, verify the server certificate. Set `true` once the RDS CA bundle is mounted; the channel is encrypted either way |
-| `SOFT_DELETE_RETENTION_DAYS` | `30` | How long a soft-deleted pipeline/plugin/template stays restorable before the purge sweep hard-deletes it |
+| `SOFT_DELETE_RETENTION_DAYS` | `30` | How long a soft-deleted pipeline/plugin/template stays restorable before the purge sweep hard-deletes it. The sweep keeps a pipeline that is still registered as deployed, or has a deploy through a runner in flight, until it is purged by hand (so its stack is never orphaned) |
 | `SOFT_DELETE_PURGE_ENABLED` | `true` | Run the soft-delete purge sweep. `false` keeps tombstones indefinitely |
 | `SOFT_DELETE_PURGE_INTERVAL_HOURS` | `6` | Interval between purge sweeps (min 1) |
 | `SOFT_DELETE_PURGE_STARTUP_DELAY_MS` | `120000` | Delay before the first sweep after boot |
