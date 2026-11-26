@@ -367,16 +367,16 @@ describe('normalizePluginRemediationSettings', () => {
 describe('severities and the on/off knob', () => {
   it('parses PLUGIN_REMEDIATION_SEVERITIES case-insensitively, in catalog order', () => {
     const warn = jest.fn();
-    expect(parseRemediationSeverities(undefined, warn)).toEqual(['critical', 'high']);
-    expect(parseRemediationSeverities('  ', warn)).toEqual(['critical', 'high']);
+    expect(parseRemediationSeverities(undefined, warn)).toEqual(['critical']);
+    expect(parseRemediationSeverities('  ', warn)).toEqual(['critical']);
     expect(parseRemediationSeverities('HIGH, critical,high', warn)).toEqual(['critical', 'high']);
     expect(parseRemediationSeverities('critical', warn)).toEqual(['critical']);
     expect(warn).not.toHaveBeenCalled();
   });
   it('falls back to the default with one warning on an invalid or empty list', () => {
     const warn = jest.fn();
-    expect(parseRemediationSeverities('critical,medium', warn)).toEqual(['critical', 'high']);
-    expect(parseRemediationSeverities(',', warn)).toEqual(['critical', 'high']);
+    expect(parseRemediationSeverities('critical,medium', warn)).toEqual(['critical']);
+    expect(parseRemediationSeverities(',', warn)).toEqual(['critical']);
     expect(warn).toHaveBeenCalledTimes(2);
   });
   it('PLUGIN_REMEDIATION_ENABLED is on unless exactly false', () => {

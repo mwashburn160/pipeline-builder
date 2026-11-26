@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: da2c61908f6a8be77db38e6550257e516c05431835c9bd42f121ec09ceec9af6
+// SOURCE-SHA256: 09508d18a9f5ef58d18317cf6ebf1f285edb8558bd2d88c093290b25b1c6bdd2
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1913,8 +1913,8 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "PLUGIN_REMEDIATION_SEVERITIES",
-              "critical,high",
-              "Which findings with a fixed version remediation targets: a comma list of critical and/or high (case and spaces ignored). KEV-listed findings are always targeted, whatever this says; one with no fix goes to the owner request. An unknown entry, or no valid entry, falls back to critical,high with one warning in the plugin log, so a typo never silently narrows it. Waived and VEX-covered findings are never targeted. Plugin service"
+              "critical",
+              "Which findings with a fixed version remediation targets: a comma list of critical and/or high (case and spaces ignored). KEV-listed findings are always targeted, whatever this says; one with no fix goes to the owner request. An unknown entry, or no valid entry, falls back to critical with one warning in the plugin log, so a typo is never silent. Set critical,high to target High findings too. Waived and VEX-covered findings are never targeted. Plugin service"
             ],
             [
               "PLUGIN_REMEDIATION_CONCURRENCY",

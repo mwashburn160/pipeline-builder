@@ -138,12 +138,18 @@ describe('config', () => {
     process.env.PLUGIN_REMEDIATION_ENABLED = 'FALSE ';
     process.env.PLUGIN_REMEDIATION_SEVERITIES = 'bogus';
     const c = loadPluginServiceConfig(warn);
-    expect(c.remediation).toMatchObject({ enabled: false, severities: ['critical', 'high'], concurrency: 2, baseConcurrency: 4, maxPerOrgPerDay: 20, sourcesBucket: 'plugin-sources' });
+    expect(c.remediation).toMatchObject({ enabled: false, severities: ['critical'], concurrency: 2, baseConcurrency: 4, maxPerOrgPerDay: 20, sourcesBucket: 'plugin-sources' });
     expect(warn).toHaveBeenCalledTimes(1);
     process.env.PLUGIN_REMEDIATION_ENABLED = 'no';
     process.env.PLUGIN_REMEDIATION_SEVERITIES = ' Critical ';
     expect(loadPluginServiceConfig(warn).remediation).toMatchObject({ enabled: true, severities: ['critical'] });
+    // High is an explicit opt-in.
+    process.env.PLUGIN_REMEDIATION_SEVERITIES = 'high,critical';
+    expect(loadPluginServiceConfig(warn).remediation.severities).toEqual(['critical', 'high']);
     delete process.env.PLUGIN_REMEDIATION_ENABLED; delete process.env.PLUGIN_REMEDIATION_SEVERITIES;
+    // Unset: Critical only (KEV-listed findings are targeted regardless).
+    expect(loadPluginServiceConfig(warn).remediation.severities).toEqual(['critical']);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });
 
