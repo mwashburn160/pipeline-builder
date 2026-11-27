@@ -15,6 +15,7 @@
 import { createHash } from 'crypto';
 import { audited, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
+import { AUTH_RATE_LIMITS } from '../config/rate-limits.js';
 import {
   approveDeviceRequest,
   denyDeviceRequest,
@@ -32,8 +33,8 @@ const router: Router = Router();
  *  minute per IP is generous, and a flood here is just pending-state spam. */
 const deviceStartLimiter = createLimiter({
   name: 'device-start',
-  windowMs: 60_000,
-  max: 10,
+  windowMs: AUTH_RATE_LIMITS.deviceStart.windowMs,
+  max: AUTH_RATE_LIMITS.deviceStart.max,
   keyGenerator: extractClientIp,
   message: 'Too many device sign-in requests. Please wait a minute and try again.',
 });
@@ -47,8 +48,8 @@ const deviceStartLimiter = createLimiter({
  */
 const devicePollCodeLimiter = createLimiter({
   name: 'device-poll-code',
-  windowMs: 60_000,
-  max: 30, // a conforming client at the 5s interval spends 12
+  windowMs: AUTH_RATE_LIMITS.devicePollCode.windowMs,
+  max: AUTH_RATE_LIMITS.devicePollCode.max,
   keyGenerator: (req) => (typeof req.body?.device_code === 'string' && req.body.device_code
     ? `d:${createHash('sha256').update(req.body.device_code).digest('hex')}`
     : extractClientIp(req)),
@@ -57,8 +58,8 @@ const devicePollCodeLimiter = createLimiter({
 
 const devicePollIpLimiter = createLimiter({
   name: 'device-poll-ip',
-  windowMs: 60_000,
-  max: 300, // many developers behind one office NAT, each polling their own code
+  windowMs: AUTH_RATE_LIMITS.devicePollIp.windowMs,
+  max: AUTH_RATE_LIMITS.devicePollIp.max,
   keyGenerator: extractClientIp,
   message: 'Too many device authorization polls. Please wait a minute and try again.',
 });
@@ -70,8 +71,8 @@ const devicePollIpLimiter = createLimiter({
  */
 const deviceApprovalLimiter = createLimiter({
   name: 'device-approval',
-  windowMs: 60_000,
-  max: 15,
+  windowMs: AUTH_RATE_LIMITS.deviceApproval.windowMs,
+  max: AUTH_RATE_LIMITS.deviceApproval.max,
   keyGenerator: userOrIpKey,
   message: 'Too many attempts. Please wait a minute and try again.',
 });

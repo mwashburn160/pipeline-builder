@@ -1154,3 +1154,40 @@ describe('GET /events (customer-scoped, billing:read)', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, expect.objectContaining({ total: 1 }));
   });
 });
+
+// A negotiated floor is multiplied by the interval's months (10 for annual) and
+// by a volume factor before it is billed, so the stored figure has to be one
+// that arithmetic stays exact on. `Number.isInteger(1e300)` is TRUE, so the
+// only bound the route had let a fat-fingered or hostile value through to an
+// invoice line that is no longer a whole number of cents.
+describe('PUT /admin/subscriptions/:id/support-floor — amount bounds', () => {
+  const handler = getHandler('put', '/admin/subscriptions/:id/support-floor');
+  const ID = '64b000000000000000000001';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSubscriptionFindById.mockResolvedValue(makeSubscription());
+  });
+
+  it.each([
+    ['an unsafe integer floor', { seats: 100, floorCents: 1e300 }],
+    ['a floor above the agreement ceiling', { seats: 100, floorCents: 1_000_000_001 }],
+    ['an unsafe integer seat count', { seats: 2 ** 60, floorCents: 50_000 }],
+    ['a NaN floor', { seats: 100, floorCents: Number.NaN }],
+    ['a negative floor', { seats: 100, floorCents: -1 }],
+  ])('refuses %s with 400 and writes nothing', async (_label, body) => {
+    const res = mockRes();
+    await handler(mockReq({ params: { id: ID }, body }), res);
+    expect(mockSendBadRequest).toHaveBeenCalled();
+    expect(mockAuditRecord).not.toHaveBeenCalled();
+  });
+
+  it('accepts a whole-cent floor at the ceiling and records it', async () => {
+    const res = mockRes();
+    await handler(mockReq({ params: { id: ID }, body: { seats: 100, floorCents: 1_000_000_000 } }), res);
+    expect(mockSendBadRequest).not.toHaveBeenCalled();
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({
+      supportFloorOverride: expect.objectContaining({ floorCents: 1_000_000_000, seats: 100 }),
+    }));
+  });
+});

@@ -33,6 +33,7 @@ import { clearProviderReconcilePending, markProviderReconcilePending } from '../
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { runSignupPromotions } from '../helpers/signup-promotions.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
+import { setMetadataKey } from '../helpers/subscription-metadata.js';
 import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status.js';
 import { Plan } from '../models/plan.js';
@@ -314,7 +315,7 @@ export function createSubscriptionRoutes(): Router {
       // `customer.subscription.updated`→active webhook; stash the referral code so
       // that path can honor it (Checkout carries it in Stripe metadata instead).
       if (referralCode && subscription.status !== 'active' && subscription.status !== 'trialing') {
-        subscription.metadata = { ...subscription.metadata, pendingReferralCode: referralCode };
+        setMetadataKey(subscription, 'pendingReferralCode', referralCode);
       }
       await saveWithRetry(subscription);
     } catch (err) {

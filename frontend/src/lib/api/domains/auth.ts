@@ -9,7 +9,7 @@ import type {
 } from '@simplewebauthn/browser';
 import type { ApiCore } from '../core';
 import { mapStepUpResume, withStepUpResume } from '../errors';
-import type { ApiResponse, AskUiMode, MfaChallenge, Passkey, PasswordChangeChallenge, PlanTier, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
+import type { ApiResponse, AskUiMode, AuthTokens, MfaChallenge, Passkey, PasswordChangeChallenge, PlanTier, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
 
 /**
  * One of the caller's sessions: a signed-in device (`interactive`) or a stored
@@ -286,7 +286,7 @@ export function authApi(core: ApiCore) {
      * sign-in page. Otherwise sign-out stays local. Best-effort: a failed SLO
      * lookup never blocks signing out.
      */
-    logout: async () => {
+    logout: async (end?: { reason: 'idle'; idleTimeoutMinutes?: number }) => {
       let sloUrl: string | null = null;
       try {
         const slo = await core.request<ApiResponse<{ redirectUrl: string | null }>>('/api/auth/sso/logout', { method: 'POST' });
@@ -297,7 +297,8 @@ export function authApi(core: ApiCore) {
       try {
         await core.request('/api/auth/logout', { method: 'POST' });
       } finally {
-        core.clearTokens();
+        // An inactivity sign-out says so to every tab (see `clearTokens`).
+        core.clearTokens(end);
       }
       if (sloUrl && typeof window !== 'undefined') window.location.assign(sloUrl);
     },
@@ -312,14 +313,15 @@ export function authApi(core: ApiCore) {
      * new org), so only the access token is replaced here.
      */
     switchOrganization: async (organizationId: string) => {
-      const result = await core.request<ApiResponse<{ accessToken: string; expiresIn: number }>>('/api/auth/switch-org', {
+      const result = await core.request<ApiResponse<{ accessToken: string; expiresIn: number; session?: AuthTokens['session'] }>>('/api/auth/switch-org', {
         method: 'POST',
         body: JSON.stringify({ organizationId }),
       });
       // A 2xx without a token would leave the session in the OLD org while the
       // caller reports a switch — fail loudly instead.
       if (!result.data?.accessToken) throw new Error(result.message || 'Could not switch organization');
-      core.setTokens({ accessToken: result.data.accessToken, expiresIn: result.data.expiresIn });
+      // A switch is activity: its `session` block carries the restarted idle deadline.
+      core.setTokens({ accessToken: result.data.accessToken, expiresIn: result.data.expiresIn, ...(result.data.session ? { session: result.data.session } : {}) });
       return result;
     },
 

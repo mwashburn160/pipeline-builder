@@ -13,7 +13,7 @@ import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PasswordPolicySettings } from '../src/components/settings/PasswordPolicySettings';
 import { AuthenticatorPolicySettings, normalizeAaguidInput } from '../src/components/settings/AuthenticatorPolicySettings';
-import { SessionPolicySettings, parseSessionDays } from '../src/components/settings/SessionPolicySettings';
+import { SessionPolicySettings, parseIdleMinutes, parseSessionDays } from '../src/components/settings/SessionPolicySettings';
 import type { OrgAuthenticatorPolicy, OrgPasswordPolicy, OrgSessionPolicy } from '../src/types';
 
 const getPasswordPolicy = jest.fn<AnyFn>();
@@ -160,14 +160,15 @@ describe('AuthenticatorPolicySettings', () => {
 describe('SessionPolicySettings', () => {
   const policy = (over: Partial<OrgSessionPolicy> = {}): OrgSessionPolicy => ({
     maxAgeDays: 30,
-    idleTimeoutDays: 7,
-    own: { maxAgeDays: null, idleTimeoutDays: null },
-    platform: { maxAgeDays: 30, idleTimeoutDays: 7 },
+    idleTimeoutMinutes: 15,
+    own: { maxAgeDays: null, idleTimeoutMinutes: null },
+    platform: { maxAgeDays: 30, idleTimeoutMinutes: 15 },
     enforcement: 'interactive-sessions-at-next-refresh',
     ...over,
   });
+  const optionLabels = (select: HTMLElement) => Array.from((select as HTMLSelectElement).options).map((o) => o.textContent);
 
-  it('parses a draft: empty clears, whole days 1–365 only', () => {
+  it('parses a days draft: empty clears, whole days 1–365 only', () => {
     expect(parseSessionDays('')).toEqual({ value: null, invalid: false });
     expect(parseSessionDays(' 14 ')).toEqual({ value: 14, invalid: false });
     expect(parseSessionDays('0').invalid).toBe(true);
@@ -175,29 +176,101 @@ describe('SessionPolicySettings', () => {
     expect(parseSessionDays('1.5').invalid).toBe(true);
   });
 
-  it('shows the platform defaults and what is in force, and saves only the changed field through step-up', async () => {
+  it('parses a minutes draft: whole minutes from 5 up to the platform ceiling', () => {
+    expect(parseIdleMinutes('', 15)).toEqual({ value: null, invalid: false });
+    expect(parseIdleMinutes(' 7 ', 15)).toEqual({ value: 7, invalid: false });
+    expect(parseIdleMinutes('4', 15).invalid).toBe(true);
+    expect(parseIdleMinutes('16', 15).invalid).toBe(true);
+    expect(parseIdleMinutes('7.5', 15).invalid).toBe(true);
+    expect(parseIdleMinutes('600', 1440).invalid).toBe(false);
+  });
+
+  it('offers only the presets the platform ceiling allows (15 minutes: 5, 10, 15), plus the default and a custom value', async () => {
     getSessionPolicy.mockResolvedValue({ success: true, data: policy() });
-    updateSessionPolicy.mockResolvedValue({ success: true, message: 'Session policy updated', data: policy({ idleTimeoutDays: 2, own: { maxAgeDays: null, idleTimeoutDays: 2 } }) });
+    render(<SessionPolicySettings orgId="org-1" readOnly={false} />);
+    const idle = await screen.findByLabelText('Idle timeout');
+    expect(optionLabels(idle)).toEqual(['Platform default (15 minutes)', '5 minutes', '10 minutes', '15 minutes', 'Custom…']);
+  });
+
+  it('shows the longer presets when an operator raised the ceiling, never one above it', async () => {
+    getSessionPolicy.mockResolvedValue({ success: true, data: policy({ idleTimeoutMinutes: 480, platform: { maxAgeDays: 30, idleTimeoutMinutes: 480 } }) });
+    render(<SessionPolicySettings orgId="org-1" readOnly={false} />);
+    const idle = await screen.findByLabelText('Idle timeout');
+    expect(optionLabels(idle)).toEqual([
+      'Platform default (8 hours)', '5 minutes', '10 minutes', '15 minutes', '30 minutes', '1 hour', '8 hours', 'Custom…',
+    ]);
+    expect(optionLabels(idle)).not.toContain('1 day');
+  });
+
+  it('saves a preset (only the changed field) through step-up', async () => {
+    getSessionPolicy.mockResolvedValue({ success: true, data: policy() });
+    updateSessionPolicy.mockResolvedValue({ success: true, message: 'Session policy updated', data: policy({ idleTimeoutMinutes: 10, own: { maxAgeDays: null, idleTimeoutMinutes: 10 } }) });
     render(<SessionPolicySettings orgId="org-1" readOnly={false} />);
 
-    const idle = await screen.findByLabelText('Idle timeout (days)');
+    const idle = await screen.findByLabelText('Idle timeout');
     expect(screen.getByText(/Platform default: 30 days\. In force now: 30 days\./)).toBeInTheDocument();
-    expect(screen.getByText(/Platform default: 7 days\. In force now: 7 days\./)).toBeInTheDocument();
+    expect(screen.getByText(/Platform default: 15 minutes\. In force now: 15 minutes\./)).toBeInTheDocument();
     expect(screen.getByText(/Access keys and service accounts keep their own expiry/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
 
-    fireEvent.change(idle, { target: { value: '2' } });
+    fireEvent.change(idle, { target: { value: '10' } });
     expect(screen.queryByText(/Lengthening sessions/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     const modal = await screen.findByTestId('stepup-modal');
-    expect(modal).toHaveTextContent('Sign out sessions idle for 2 days');
+    expect(modal).toHaveTextContent('Sign out sessions idle for 10 minutes');
     fireEvent.click(modal);
-    await waitFor(() => expect(updateSessionPolicy).toHaveBeenCalledWith('org-1', { idleTimeoutDays: 2 }, 'step-up-token'));
+    await waitFor(() => expect(updateSessionPolicy).toHaveBeenCalledWith('org-1', { idleTimeoutMinutes: 10 }, 'step-up-token'));
     await waitFor(() => expect(getSessionPolicy).toHaveBeenCalledTimes(2));
   });
 
-  it('refuses an out-of-range value, and warns that lengthening (raise or clear) needs a second factor', async () => {
-    getSessionPolicy.mockResolvedValue({ success: true, data: policy({ maxAgeDays: 10, own: { maxAgeDays: 10, idleTimeoutDays: null } }) });
+  it('a custom value is validated against the 5-minute floor and the platform ceiling', async () => {
+    getSessionPolicy.mockResolvedValue({ success: true, data: policy() });
+    updateSessionPolicy.mockResolvedValue({ success: true, data: policy() });
+    render(<SessionPolicySettings orgId="org-1" readOnly={false} />);
+    fireEvent.change(await screen.findByLabelText('Idle timeout'), { target: { value: 'custom' } });
+    const custom = screen.getByLabelText('Custom idle timeout (minutes)');
+
+    fireEvent.change(custom, { target: { value: '4' } });
+    expect(screen.getByText('Enter a whole number of minutes from 5 to 15.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    fireEvent.change(custom, { target: { value: '16' } });
+    expect(screen.getByText('Enter a whole number of minutes from 5 to 15.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    fireEvent.change(custom, { target: { value: '7' } });
+    expect(screen.queryByText(/Enter a whole number of minutes/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(await screen.findByTestId('stepup-modal'));
+    await waitFor(() => expect(updateSessionPolicy).toHaveBeenCalledWith('org-1', { idleTimeoutMinutes: 7 }, 'step-up-token'));
+  });
+
+  it('an own value that is no preset opens as a custom value', async () => {
+    getSessionPolicy.mockResolvedValue({ success: true, data: policy({ idleTimeoutMinutes: 7, own: { maxAgeDays: null, idleTimeoutMinutes: 7 } }) });
+    render(<SessionPolicySettings orgId="org-1" readOnly={false} />);
+    await waitFor(() => expect(screen.getByLabelText('Idle timeout')).toHaveValue('custom'));
+    expect(screen.getByLabelText('Custom idle timeout (minutes)')).toHaveValue(7);
+  });
+
+  it('raising the idle timeout, or going back to the platform default, lengthens sessions and says it needs a second factor', async () => {
+    getSessionPolicy.mockResolvedValue({ success: true, data: policy({ idleTimeoutMinutes: 5, own: { maxAgeDays: null, idleTimeoutMinutes: 5 } }) });
+    updateSessionPolicy.mockResolvedValue({ success: true, data: policy() });
+    render(<SessionPolicySettings orgId="org-1" readOnly={false} />);
+    const idle = await screen.findByLabelText('Idle timeout');
+    await waitFor(() => expect(idle).toHaveValue('5'));
+
+    fireEvent.change(idle, { target: { value: '10' } });
+    expect(screen.getByText(/Lengthening sessions weakens/)).toBeInTheDocument();
+    fireEvent.change(idle, { target: { value: '' } });
+    expect(screen.getByText(/Lengthening sessions weakens/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const modal = await screen.findByTestId('stepup-modal');
+    expect(modal).toHaveTextContent('Clear the idle timeout');
+    fireEvent.click(modal);
+    await waitFor(() => expect(updateSessionPolicy).toHaveBeenCalledWith('org-1', { idleTimeoutMinutes: null }, 'step-up-token'));
+  });
+
+  it('refuses an out-of-range maximum age, and warns that lengthening (raise or clear) needs a second factor', async () => {
+    getSessionPolicy.mockResolvedValue({ success: true, data: policy({ maxAgeDays: 10, own: { maxAgeDays: 10, idleTimeoutMinutes: null } }) });
     updateSessionPolicy.mockResolvedValue({ success: true, data: policy() });
     render(<SessionPolicySettings orgId="org-1" readOnly={false} />);
     const maxAge = await screen.findByLabelText('Maximum session age (days)');
@@ -220,7 +293,7 @@ describe('SessionPolicySettings', () => {
   });
 
   it('shows the server\'s refusal (e.g. lengthening on a single-factor session)', async () => {
-    getSessionPolicy.mockResolvedValue({ success: true, data: policy({ own: { maxAgeDays: 5, idleTimeoutDays: null }, maxAgeDays: 5 }) });
+    getSessionPolicy.mockResolvedValue({ success: true, data: policy({ own: { maxAgeDays: 5, idleTimeoutMinutes: null }, maxAgeDays: 5 }) });
     updateSessionPolicy.mockRejectedValue(new Error('This change needs a session opened with a second factor'));
     render(<SessionPolicySettings orgId="org-1" readOnly={false} />);
     fireEvent.change(await screen.findByLabelText('Maximum session age (days)'), { target: { value: '9' } });
@@ -232,12 +305,12 @@ describe('SessionPolicySettings', () => {
   it('names a stricter parent, and disables everything when read-only', async () => {
     getSessionPolicy.mockResolvedValue({
       success: true,
-      data: policy({ idleTimeoutDays: 1, idleTimeoutInheritedFrom: 'root', idleTimeoutInheritedFromName: 'Acme' }),
+      data: policy({ idleTimeoutMinutes: 5, idleTimeoutInheritedFrom: 'root', idleTimeoutInheritedFromName: 'Acme' }),
     });
     render(<SessionPolicySettings orgId="org-1" readOnly />);
     expect(await screen.findByText(/A parent organization sets a stricter limit/)).toBeInTheDocument();
-    expect(screen.getByText(/In force now: 1 day \(set by Acme\)/)).toBeInTheDocument();
-    expect(screen.getByLabelText('Idle timeout (days)')).toBeDisabled();
+    expect(screen.getByText(/In force now: 5 minutes \(set by Acme\)/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Idle timeout')).toBeDisabled();
     expect(screen.getByLabelText('Maximum session age (days)')).toBeDisabled();
   });
 
@@ -246,6 +319,6 @@ describe('SessionPolicySettings', () => {
     getSessionPolicy.mockResolvedValueOnce({ success: true }).mockResolvedValue({ success: true, data: policy() });
     render(<SessionPolicySettings orgId="org-1" readOnly={false} />);
     fireEvent.click(await screen.findByRole('button', { name: /retry/i }));
-    expect(await screen.findByLabelText('Idle timeout (days)')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Idle timeout')).toBeInTheDocument();
   });
 });

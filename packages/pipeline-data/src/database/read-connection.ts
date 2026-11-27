@@ -78,7 +78,7 @@ export function getReadPool(): Pool | null {
     // max_connections budget which is NOT the primary's.
     max: envInt('DB_READ_MAX_POOL_SIZE', 10),
     idleTimeoutMillis: envInt('DRIZZLE_IDLE_TIMEOUT_MS', 30_000),
-    connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MS', 5000),
+    connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MS', 10_000),
     ssl: getSslConfig(),
     allowExitOnIdle: true,
   };

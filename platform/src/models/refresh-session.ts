@@ -42,8 +42,13 @@ export interface RefreshSessionData {
   /** SHA-256 of the slot's current refresh token. */
   hash: string;
   createdAt: Date;
-  /** Last refresh / renewal / switch-org. The idle timeout counts from here. */
+  /** Last refresh / renewal / switch-org of ANY kind (a background poll
+   *  included) — what the sessions page shows and the purge time counts from. */
   lastUsedAt: Date;
+  /** Last real ACTIVITY on the session: its sign-in, a refresh the client
+   *  marked `activity: 'user'`, or a switch-org. A passive refresh (a poll of
+   *  an unattended tab) never moves it. The idle timeout counts from here. */
+  lastActiveAt: Date;
   /** The org this slot's tokens are scoped to: set when the slot opens, moved
    *  by switch-org (which mints only an access token) and re-pinned on every
    *  renewal to the org it actually resolved. Per slot, so two devices / tabs /
@@ -96,6 +101,7 @@ const refreshSessionSchema = new Schema<RefreshSessionData>(
     hash: { type: String, required: true },
     createdAt: { type: Date, required: true },
     lastUsedAt: { type: Date, required: true },
+    lastActiveAt: { type: Date, required: true },
     activeOrgId: { type: String },
     expiresAt: { type: Date },
     purgeAt: { type: Date, required: true },

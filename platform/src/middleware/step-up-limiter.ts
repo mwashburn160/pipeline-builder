@@ -20,11 +20,12 @@
 
 import type { RequestHandler } from 'express';
 import { createLimiter, userOrIpKey } from './rate-limiter.js';
+import { AUTH_RATE_LIMITS } from '../config/rate-limits.js';
 
 export const stepUpLimiter: RequestHandler = createLimiter({
   name: 'step-up',
-  windowMs: 60_000,
-  max: 5,
+  windowMs: AUTH_RATE_LIMITS.stepUp.windowMs,
+  max: AUTH_RATE_LIMITS.stepUp.max,
   keyGenerator: userOrIpKey,
   message: 'Too many step-up attempts. Please wait a minute and try again.',
 });

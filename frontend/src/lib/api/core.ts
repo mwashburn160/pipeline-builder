@@ -6,6 +6,7 @@ import type { AuthTokens, ApiResponse } from '@/types';
 import { REFRESH_BUFFER_MS, REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, API_REQUEST_TIMEOUT_MS, REFRESH_REQUEST_TIMEOUT_MS, REFRESH_LOCK_WAIT_MS } from '../constants';
 import { ApiError, MfaRequiredError, QuotaExceededError, StepUpRequiredError } from './errors';
 import { API_URL, base64UrlDecode, isMfaErrorCode, isStepUpErrorCode, parseRetryAfterSeconds, type ProposedByOptions } from './util';
+import { activityTracker } from '../session/activity';
 
 /** Upper bound on the server-side revoke when stopping impersonation. Stopping
  *  must never wait on the network longer than this. */
@@ -65,8 +66,27 @@ let impersonationSession: { accessToken: string; requestId: string | null } | nu
 
 /** What tabs tell each other on {@link AUTH_CHANNEL_NAME}. */
 type AuthBroadcast =
-  | { type: 'access-token'; accessToken: string; organizationId: string | null }
-  | { type: 'signed-out' };
+  | { type: 'access-token'; accessToken: string; organizationId: string | null; sessionIdle?: SessionIdleState | null }
+  | { type: 'signed-out'; reason?: SessionEndReason; idleTimeoutMinutes?: number };
+
+/**
+ * An interactive session's idle state, in THIS browser's clock: the effective
+ * idle timeout (the strictest of the platform ceiling and the org's policy),
+ * the session's last activity as the server recorded it, and the deadline past
+ * which the server refuses the next refresh. From the `session` block of every
+ * token delivery (sign-in, refresh, switch-org); `null` without an interactive
+ * session (signed out, impersonating).
+ */
+export interface SessionIdleState {
+  idleTimeoutMinutes: number;
+  lastActiveAt: number;
+  idleExpiresAt: number;
+}
+
+/** Extra detail about why a session ended (with {@link SessionEndReason} `idle`). */
+export interface SessionEndDetail {
+  idleTimeoutMinutes?: number;
+}
 
 /** `ApiError.code` when a request needed a token refresh that failed transiently. */
 export const SESSION_REFRESH_UNAVAILABLE = 'SESSION_REFRESH_UNAVAILABLE';
@@ -76,11 +96,14 @@ export const SESSION_REFRESH_UNAVAILABLE = 'SESSION_REFRESH_UNAVAILABLE';
 export const SESSION_EXPIRED_CODE = 'SESSION_EXPIRED';
 
 /**
- * Why a session ended, when the server said. `session-expired`: it outlived
- * the session policy (maximum age / idle timeout). Absent: the refresh cookie
- * was rejected for any other reason (revoked, signed out elsewhere, reuse).
+ * Why a session ended, when it is known. `idle`: no real activity for the
+ * session's idle timeout — the server refused the refresh for it, or a tab's
+ * idle guard signed out at the deadline (every tab is told). `session-expired`:
+ * it outlived the rest of the session policy (maximum age). Absent: the
+ * refresh cookie was rejected for any other reason (revoked, signed out
+ * elsewhere, reuse).
  */
-export type SessionEndReason = 'session-expired';
+export type SessionEndReason = 'session-expired' | 'idle';
 
 /** Storage accessors that never throw (Safari private mode, blocked cookies/storage). */
 function readStore(store: 'local' | 'session', key: string): string | null {
@@ -223,7 +246,14 @@ export class ApiCore {
    *  abandons its result (an HttpOnly refresh cookie can't be asked "is this
    *  still my token?"). */
   private sessionGeneration = 0;
-  private sessionExpiredCallbacks: Set<(reason?: SessionEndReason) => void> = new Set();
+  private sessionExpiredCallbacks: Set<(reason?: SessionEndReason, detail?: SessionEndDetail) => void> = new Set();
+  /** See {@link SessionIdleState}. */
+  private sessionIdle: SessionIdleState | null = null;
+  private sessionIdleListeners: Set<() => void> = new Set();
+  /** Why the last refresh was refused with `SESSION_EXPIRED` (read by `doRefresh`). */
+  private lastExpiry: { reason: SessionEndReason; idleTimeoutMinutes?: number } | null = null;
+  /** When this page started — input before it is no news to the server unless it says so. */
+  private readonly startedAt = Date.now();
   private accessTokenListeners: Set<(token: string | null) => void> = new Set();
   private organizationChangeListeners: Set<() => void> = new Set();
   private identityChangeListeners: Set<() => void> = new Set();
@@ -241,9 +271,72 @@ export class ApiCore {
    * past its maximum age / idle timeout).
    * Returns an unsubscribe function.
    */
-  onSessionExpired(callback: (reason?: SessionEndReason) => void): () => void {
+  onSessionExpired(callback: (reason?: SessionEndReason, detail?: SessionEndDetail) => void): () => void {
     this.sessionExpiredCallbacks.add(callback);
     return () => { this.sessionExpiredCallbacks.delete(callback); };
+  }
+
+  /** The current session's idle state (see {@link SessionIdleState}). */
+  getSessionIdle(): SessionIdleState | null {
+    return this.sessionIdle;
+  }
+
+  /** Called whenever the idle state changes (a delivery, a sibling's, sign-out). Returns an unsubscribe. */
+  onSessionIdleChange(callback: () => void): () => void {
+    this.sessionIdleListeners.add(callback);
+    return () => { this.sessionIdleListeners.delete(callback); };
+  }
+
+  private setSessionIdle(next: SessionIdleState | null): void {
+    const prev = this.sessionIdle;
+    if (prev === next || (prev && next && prev.idleTimeoutMinutes === next.idleTimeoutMinutes
+      && prev.lastActiveAt === next.lastActiveAt && prev.idleExpiresAt === next.idleExpiresAt)) return;
+    this.sessionIdle = next;
+    this.sessionIdleListeners.forEach((cb) => {
+      try { cb(); } catch { /* ignore listener errors */ }
+    });
+  }
+
+  /**
+   * The server's `session` block in this browser's clock. The server's times
+   * are in ITS clock; the token's `iat` says what that clock read at the mint,
+   * so the difference to ours (plus a request's latency) is the skew to remove.
+   */
+  private idleStateFrom(accessToken: string, session: AuthTokens['session']): SessionIdleState | null {
+    if (!session || typeof session.idleTimeoutMinutes !== 'number') return null;
+    const serverDeadline = Date.parse(session.idleExpiresAt);
+    if (!Number.isFinite(serverDeadline)) return null;
+    let skew = 0;
+    try {
+      const iat = (JSON.parse(base64UrlDecode(accessToken.split('.')[1])) as { iat?: unknown }).iat;
+      if (typeof iat === 'number') skew = Date.now() - iat * 1000;
+    } catch { /* undecodable token — assume the clocks agree */ }
+    const idleExpiresAt = serverDeadline + skew;
+    return {
+      idleTimeoutMinutes: session.idleTimeoutMinutes,
+      lastActiveAt: idleExpiresAt - session.idleTimeoutMinutes * 60_000,
+      idleExpiresAt,
+    };
+  }
+
+  /**
+   * The activity signal for the next refresh: `user` when there was real input
+   * (in any tab) since the session's last recorded activity — or, before this
+   * page knows it, since the page started. Requests (polling) never count.
+   */
+  private activityForRefresh(): 'user' | 'passive' {
+    const baseline = this.sessionIdle?.lastActiveAt ?? this.startedAt;
+    return activityTracker.lastActivityAt() > baseline ? 'user' : 'passive';
+  }
+
+  /**
+   * Tell the server about activity now: a refresh that carries `activity:
+   * 'user'` when there was input since the last one ("Stay signed in", or the
+   * idle guard keeping the server's clock in step). Resolves like a refresh.
+   */
+  reportActivity(): Promise<boolean> {
+    if (!this.canRefresh()) return Promise.resolve(false);
+    return this.refreshAccessToken();
   }
 
   /**
@@ -275,9 +368,12 @@ export class ApiCore {
     });
   }
 
-  private notifySessionExpired(reason?: SessionEndReason): void {
+  private notifySessionExpired(reason?: SessionEndReason, detail?: SessionEndDetail): void {
     this.sessionExpiredCallbacks.forEach(cb => {
-      try { cb(reason); } catch { /* ignore listener errors */ }
+      try {
+        if (detail) cb(reason, detail);
+        else cb(reason);
+      } catch { /* ignore listener errors */ }
     });
   }
 
@@ -315,7 +411,11 @@ export class ApiCore {
       if (!message) return;
       if (message.type === 'signed-out') {
         this.resetSession();
-        this.notifySessionExpired();
+        if (message.reason === 'idle') {
+          this.notifySessionExpired('idle', typeof message.idleTimeoutMinutes === 'number' ? { idleTimeoutMinutes: message.idleTimeoutMinutes } : {});
+        } else {
+          this.notifySessionExpired(message.reason);
+        }
         return;
       }
       // An impersonating tab must not be pulled back onto the operator's token.
@@ -327,6 +427,7 @@ export class ApiCore {
         // marker (storage blocked), remember it in memory instead.
         if (readStore('local', SESSION_MARKER_KEY) !== '1') this.sessionInMemory = true;
         this.applyAccessToken(message.accessToken);
+        if (message.sessionIdle) this.setSessionIdle(message.sessionIdle);
         if (message.organizationId) this.organizationId = message.organizationId;
         if (this.organizationId !== previousOrg) {
           this.organizationChangeListeners.forEach((cb) => {
@@ -468,7 +569,11 @@ export class ApiCore {
     // Storage that refuses the marker must not make this session unrefreshable.
     this.sessionInMemory = !writeStore('local', SESSION_MARKER_KEY, '1');
     this.applyAccessToken(tokens.accessToken);
-    this.broadcast({ type: 'access-token', accessToken: tokens.accessToken, organizationId: this.organizationId });
+    // A delivery without a `session` block (an endpoint that does not report
+    // one) leaves the known idle state as it was.
+    const idle = this.idleStateFrom(tokens.accessToken, tokens.session);
+    if (idle) this.setSessionIdle(idle);
+    this.broadcast({ type: 'access-token', accessToken: tokens.accessToken, organizationId: this.organizationId, sessionIdle: this.sessionIdle });
   }
 
   /**
@@ -629,17 +734,19 @@ export class ApiCore {
     writeStore('local', SESSION_MARKER_KEY, null);
     impersonationSession = null;
     writeStore('session', IMPERSONATION_REQUEST_KEY, null);
+    this.setSessionIdle(null);
     this.notifyAccessToken(null);
   }
 
   /**
    * Clear all authentication data, and tell this browser's other tabs — with
    * the token in memory and the refresh token an HttpOnly cookie, they can't
-   * discover it for themselves.
+   * discover it for themselves. `end` says why (an inactivity sign-out), so
+   * every tab lands on the sign-in page with the same explanation.
    */
-  clearTokens() {
+  clearTokens(end?: { reason: SessionEndReason; idleTimeoutMinutes?: number }) {
     this.resetSession();
-    this.broadcast({ type: 'signed-out' });
+    this.broadcast({ type: 'signed-out', ...(end ?? {}) });
   }
 
   /**
@@ -936,8 +1043,13 @@ export class ApiCore {
       // this refresh no longer speaks for the current session.
       if (this.sessionGeneration !== generation) return false;
       if (outcome === 'rejected' || outcome === 'expired') {
-        this.clearTokens();
-        this.notifySessionExpired(outcome === 'expired' ? 'session-expired' : undefined);
+        const end = outcome === 'expired' ? this.lastExpiry ?? { reason: 'session-expired' as const } : undefined;
+        this.clearTokens(end);
+        if (end?.reason === 'idle') {
+          this.notifySessionExpired('idle', end.idleTimeoutMinutes !== undefined ? { idleTimeoutMinutes: end.idleTimeoutMinutes } : {});
+        } else {
+          this.notifySessionExpired(end?.reason);
+        }
         return false;
       }
       if (outcome === 'throttled') {
@@ -1025,7 +1137,10 @@ export class ApiCore {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', [CLIENT_TYPE_HEADER]: CLIENT_TYPE },
         credentials: 'same-origin',
-        body: '{}',
+        // No credential — the cookie is one. Only whether the person did
+        // anything since the session's last activity: a background poll's
+        // refresh must not keep an unattended session alive.
+        body: JSON.stringify({ activity: this.activityForRefresh() }),
         signal: controller.signal,
       });
     } catch {
@@ -1038,9 +1153,17 @@ export class ApiCore {
     const statusCode = response.status;
     if (statusCode === 401 || statusCode === 400) {
       // The body only refines WHY; any 401/400 ends the session either way.
-      let code: unknown;
-      try { code = ((await response.json()) as { code?: unknown } | null)?.code; } catch { /* no/odd body */ }
-      return statusCode === 401 && code === SESSION_EXPIRED_CODE ? 'expired' : 'rejected';
+      type RefusalBody = { code?: unknown; details?: { reason?: unknown; idleTimeoutMinutes?: unknown } } | null;
+      const body = await response.json().then((b: unknown) => b as RefusalBody, () => null as RefusalBody); // no/odd body
+      if (statusCode === 401 && body?.code === SESSION_EXPIRED_CODE) {
+        // Which bound ended it: an idle end says how long, for the sign-in page.
+        const minutes = body.details?.idleTimeoutMinutes;
+        this.lastExpiry = body.details?.reason === 'idle'
+          ? { reason: 'idle', ...(typeof minutes === 'number' ? { idleTimeoutMinutes: minutes } : {}) }
+          : { reason: 'session-expired' };
+        return 'expired';
+      }
+      return 'rejected';
     }
     if (statusCode === 429) {
       this.throttledForMs = retryAfterMs(response);

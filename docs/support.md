@@ -48,6 +48,10 @@ applies as contact counts rise. Larger accounts also carry a seat-derived **size
 floor** (`BILLING_SUPPORT_FLOOR_*`, on by default): beyond the first 15 seats,
 the support price is at least $4.99 per seat per month, weighted by level and
 billed as a visible top-up line — never charged to an account holding no support.
+The top-up is charged once per billing period (an annual period carries the
+ten-month figure) as a labelled line on the subscription's next Stripe invoice;
+on AWS Marketplace, where AWS contracts carry the price, it is not billed and is
+counted as `billing_support_floor_unrealizable_total`.
 See [Environment Variables](environment-variables.md). Premium is an **upgrade** to a Standard or
 Priority contact rather than a separate level, so it is bought for the specific
 people who need round-the-clock cover.

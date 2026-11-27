@@ -5,6 +5,7 @@ import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { createBillingEvent } from './billing-helpers.js';
 import { clawbackRecentPromotions } from './promotion-engine.js';
+import { setMetadataKey } from './subscription-metadata.js';
 import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
@@ -41,7 +42,6 @@ export function readReconcileMarker(sub: { metadata?: Record<string, unknown> })
 type MutableSub = {
   metadata?: Record<string, unknown>;
   save: () => Promise<unknown>;
-  markModified?: (path: string) => void;
 };
 
 /**
@@ -63,8 +63,8 @@ export async function markProviderReconcilePending(
     op, intendedCancelAtPeriodEnd, error: errorMessage(cause),
   });
   try {
-    subscription.metadata = { ...(subscription.metadata ?? {}), [PROVIDER_RECONCILE_KEY]: marker };
-    subscription.markModified?.('metadata');
+    // One path, not the whole object (see helpers/subscription-metadata.ts).
+    setMetadataKey(subscription, PROVIDER_RECONCILE_KEY, marker);
     await subscription.save();
   } catch (err) {
     incCounter('billing_provider_reconcile_total', { outcome: 'mark_failed' });
@@ -80,9 +80,7 @@ export async function markProviderReconcilePending(
 export async function clearProviderReconcilePending(subscription: MutableSub): Promise<void> {
   if (!subscription.metadata || !(PROVIDER_RECONCILE_KEY in subscription.metadata)) return;
   try {
-    const { [PROVIDER_RECONCILE_KEY]: _dropped, ...rest } = subscription.metadata;
-    subscription.metadata = rest;
-    subscription.markModified?.('metadata');
+    setMetadataKey(subscription, PROVIDER_RECONCILE_KEY, undefined);
     await subscription.save();
   } catch (err) {
     logger.warn('Failed to clear provider-reconcile marker (next reconcile pass will)', { error: errorMessage(err) });

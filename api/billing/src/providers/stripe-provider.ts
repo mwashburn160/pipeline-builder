@@ -50,6 +50,20 @@ export const PROVIDER_CALL_DURATION_METRIC = 'billing_provider_call_duration_sec
  * and is what a caller must reconcile rather than revert. The error is rethrown
  * unchanged so callers keep inspecting Stripe's own `code`/`type`.
  */
+/**
+ * Refuse a balance-transaction amount that is not a positive, safe-integer
+ * number of cents. The DIRECTION of a balance transaction is chosen by which
+ * method is called, so the amount must carry no sign of its own: `Math.abs`
+ * used to turn a caller's sign error into the opposite money movement (a
+ * negative debit posted a credit). A fractional or NaN amount is a caller bug
+ * too, and failing here keeps it from reading as a provider outage.
+ */
+function assertPositiveCents(cents: number, op: string): void {
+  if (!Number.isSafeInteger(cents) || cents <= 0) {
+    throw new Error(`${op}: amount must be a positive whole number of cents (got ${String(cents)})`);
+  }
+}
+
 async function tracked<T>(op: string, fn: () => Promise<T>): Promise<T> {
   const startedAt = Date.now();
   let outcome = 'success';
@@ -466,12 +480,13 @@ export class StripeProvider implements PaymentProvider {
    * `idempotencyKey` dedupes a retried grant.
    */
   async applyUsageCredit(externalCustomerId: string, cents: number, idempotencyKey?: string): Promise<{ ref?: DiscountRef }> {
+    assertPositiveCents(cents, 'applyUsageCredit');
     const txn = await tracked('customers.createBalanceTransaction', () => this.stripe.customers.createBalanceTransaction(
       externalCustomerId,
       // The CONFIGURED currency, not a literal: Stripe rejects a balance
       // transaction whose currency differs from the customer's, so a hardcoded
       // 'usd' broke every credit on a non-USD account.
-      { amount: -Math.abs(cents), currency: this.stripeConfig.currency },
+      { amount: -cents, currency: this.stripeConfig.currency },
       idempotencyKey ? { idempotencyKey: `${idempotencyKey}-credit` } : undefined,
     ));
     logger.info('Stripe usage credit applied', { externalCustomerId, cents });
@@ -484,13 +499,42 @@ export class StripeProvider implements PaymentProvider {
    * still unused, so it removes credit rather than creating a charge.
    */
   async debitUsageCredit(externalCustomerId: string, cents: number, idempotencyKey: string): Promise<{ ref?: DiscountRef }> {
+    assertPositiveCents(cents, 'debitUsageCredit');
     const txn = await tracked('customers.createBalanceTransaction', () => this.stripe.customers.createBalanceTransaction(
       externalCustomerId,
-      { amount: Math.abs(cents), currency: this.stripeConfig.currency },
+      { amount: cents, currency: this.stripeConfig.currency },
       { idempotencyKey: `${idempotencyKey}-debit` },
     ));
     logger.info('Stripe usage credit debited', { externalCustomerId, cents });
     return { ref: { kind: 'balance', ref: txn.id } };
+  }
+
+  /**
+   * Add a one-off charge to the subscription's NEXT invoice as a pending invoice
+   * item: a positive, labelled line (the support size floor's top-up). Attached
+   * to the subscription so it lands on that subscription's invoice rather than
+   * whichever invoice the customer happens to get next.
+   */
+  async addInvoiceCharge(
+    externalCustomerId: string,
+    externalSubscriptionId: string,
+    cents: number,
+    description: string,
+    idempotencyKey: string,
+  ): Promise<{ ref: string }> {
+    assertPositiveCents(cents, 'addInvoiceCharge');
+    const item = await tracked('invoiceItems.create', () => this.stripe.invoiceItems.create(
+      {
+        customer: externalCustomerId,
+        subscription: externalSubscriptionId,
+        amount: cents,
+        currency: this.stripeConfig.currency,
+        description,
+      },
+      { idempotencyKey: `${idempotencyKey}-charge` },
+    ));
+    logger.info('Stripe invoice charge added', { externalCustomerId, externalSubscriptionId });
+    return { ref: item.id };
   }
 
   /**

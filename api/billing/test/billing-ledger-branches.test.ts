@@ -70,7 +70,8 @@ describe('ingestStripeInvoice', () => {
     const set = lastSet();
     expect(set).toMatchObject({ subtotalCents: 0, discountCents: 0, creditCents: 0, taxCents: 0, totalCents: 0, amountPaidCents: 0, currency: 'usd' });
     expect((set.periodStart as Date).getTime()).toBeGreaterThanOrEqual(before);
-    expect(BillingInvoice.updateOne).toHaveBeenCalledWith({ externalInvoiceId: 'in_2', status: { $nin: ['refunded', 'disputed'] } }, expect.anything(), { upsert: true });
+    // A draft/open snapshot may only overwrite an open row (the invoice state machine).
+    expect(BillingInvoice.updateOne).toHaveBeenCalledWith({ externalInvoiceId: 'in_2', status: { $in: ['open'] } }, expect.anything(), { upsert: true });
   });
 
   it('sums tax lines, a line with no amount as 0', async () => {
@@ -93,7 +94,8 @@ describe('ingestStripeInvoice', () => {
     await ledger.ingestStripeInvoice('org_1', { id: 'in_4', status: 'paid', amount_paid: 4900, total: 4900 } as any);
     expect(BillingInvoice.updateOne).toHaveBeenCalledTimes(1);
     expect(BillingInvoice.updateOne).toHaveBeenCalledWith(
-      { externalInvoiceId: 'in_4', status: { $nin: ['refunded', 'disputed'] } },
+      // A paid snapshot moves an open/uncollectible/paid row; never a refunded or disputed one.
+      { externalInvoiceId: 'in_4', status: { $in: ['open', 'uncollectible', 'paid'] } },
       { $set: expect.objectContaining({ status: 'paid', amountPaidCents: 4900, totalCents: 4900 }) },
       { upsert: true },
     );

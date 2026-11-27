@@ -881,17 +881,18 @@ export function organizationsApi(core: ApiCore) {
     },
 
     /** GET /organization/:id/session-policy — the interactive-session lifetime
-     *  (maximum age / idle timeout, days): effective, the org's own, the
+     *  (maximum age in days / idle timeout in minutes): effective, the org's own, the
      *  platform ceiling, and any stricter ancestor. */
     getSessionPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<OrgSessionPolicy>>(`/api/organization/${orgId}/session-policy`, { signal: opts?.signal });
     },
-    /** PATCH — each field 1–365 days, `null` clears it, absent = unchanged (at
+    /** PATCH — `maxAgeDays` 1–365 days, `idleTimeoutMinutes` whole minutes from
+     *  5 up to the platform ceiling; `null` clears a field, absent = unchanged (at
      *  least one must be sent). Step-up gated; LENGTHENING (a bound raised or
      *  cleared) also needs a session opened with a second factor. */
     updateSessionPolicy: async (
       orgId: string,
-      body: { maxAgeDays?: number | null; idleTimeoutDays?: number | null },
+      body: { maxAgeDays?: number | null; idleTimeoutMinutes?: number | null },
       stepUpToken?: string,
     ) => {
       return core.request<ApiResponse<OrgSessionPolicy>>(`/api/organization/${orgId}/session-policy`, {

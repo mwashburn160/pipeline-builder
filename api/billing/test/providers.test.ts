@@ -328,6 +328,33 @@ describe('AWSMarketplaceProvider', () => {
       expect(result).toEqual({ metered: 0, skipped: [], unprocessed: 1, unprocessedDimensions: ['seats'] });
     });
 
+    // AWS answers a record it did NOT honour in `Results`, not `UnprocessedRecords`:
+    // `DuplicateRecord` means an earlier record for the same (customer, dimension,
+    // hour) carried a different quantity and that one stands — so a withheld
+    // (credit-reduced) report landing after a full one in the same hour changed
+    // nothing at AWS. Counting it as accepted drew the credit down locally while
+    // the customer was billed in full.
+    it('counts Results that AWS did not honour (DuplicateRecord / CustomerNotSubscribed) as unprocessed', async () => {
+      mockMeteringSend.mockResolvedValue({
+        Results: [
+          { UsageRecord: { Dimension: 'seats', Quantity: 1 }, Status: 'DuplicateRecord' },
+          { UsageRecord: { Dimension: 'pipelines', Quantity: 2 }, Status: 'Success' },
+        ],
+        UnprocessedRecords: [],
+      });
+      const result = await provider.meterAddonUsage(LICENSE, [
+        { bundleId: 'seat_pack', quantity: 1 },
+        { bundleId: 'pipeline_pack', quantity: 2 },
+      ]);
+      expect(result).toEqual({ metered: 1, skipped: [], unprocessed: 1, unprocessedDimensions: ['seats'] });
+
+      mockMeteringSend.mockResolvedValue({
+        Results: [{ UsageRecord: { Dimension: 'pipelines', Quantity: 2 }, Status: 'CustomerNotSubscribed' }],
+      });
+      const second = await provider.meterAddonUsage(LICENSE, [{ bundleId: 'pipeline_pack', quantity: 2 }]);
+      expect(second).toEqual({ metered: 0, skipped: [], unprocessed: 1, unprocessedDimensions: ['pipelines'] });
+    });
+
     it('truncates fractional quantities to a non-negative integer', async () => {
       mockMeteringSend.mockResolvedValue({ UnprocessedRecords: [] });
       await provider.meterAddonUsage(LICENSE, [{ bundleId: 'seat_pack', quantity: 2.9 }]);
@@ -603,6 +630,22 @@ describe('StripeProvider', () => {
       const res = await provider.debitUsageCredit('cus_1', 1200, 'promo-clawback-k-1');
       expect(mockStripeBalanceTxnCreate).toHaveBeenCalledWith('cus_1', { amount: 1200, currency: 'usd' }, { idempotencyKey: 'promo-clawback-k-1-debit' });
       expect(res).toEqual({ ref: { kind: 'balance', ref: 'cbtxn_d' } });
+    });
+  });
+
+  // `Math.abs` turned a SIGN error into the opposite money movement: a negative
+  // amount handed to the debit posted a CREDIT, and a negative credit was still
+  // a credit. A non-integer or NaN reached Stripe as a 400 that the callers read
+  // as a provider outage. Both are caller bugs, refused before any request.
+  describe('balance transactions refuse a malformed amount', () => {
+    it.each([-500, 0, 12.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 60])('applyUsageCredit(%p) throws and posts nothing', async (cents) => {
+      await expect(provider.applyUsageCredit('cus_1', cents, 'idem')).rejects.toThrow(/positive whole number of cents/);
+      expect(mockStripeBalanceTxnCreate).not.toHaveBeenCalled();
+    });
+
+    it.each([-1200, 0, 0.5, Number.NaN])('debitUsageCredit(%p) throws and posts nothing', async (cents) => {
+      await expect(provider.debitUsageCredit('cus_1', cents, 'k')).rejects.toThrow(/positive whole number of cents/);
+      expect(mockStripeBalanceTxnCreate).not.toHaveBeenCalled();
     });
   });
 

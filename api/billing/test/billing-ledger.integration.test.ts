@@ -21,6 +21,7 @@ import { jest, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { integrationSuite, MONGOD_VERSION } from './helpers/integration-gate.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { prng } from './helpers/prng.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -167,6 +168,76 @@ suite('Billing ledger (real Mongo)', () => {
     }
     // The reversal stands; everything else still re-synced.
     expect(await row()).toMatchObject({ status: 'disputed', amountPaidCents: 0, totalCents: 4800 });
+  });
+
+  // ── 1c. invoice-level status follows Stripe's state machine, not delivery order ──
+  //
+  // A Stripe invoice moves draft → open → paid | void | uncollectible, and
+  // uncollectible → paid | void; paid and void are terminal. Each webhook carries
+  // the invoice as it was WHEN the event fired, and Stripe delivers unordered, so
+  // an `invoice.marked_uncollectible` snapshot delivered after the `paid` one
+  // used to overwrite a paid row back to uncollectible with nothing paid —
+  // dropping real revenue out of every summary.
+
+  it('a late uncollectible snapshot never un-pays a paid row', async () => {
+    await ledger.ingestStripeInvoice('org-1', invoice());
+    await ledger.ingestStripeInvoice('org-1', invoice({ status: 'uncollectible', amount_paid: 0 }));
+    expect(await row()).toMatchObject({ status: 'paid', amountPaidCents: 4900 });
+  });
+
+  it('a late open (or draft) snapshot never un-pays a paid row', async () => {
+    await ledger.ingestStripeInvoice('org-1', invoice());
+    await ledger.ingestStripeInvoice('org-1', invoice({ status: 'open', amount_paid: 0 }));
+    expect(await row()).toMatchObject({ status: 'paid', amountPaidCents: 4900 });
+  });
+
+  it('an uncollectible invoice that is later PAID becomes paid (the legal forward move)', async () => {
+    await ledger.ingestStripeInvoice('org-1', invoice({ status: 'uncollectible', amount_paid: 0 }));
+    await ledger.ingestStripeInvoice('org-1', invoice());
+    expect(await row()).toMatchObject({ status: 'paid', amountPaidCents: 4900 });
+  });
+
+  it('void is terminal', async () => {
+    await ledger.ingestStripeInvoice('org-1', invoice({ status: 'void', amount_paid: 0 }));
+    await ledger.ingestStripeInvoice('org-1', invoice({ status: 'uncollectible', amount_paid: 0 }));
+    await ledger.ingestStripeInvoice('org-1', invoice({ status: 'open', amount_paid: 0 }));
+    expect(await row()).toMatchObject({ status: 'void', amountPaidCents: 0 });
+  });
+
+  // INVARIANT — refund/dispute then re-ingest is idempotent and order-free: for
+  // every delivery order (seeded shuffles, with redeliveries), the row converges
+  // on the highest-precedence reversal and the LOWEST net still paid.
+  it('converges on the same row for every delivery order of ingest / refunds / dispute / re-ingest', async () => {
+    type Ev = { kind: 'ingest' } | { kind: 'refund'; net: number } | { kind: 'dispute'; net: number };
+    for (let seed = 1; seed <= 40; seed++) {
+      await BillingInvoice.deleteMany({});
+      await BillingPendingReversal.deleteMany({});
+      const r = prng(seed);
+      const firstRefundNet = r.int(1, 4899);
+      const events: Ev[] = [
+        { kind: 'ingest' }, { kind: 'ingest' },
+        { kind: 'refund', net: firstRefundNet },
+        ...(r.int(0, 1) ? [{ kind: 'refund' as const, net: r.int(0, firstRefundNet) }] : []),
+        ...(r.int(0, 1) ? [{ kind: 'dispute' as const, net: 0 }] : []),
+      ];
+      // Redeliver one event at random, then shuffle (Fisher-Yates on the seed).
+      events.push(events[r.int(0, events.length - 1)]);
+      for (let i = events.length - 1; i > 0; i--) {
+        const j = r.int(0, i);
+        [events[i], events[j]] = [events[j], events[i]];
+      }
+      for (const e of events) {
+        if (e.kind === 'ingest') await ledger.ingestStripeInvoice('org-1', invoice());
+        else await ledger.reverseLedgerInvoice('in_1', e.kind === 'refund' ? 'refunded' : 'disputed', e.net);
+      }
+      const reversals = events.filter((e): e is Exclude<Ev, { kind: 'ingest' }> => e.kind !== 'ingest');
+      const expected = {
+        status: reversals.some((e) => e.kind === 'dispute') ? 'disputed' : 'refunded',
+        amountPaidCents: Math.min(...reversals.map((e) => e.net)),
+      };
+      expect({ seed, row: await row() }).toMatchObject({ seed, row: expected });
+      expect({ seed, banked: await BillingPendingReversal.findById('in_1').lean() }).toEqual({ seed, banked: null });
+    }
   });
 
   // ── 2. summaries leave out uncollected invoices ───────────────────────────

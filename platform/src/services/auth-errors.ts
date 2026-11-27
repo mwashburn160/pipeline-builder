@@ -92,6 +92,27 @@ export const SESSION_EXPIRED_ERROR = {
   message: 'Your session has expired — please sign in again',
   code: SESSION_EXPIRED,
 } as const;
+/** Which bound ended a session: an interactive session's maximum age or idle
+ *  timeout, or a machine credential's fixed end. */
+export type SessionEndReason = 'max-age' | 'idle' | 'credential-end';
+
+/**
+ * The {@link SESSION_EXPIRED} refusal, carrying WHY — so `/auth/refresh` can
+ * tell the client "signed out after N minutes of inactivity" rather than a
+ * bare "expired". Its `message` is the code, so every `message ===
+ * SESSION_EXPIRED` check keeps matching.
+ */
+export class SessionExpiredError extends Error {
+  constructor(
+    readonly reason: SessionEndReason,
+    /** The effective idle timeout (minutes) — set for an `idle` end. */
+    readonly idleTimeoutMinutes?: number,
+  ) {
+    super(SESSION_EXPIRED);
+    this.name = 'SessionExpiredError';
+  }
+}
+
 /** Switch-org into an org whose session policy the (still valid) session is
  *  too old or too idle for: the person signs in again to enter it. → 403 */
 export const SESSION_POLICY_REAUTH_REQUIRED = 'SESSION_POLICY_REAUTH_REQUIRED';

@@ -89,6 +89,10 @@ const mockChargesRetrieve = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockInvoicePaymentsList = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 // The created handler re-reads the dispute; by default it is still open.
 const mockDisputesRetrieve = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+// The invoice-reversal handler re-reads the invoice; by default Stripe reports
+// the reversed state the event carried (set per test via `liveInvoice`).
+const mockInvoicesRetrieve = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+let liveInvoice: Record<string, unknown> | null = null;
 const invoiceForPaymentIntent = async (params: unknown) => {
   const pi = (params as { payment: { payment_intent: string } }).payment.payment_intent;
   return { data: [{ invoice: pi.replace('pi_', 'in_') }] };
@@ -99,6 +103,7 @@ class MockStripeProvider {
       charges: { retrieve: (...a: unknown[]) => mockChargesRetrieve(...a) },
       invoicePayments: { list: (...a: unknown[]) => mockInvoicePaymentsList(...a) },
       disputes: { retrieve: (...a: unknown[]) => mockDisputesRetrieve(...a) },
+      invoices: { retrieve: (...a: unknown[]) => mockInvoicesRetrieve(...a) },
     };
   }
 }
@@ -128,6 +133,8 @@ beforeEach(() => {
   mockInvoicePaymentsList.mockImplementation(invoiceForPaymentIntent);
   mockDisputesRetrieve.mockImplementation(async (id: unknown) => ({ id, status: 'needs_response' }));
   mockClawback.mockResolvedValue(0);
+  liveInvoice = null;
+  mockInvoicesRetrieve.mockImplementation(async (id: unknown) => liveInvoice ?? { id, status: 'void' });
 });
 
 describe('charge.refunded', () => {
@@ -388,6 +395,8 @@ describe('invoice.voided / invoice.marked_uncollectible', () => {
     ...over,
   });
 
+  beforeEach(() => { liveInvoice = voidedInvoice(); });
+
   it('re-ingests the reversed invoice (flips status via mapInvoiceStatus) and claws back', async () => {
     const sub = subDoc();
     mockFindByStripeId.mockResolvedValue(sub);
@@ -407,8 +416,41 @@ describe('invoice.voided / invoice.marked_uncollectible', () => {
     );
   });
 
+  // Stripe delivers unordered and each event carries the invoice AS IT WAS. An
+  // uncollectible invoice that the customer then paid has two events; delivered
+  // paid-first, the stale `marked_uncollectible` clawed back the promotions of an
+  // account that had just PAID, and (with no local sub) flipped the paid row to
+  // uncollectible with nothing collected. The handler re-reads the invoice and
+  // acts only on a reversal that still stands.
+  it('a stale reversal event for an invoice that is now PAID claws nothing back and reverses nothing', async () => {
+    mockFindByStripeId.mockResolvedValue(subDoc());
+    liveInvoice = voidedInvoice({ id: 'in_u', status: 'paid', amount_paid: 4900 });
+    await handleInvoiceReversal(voidedInvoice({ id: 'in_u', status: 'uncollectible' }) as any, 'invoice_uncollectible');
+    expect(mockInvoicesRetrieve).toHaveBeenCalledWith('in_u');
+    expect(mockClawback).not.toHaveBeenCalled();
+    expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+    // The ledger gets the CURRENT invoice, not the stale snapshot.
+    expect(mockIngestStripeInvoice).toHaveBeenCalledWith('org-1', expect.objectContaining({ id: 'in_u', status: 'paid' }));
+  });
+
+  it('a stale reversal for an orphan invoice that is now PAID leaves its ledger row alone', async () => {
+    mockFindByStripeId.mockResolvedValue(null);
+    liveInvoice = voidedInvoice({ id: 'in_orphan', status: 'paid', amount_paid: 4900 });
+    await handleInvoiceReversal(voidedInvoice({ id: 'in_orphan', status: 'uncollectible' }) as any, 'invoice_uncollectible');
+    expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
+  });
+
+  it('a failed re-read throws, so Stripe redelivers rather than the reversal being decided blind', async () => {
+    mockFindByStripeId.mockResolvedValue(subDoc());
+    mockInvoicesRetrieve.mockRejectedValueOnce(new Error('stripe down'));
+    await expect(handleInvoiceReversal(voidedInvoice() as any, 'invoice_voided')).rejects.toThrow('stripe down');
+    expect(mockClawback).not.toHaveBeenCalled();
+  });
+
   it('marked_uncollectible follows the same reversal path', async () => {
     mockFindByStripeId.mockResolvedValue(subDoc());
+    liveInvoice = voidedInvoice({ id: 'in_u', status: 'uncollectible' });
     await handleInvoiceReversal(voidedInvoice({ id: 'in_u', status: 'uncollectible' }) as any, 'invoice_uncollectible');
     expect(mockIngestStripeInvoice).toHaveBeenCalledWith('org-1', expect.objectContaining({ status: 'uncollectible' }));
     expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_updated', expect.objectContaining({ reason: 'invoice_uncollectible' }), 'sub-1');
@@ -416,6 +458,7 @@ describe('invoice.voided / invoice.marked_uncollectible', () => {
 
   it('falls back to a status-only ledger flip when no local subscription matches', async () => {
     mockFindByStripeId.mockResolvedValue(null);
+    liveInvoice = voidedInvoice({ id: 'in_orphan', status: 'uncollectible' });
     await handleInvoiceReversal(voidedInvoice({ id: 'in_orphan', status: 'uncollectible' }) as any, 'invoice_uncollectible');
     // No org to re-ingest with — flip the existing row's status directly.
     expect(mockIngestStripeInvoice).not.toHaveBeenCalled();

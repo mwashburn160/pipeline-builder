@@ -76,7 +76,12 @@ const COMPACTED_PREFIX = 'compacted:';
  *  `dedupeKey` and is not itself an existing carry row. One-time grants (no
  *  dedupeKey) are never folded. */
 function isPeriodic(entry: CreditLedgerEntry): boolean {
-  return typeof entry.dedupeKey === 'string' && !entry.dedupeKey.startsWith(COMPACTED_PREFIX);
+  return typeof entry.dedupeKey === 'string' && !entry.dedupeKey.startsWith(COMPACTED_PREFIX)
+    // A clawback tombstone tagged with its reversal is what a WON dispute
+    // re-grants from (`regrantDisputeClawback` reads `clawbackRef` +
+    // `clawedBackCents`). Folded into a carry it lost both, and winning the
+    // dispute re-granted nothing. One row per dispute, so keeping them is bounded.
+    && !entry.clawbackRef;
 }
 
 /** Grants a row represents — 1 for an ordinary row, its stored count for a carry. */

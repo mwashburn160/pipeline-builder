@@ -90,7 +90,7 @@ interface AuthContextType {
    * Sign out and go to the sign-in page. `reason` is shown there (e.g. the
    * org-switch prompt's "this organization requires a fresh sign-in").
    */
-  logout: (opts?: { reason?: SignInReason }) => Promise<void>;
+  logout: (opts?: { reason?: SignInReason; idleTimeoutMinutes?: number }) => Promise<void>;
   refreshUser: (opts?: { force?: boolean }) => Promise<void>;
   /** Switch active organization. Re-issues tokens and refreshes user profile with the new org's role. */
   switchOrganization: (orgId: string) => Promise<void>;
@@ -408,7 +408,7 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
    * Redirects to login page and clears local state.
    */
   useEffect(() => {
-    return api.onSessionExpired((reason) => {
+    return api.onSessionExpired((reason, detail) => {
       abandonInFlightRefresh();
       clearSessionCaches();
       setUser(null);
@@ -417,7 +417,11 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
       rememberReturnPath(router.asPath);
       // A session that ran its course (maximum age / idle timeout) says so in
       // plain words; any other rejection keeps the generic notice.
-      void router.push(reason === 'session-expired' ? signInHref('session-expired') : '/?expired=1');
+      // An inactivity sign-out (here or in another tab) says how long it was.
+      void router.push(
+        reason === 'idle' ? signInHref('idle', { minutes: detail?.idleTimeoutMinutes })
+          : reason === 'session-expired' ? signInHref('session-expired') : '/?expired=1',
+      );
     });
   }, [router, abandonInFlightRefresh]);
 
@@ -450,14 +454,19 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
   /**
    * Logout user
    */
-  const logout = useCallback(async (opts?: { reason?: SignInReason }) => {
+  const logout = useCallback(async (opts?: { reason?: SignInReason; idleTimeoutMinutes?: number }) => {
     // Parsed, not trusted: `logout` is also wired straight to click handlers,
     // which hand it the event.
     const reason = parseSignInReason(opts?.reason);
+    const idleTimeoutMinutes = reason === 'idle' && typeof opts?.idleTimeoutMinutes === 'number' ? opts.idleTimeoutMinutes : undefined;
+    // An inactivity sign-out is not a choice: like an expiry, it keeps the page
+    // to come back to after signing in again.
+    if (reason === 'idle') rememberReturnPath(router.asPath);
     setIsLoading(true);
-    
+
     try {
-      await api.logout();
+      // The idle reason travels to every other tab with the sign-out broadcast.
+      await (reason === 'idle' ? api.logout({ reason: 'idle', ...(idleTimeoutMinutes !== undefined ? { idleTimeoutMinutes } : {}) }) : api.logout());
     } finally {
       abandonInFlightRefresh();
       clearSessionCaches();
@@ -467,7 +476,9 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
       // Navigate to landing page. A deliberate sign-out returns nowhere: the
       // auth guard remembers the page it bounces from as `user` clears, so the
       // remembered path is dropped once the navigation has happened.
-      void Promise.resolve(router.push(reason ? signInHref(reason) : '/')).finally(forgetReturnPath);
+      const target = reason ? signInHref(reason, { minutes: idleTimeoutMinutes }) : '/';
+      const pushed = Promise.resolve(router.push(target));
+      if (reason !== 'idle') void pushed.finally(forgetReturnPath);
     }
   }, [router, abandonInFlightRefresh]);
 

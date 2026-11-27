@@ -199,7 +199,9 @@ describe('mark / clear', () => {
     await markProviderReconcilePending(doc, 'cancel', true, new Error('timeout'), 'u-1');
     expect(readReconcileMarker(doc)).toEqual(expect.objectContaining({ op: 'cancel', intendedCancelAtPeriodEnd: true, actorId: 'u-1' }));
     expect(doc.metadata.other).toBe(1);
-    expect(doc.markModified).toHaveBeenCalledWith('metadata');
+    // Never the WHOLE object: marking `metadata` modified made the save write back
+    // every key it had read, erasing markers other writers set meanwhile.
+    expect(doc.markModified).not.toHaveBeenCalled();
     expect(doc.save).toHaveBeenCalled();
     expect(mockIncCounter).toHaveBeenCalledWith('billing_provider_outcome_unknown_total', { op: 'cancel' });
   });

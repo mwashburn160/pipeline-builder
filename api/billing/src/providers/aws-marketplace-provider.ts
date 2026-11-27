@@ -16,6 +16,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider.js';
 import type { MarketplaceConfig } from '../config.js';
+import { isWholeCents } from '../helpers/marketplace-credit.js';
 import { licenseIdOf } from '../helpers/marketplace-license.js';
 import type { BillingInterval } from '../models/subscription.js';
 import { Subscription } from '../models/subscription.js';
@@ -82,7 +83,8 @@ export class AWSMarketplaceProvider implements PaymentProvider {
     // advertising 'metered' without a running drawdown cycle OR without a price map
     // would BANK a credit that never reduces the AWS bill (silent money loss). So a
     // credit is accepted only when the mechanism that realizes it can actually run.
-    const priced = Object.keys(marketplaceConfig.dimensionPriceMap ?? {}).length > 0;
+    // Only a whole-cent price can value a withheld unit (see planMeteredDrawdown).
+    const priced = Object.values(marketplaceConfig.dimensionPriceMap ?? {}).some(isWholeCents);
     this.usageCreditSupport = (marketplaceConfig.creditsEnabled && marketplaceConfig.meteringEnabled && priced) ? 'metered' : 'none';
     this.meteringClient = new MarketplaceMeteringClient({ region: marketplaceConfig.region });
     this.entitlementClient = new MarketplaceEntitlementServiceClient({
@@ -255,6 +257,17 @@ export class AWSMarketplaceProvider implements PaymentProvider {
       for (const rec of result.UnprocessedRecords ?? []) {
         unprocessed += 1;
         if (rec.Dimension) unprocessedDimensions.push(rec.Dimension);
+      }
+      // A record AWS answered but did not HONOUR is just as unprocessed.
+      // `DuplicateRecord` means an earlier record for the same (customer,
+      // dimension, hour) with a different quantity stands — so a credit-reduced
+      // report landing after a full one in that hour discounted nothing, and
+      // counting it as accepted drew the credit down while AWS billed in full.
+      // `CustomerNotSubscribed` bills nothing at all. Only `Success` counts.
+      for (const rec of result.Results ?? []) {
+        if (rec.Status === undefined || rec.Status === 'Success') continue;
+        unprocessed += 1;
+        if (rec.UsageRecord?.Dimension) unprocessedDimensions.push(rec.UsageRecord.Dimension);
       }
     }
 

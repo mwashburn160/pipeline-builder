@@ -51,7 +51,7 @@ beforeEach(() => {
 describe('grantSupportIncidents', () => {
   it('increments atomically and returns the new balance', async () => {
     mockFindOneAndUpdate.mockResolvedValue({ supportIncidentBalance: 3 });
-    await expect(grantSupportIncidents('org-1', 3)).resolves.toBe(3);
+    await expect(grantSupportIncidents('org-1', 3)).resolves.toEqual({ balance: 3, duplicate: false });
 
     const [filter, update, opts] = mockFindOneAndUpdate.mock.calls[0] as [Record<string, unknown>, Record<string, unknown>, Record<string, unknown>];
     expect(filter).toMatchObject({ orgId: 'org-1' });
@@ -70,6 +70,26 @@ describe('grantSupportIncidents', () => {
   it('returns null when there is no subscription to hold the balance', async () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
     await expect(grantSupportIncidents('ghost', 1)).resolves.toBeNull();
+  });
+
+  // A grant is a POST an operator's browser (or a proxy) can retry. Without a
+  // key the retry granted the incidents twice; with one, the key rides the same
+  // atomic filter as the `$inc`, so a repeat — even a concurrent one — grants
+  // nothing and answers with the balance as it stands.
+  it('applies a keyed grant once: the key is guarded in the same atomic write as the $inc', async () => {
+    mockFindOneAndUpdate.mockResolvedValueOnce({ supportIncidentBalance: 4 });
+    await expect(grantSupportIncidents('org-1', 4, 'staff-1', 'grant-key-0001')).resolves.toEqual({ balance: 4, duplicate: false });
+    const [filter, update] = mockFindOneAndUpdate.mock.calls[0] as [Record<string, unknown>, Record<string, any>];
+    expect(filter).toMatchObject({ 'supportIncidentGrants.key': { $ne: 'grant-key-0001' } });
+    expect(update.$inc).toEqual({ supportIncidentBalance: 4 });
+    expect(update.$push.supportIncidentGrants.$each).toEqual([expect.objectContaining({ key: 'grant-key-0001', count: 4 })]);
+  });
+
+  it('answers a repeated key with the current balance and grants nothing', async () => {
+    mockFindOneAndUpdate.mockResolvedValueOnce(null);
+    mockFindOne.mockReturnValueOnce({ lean: async () => ({ supportIncidentBalance: 4 }) });
+    await expect(grantSupportIncidents('org-1', 4, 'staff-1', 'grant-key-0001')).resolves.toEqual({ balance: 4, duplicate: true });
+    expect(mockFindOneAndUpdate).toHaveBeenCalledTimes(1);
   });
 
   it.each([0, -1, 1.5, MAX_INCIDENT_GRANT + 1, NaN])('rejects an out-of-range count: %p', async (count) => {

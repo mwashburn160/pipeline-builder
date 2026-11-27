@@ -42,6 +42,15 @@ const logger = createLogger('billing-admin-subscriptions');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
 /**
+ * Ceiling on a negotiated MONTHLY support floor: $10M. A fat-finger guard, not
+ * a business rule — far above any real agreement, and low enough that the
+ * figure times the annual interval's months stays a safe integer of cents.
+ */
+const MAX_NEGOTIATED_FLOOR_CENTS = 1_000_000_000;
+/** Ceiling on the seat count a floor is agreed at — the same kind of guard. */
+const MAX_NEGOTIATED_FLOOR_SEATS = 10_000_000;
+
+/**
  * The un-subscribed BASELINE tier an account falls back to when its
  * subscription enters a terminal / non-entitled status — mirrors the normal
  * cancel/grace-expiry/webhook-delete downgrade paths, which all sync to
@@ -180,10 +189,15 @@ export function createAdminSubscriptionRoutes(): Router {
         return sendSuccess(res, 200, { supportFloorOverride: null });
       }
 
-      if (typeof body.floorCents !== 'number' || !Number.isInteger(body.floorCents) || body.floorCents < 0) {
-        return sendBadRequest(res, 'floorCents must be a non-negative integer, or null to clear', ErrorCode.VALIDATION_ERROR);
+      // SAFE integers under a ceiling, not merely `Number.isInteger` (which is
+      // true of 1e300): the stored figure is multiplied by the interval's months
+      // and a volume factor before it is billed, and that arithmetic is only
+      // exact in cents while every intermediate stays a safe integer.
+      if (typeof body.floorCents !== 'number' || !Number.isSafeInteger(body.floorCents)
+        || body.floorCents < 0 || body.floorCents > MAX_NEGOTIATED_FLOOR_CENTS) {
+        return sendBadRequest(res, `floorCents must be an integer in 0..${MAX_NEGOTIATED_FLOOR_CENTS}, or null to clear`, ErrorCode.VALIDATION_ERROR);
       }
-      if (typeof body.seats !== 'number' || !Number.isInteger(body.seats) || body.seats < 0) {
+      if (typeof body.seats !== 'number' || !Number.isSafeInteger(body.seats) || body.seats < 0 || body.seats > MAX_NEGOTIATED_FLOOR_SEATS) {
         // Refused rather than defaulted to the account's current seats: a
         // negotiated price with an inferred seat count cannot be told apart
         // later from one that was actually agreed at that size, which is the
@@ -216,7 +230,9 @@ export function createAdminSubscriptionRoutes(): Router {
         // cannot answer "at what scale".
         details: { seats: override.seats, floorCents: override.floorCents },
       });
-      ctx.log('COMPLETED', 'Support floor override set', { subscriptionId, floorCents: override.floorCents });
+      // The agreed price stays in the audit record above, not in the service log:
+      // a negotiated price is a commercial term, and logs are read far more widely.
+      ctx.log('COMPLETED', 'Support floor override set', { subscriptionId });
       return sendSuccess(res, 200, { supportFloorOverride: override });
     }),
   );

@@ -43,7 +43,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 const mockResolveRoot = jest.fn<(orgId: string) => Promise<string>>();
 jest.unstable_mockModule('../src/helpers/root-org-guard.js', () => ({ resolveAccountRootOrgId: mockResolveRoot }));
 
-const mockGrant = jest.fn<(...a: unknown[]) => Promise<number | null>>();
+const mockGrant = jest.fn<(...a: unknown[]) => Promise<{ balance: number; duplicate: boolean } | null>>();
 const mockConsume = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockRefund = jest.fn<(...a: unknown[]) => Promise<{ refunded: boolean; balance: number | null }>>();
 const mockRemaining = jest.fn<(...a: unknown[]) => Promise<number>>();
@@ -193,10 +193,24 @@ describe('POST /admin/orgs/:orgId/support-incidents (grant)', () => {
     expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 
+  it('passes an idempotency key through, and a REPEATED key answers 200 with no second audit row', async () => {
+    mockGrant.mockResolvedValueOnce({ balance: 5, duplicate: true });
+    await call(handler('post', GRANT), grantReq({ count: 2, idempotencyKey: 'grant-key-0001' }));
+    expect(mockGrant).toHaveBeenCalledWith('root-1', 2, expect.anything(), 'grant-key-0001');
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+    expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, { balance: 5, accountOrgId: 'root-1', duplicate: true });
+  });
+
+  it('refuses a malformed idempotency key', async () => {
+    await call(handler('post', GRANT), grantReq({ count: 2, idempotencyKey: 'short' }));
+    expect(mockGrant).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith({}, 400, expect.any(String), 'VALIDATION_ERROR');
+  });
+
   it('grants to the ROOT of a team id and audits who, how many and the requested org', async () => {
-    mockGrant.mockResolvedValueOnce(5);
+    mockGrant.mockResolvedValueOnce({ balance: 5, duplicate: false });
     await call(handler('post', GRANT), grantReq({ count: 2, note: '  outage make-good  ' }));
-    expect(mockGrant).toHaveBeenCalledWith('root-1', 2, expect.anything());
+    expect(mockGrant).toHaveBeenCalledWith('root-1', 2, expect.anything(), undefined);
     expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'billing.support-incident.grant',
       affectedOrgId: 'root-1',
@@ -207,7 +221,7 @@ describe('POST /admin/orgs/:orgId/support-incidents (grant)', () => {
   });
 
   it('omits requestedOrgId when granted against the root directly', async () => {
-    mockGrant.mockResolvedValueOnce(1);
+    mockGrant.mockResolvedValueOnce({ balance: 1, duplicate: false });
     await call(handler('post', GRANT), grantReq({ count: 1 }, 'root-1'));
     const row = mockRecordAudit.mock.calls[0][0] as { details: Record<string, unknown> };
     expect(row.details).toEqual({ count: 1, balance: 1 });

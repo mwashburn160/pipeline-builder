@@ -107,8 +107,9 @@ describe('ApiCore token refresh', () => {
     expect(url).toBe('/api/auth/refresh');
     expect(init.credentials).toBe('same-origin');
     expect((init.headers as Record<string, string>)['X-Pb-Client']).toBe('web');
-    // The whole point: the credential is the cookie, never anything a script held.
-    expect(init.body).toBe('{}');
+    // The whole point: the credential is the cookie, never anything a script
+    // held. The body carries only the activity signal (no input → passive).
+    expect(JSON.parse(String(init.body))).toEqual({ activity: 'passive' });
     expect(core.getAccessToken()).toBe(ROTATED.accessToken);
   });
 

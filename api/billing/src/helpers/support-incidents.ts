@@ -47,35 +47,68 @@ const logger = createLogger('support-incidents');
 /** Upper bound on a single grant — a fat-finger guard, not a business rule. */
 export const MAX_INCIDENT_GRANT = 100;
 
+const MANAGEABLE = { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] };
+
 /**
  * Add `count` incidents to an org's balance. Returns the new balance, or `null`
  * when the org has no manageable subscription to hold it.
  *
  * `$inc` rather than read-modify-write so two concurrent grants cannot lose one
  * — the same reason `creditBalanceCents` is incremented this way.
+ *
+ * `idempotencyKey` makes a RETRIED grant safe: a grant is a POST an operator's
+ * browser or a proxy can resend, and without a key the resend granted twice.
+ * The key rides the same atomic filter as the `$inc` (like the consume's), so a
+ * repeat — even a concurrent one — grants nothing and is answered with the
+ * balance as it stands (`duplicate: true`).
  */
 export async function grantSupportIncidents(
   orgId: string,
   count: number,
   actorId?: string,
-): Promise<number | null> {
+  idempotencyKey?: string,
+): Promise<{ balance: number; duplicate: boolean } | null> {
   if (!Number.isInteger(count) || count < 1 || count > MAX_INCIDENT_GRANT) {
     throw new Error(`count must be an integer in 1..${MAX_INCIDENT_GRANT}`);
   }
   const updated = await Subscription.findOneAndUpdate(
-    { orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } },
-    { $inc: { supportIncidentBalance: count } },
+    {
+      orgId,
+      status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
+      ...(idempotencyKey ? { 'supportIncidentGrants.key': { $ne: idempotencyKey } } : {}),
+    },
+    {
+      $inc: { supportIncidentBalance: count },
+      ...(idempotencyKey ? {
+        $push: {
+          supportIncidentGrants: {
+            $each: [{ key: idempotencyKey, count, at: new Date() }],
+            $slice: -SUPPORT_INCIDENT_SPEND_HISTORY,
+          },
+        },
+      } : {}),
+    },
     { new: true },
   );
   if (!updated) {
+    if (idempotencyKey) {
+      // The key already landed (or there is no subscription at all): answer
+      // with the balance as it stands, granting nothing.
+      const prior = await Subscription.findOne(
+        { orgId, 'status': MANAGEABLE, 'supportIncidentGrants.key': idempotencyKey },
+        { supportIncidentBalance: 1 },
+      ).lean<{ supportIncidentBalance?: number }>();
+      if (prior) {
+        logger.info('Repeated support-incident grant ignored (same idempotency key)', { orgId, actorId });
+        return { balance: prior.supportIncidentBalance ?? 0, duplicate: true };
+      }
+    }
     logger.warn('Support-incident grant skipped: no manageable subscription', { orgId, count });
     return null;
   }
   logger.info('Support incidents granted', { orgId, count, balance: updated.supportIncidentBalance, actorId });
-  return updated.supportIncidentBalance;
+  return { balance: updated.supportIncidentBalance, duplicate: false };
 }
-
-const MANAGEABLE = { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] };
 
 /** Append one spend record, keeping only the newest history window. */
 function pushSpend(key: string, consumed: boolean): Record<string, unknown> {

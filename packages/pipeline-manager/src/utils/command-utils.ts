@@ -136,7 +136,10 @@ async function renewSession(baseUrl: string, session: StoredSession): Promise<st
   try {
     const response = await axios.post<{ data?: { accessToken?: string; refreshToken?: string; expiresIn?: number } }>(
       `${baseUrl}/api/auth/refresh`,
-      { refreshToken: session.refreshToken },
+      // A CLI renewal only happens because a person ran a command: it is real
+      // activity, so it restarts the session's idle clock (a missing signal
+      // would be read as a passive poll, and the session would idle out).
+      { refreshToken: session.refreshToken, activity: 'user' },
       {
         headers: { 'Content-Type': 'application/json', 'X-Pb-Client': 'cli', ...requestCorrelationHeaders() },
         timeout: 30_000,

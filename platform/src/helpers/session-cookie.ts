@@ -111,6 +111,8 @@ export interface DeliveredTokens {
   expiresIn: number;
   /** Non-browser callers only; the browser's rides in the cookie instead. */
   refreshToken?: string;
+  /** INTERACTIVE sessions: the effective idle timeout and the server's idle deadline. */
+  session?: IssuedTokens['session'];
 }
 
 /**
@@ -121,5 +123,9 @@ export interface DeliveredTokens {
 export function deliverSessionTokens(req: RequestLike, res: Response, tokens: IssuedTokens): DeliveredTokens {
   if (!isBrowserClient(req)) return tokens;
   setRefreshCookie(res, tokens.refreshToken);
-  return { accessToken: tokens.accessToken, expiresIn: tokens.expiresIn };
+  return {
+    accessToken: tokens.accessToken,
+    expiresIn: tokens.expiresIn,
+    ...(tokens.session ? { session: tokens.session } : {}),
+  };
 }

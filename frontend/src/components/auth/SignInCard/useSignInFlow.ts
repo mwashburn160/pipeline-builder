@@ -104,6 +104,8 @@ export function useSignInFlow() {
   // (`reason=session-expired`), an org that needs a fresh sign-in
   // (`reason=org-reauth`), or the generic refresh rejection (`expired=1`).
   const signInReason = parseSignInReason(router.query.reason);
+  // An inactivity sign-out's timeout (`&minutes=N`), parsed by the message.
+  const signInReasonMinutes = router.query.minutes;
   const sessionExpired = router.query.expired === '1' && signInReason === null;
 
   // Fail-soft: no answer means no social buttons, never a broken sign-in form.
@@ -362,7 +364,7 @@ export function useSignInFlow() {
   };
 
   return {
-    isSubmitting, sessionExpired, signInReason, error,
+    isSubmitting, sessionExpired, signInReason, signInReasonMinutes, error,
     identifier, changeIdentifier, password, setPassword, showPassword, setShowPassword, handleSignIn,
     mfaChallengeId, mfaCode, setMfaCode, mfaBusy, handleMfaSubmit, cancelMfa, lostFactorOpen, setLostFactorOpen,
     mfaPolicyBlocked,

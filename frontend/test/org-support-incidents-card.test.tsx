@@ -75,16 +75,37 @@ describe('OrgSupportIncidentsCard', () => {
     const modal = await screen.findByTestId('stepup-modal');
     expect(within(modal).getByText(/grant 2 support incidents to child co/i)).toBeInTheDocument();
     fireEvent.click(within(modal).getByRole('button', { name: 'Confirm step-up' }));
-    await waitFor(() => expect(api.grantSupportIncidents).toHaveBeenCalledWith('org-2', { count: 2, note: 'make-good after the 11-20 outage' }, 'tok'));
+    await waitFor(() => expect(api.grantSupportIncidents).toHaveBeenCalledWith('org-2', { count: 2, note: 'make-good after the 11-20 outage', idempotencyKey: expect.stringMatching(/^[A-Za-z0-9_-]{8,128}$/) }, 'tok'));
     expect(await screen.findByText(/granted 2 incidents\. balance is now 5\./i)).toBeInTheDocument();
     expect((screen.getByLabelText(/^incidents$/i) as HTMLInputElement).value).toBe('1');
+  });
+
+  it('sends one idempotency key per submit, so a retried request cannot grant twice', async () => {
+    render(<OrgSupportIncidentsCard org={ORG} />);
+    fill('1');
+    fireEvent.click(within(await screen.findByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
+    await waitFor(() => expect(api.grantSupportIncidents).toHaveBeenCalledTimes(1));
+    await screen.findByText(/granted 1 incident\./i);
+    fill('1');
+    fireEvent.click(within(await screen.findByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
+    await waitFor(() => expect(api.grantSupportIncidents).toHaveBeenCalledTimes(2));
+    const [first, second] = api.grantSupportIncidents.mock.calls.map((c) => (c[1] as { idempotencyKey: string }).idempotencyKey);
+    expect(first).not.toBe(second);
+  });
+
+  it('a repeated grant the server recognised says nothing new was granted', async () => {
+    api.grantSupportIncidents.mockResolvedValueOnce({ success: true, data: { balance: 5, accountOrgId: 'org-2', duplicate: true } });
+    render(<OrgSupportIncidentsCard org={ORG} />);
+    fill('2');
+    fireEvent.click(within(await screen.findByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
+    expect(await screen.findByText(/already granted: nothing new was added\. balance is 5\./i)).toBeInTheDocument();
   });
 
   it('omits an empty note', async () => {
     render(<OrgSupportIncidentsCard org={ORG} />);
     fill('1', '   ');
     fireEvent.click(within(await screen.findByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
-    await waitFor(() => expect(api.grantSupportIncidents).toHaveBeenCalledWith('org-2', { count: 1 }, 'tok'));
+    await waitFor(() => expect(api.grantSupportIncidents).toHaveBeenCalledWith('org-2', { count: 1, idempotencyKey: expect.stringMatching(/^[A-Za-z0-9_-]{8,128}$/) }, 'tok'));
   });
 
   it.each(['0', '101', '1.5', '', 'abc'])('refuses a count of %p before any step-up (1 to 100, whole)', async (count) => {

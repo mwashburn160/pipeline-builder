@@ -170,6 +170,7 @@ export {
   toolchainOrgChain,
   loadReleaseHalves,
   toolchainCandidateProblems,
+  toolchainFloorBreach,
   bootstrapToolchainOf,
   setManagedToolchainDepsForTests,
   managedToolchainNamesSql,

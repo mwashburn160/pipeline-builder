@@ -307,6 +307,24 @@ describe('Set as platform default — preview, guards, promotion, notices', () =
     sent.length = 0;
   }
 
+  it('the canary floor is the promotion floor: PLUGIN_VULN_MAX_FINDINGS=-1 turns it off, a rescan flag breaches it', async () => {
+    // toolchainCandidateProblems (canary rollout + serving) once read the knob
+    // with min 0 and the raw fixable count: `-1` still refused a canary that
+    // promotion itself allows, and a rescan flag on a clean count slipped through.
+    await world();
+    await raw.query("UPDATE plugins SET vuln_critical_fixable = 2 WHERE name = 'cdk-synth' AND version = '1.1.0'");
+    await expect(consoleSvc.replaceRollout('1.1.0', [D], 'u-op')).rejects.toMatchObject({ code: 'TOOLCHAIN_GUARD_VULN_FLOOR' });
+    process.env.PLUGIN_VULN_MAX_FINDINGS = '-1';
+    try {
+      await expect(consoleSvc.replaceRollout('1.1.0', [D], 'u-op')).resolves.toBeDefined();
+    } finally {
+      delete process.env.PLUGIN_VULN_MAX_FINDINGS;
+    }
+    await consoleSvc.replaceRollout('1.1.0', [], 'u-op');
+    await raw.query("UPDATE plugins SET vuln_critical_fixable = 0, scan_flagged_at = now() WHERE name = 'cdk-synth' AND version = '1.1.0'");
+    await expect(consoleSvc.replaceRollout('1.1.0', [D], 'u-op')).rejects.toMatchObject({ code: 'TOOLCHAIN_GUARD_VULN_FLOOR' });
+  });
+
   it('the preview shows the blast radius and every promotion guard, without writing', async () => {
     await world();
     const out = await consoleSvc.previewDefault('1.1.0');

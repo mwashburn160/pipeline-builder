@@ -135,7 +135,7 @@ export function billingApi(core: ApiCore) {
      * + `support_cases:write` + aal2 + step-up; audited `billing.support-incident.grant`.
      */
     grantSupportIncidents: async (orgId: string, body: SupportIncidentGrant, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ balance: number; accountOrgId: string }>>(
+      return core.request<ApiResponse<{ balance: number; accountOrgId: string; duplicate?: boolean }>>(
         `/api/billing/admin/orgs/${encodeURIComponent(orgId)}/support-incidents`,
         { method: 'POST', headers: core.stepUpHeader(stepUpToken), body: JSON.stringify(body) },
       );
@@ -708,6 +708,8 @@ export interface SupportIncidentGrant {
   count: number;
   /** Recorded (trimmed, first 500 characters) in the audit row. */
   note?: string;
+  /** One per operator submit (8-128 of [A-Za-z0-9_-]): a retried request with it grants once. */
+  idempotencyKey?: string;
 }
 
 /**

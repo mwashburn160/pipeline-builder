@@ -276,14 +276,53 @@ export async function handleChargeDisputeClosed(dispute: Stripe.Dispute): Promis
 }
 
 /**
+ * The invoice's CURRENT state from Stripe, or the event's own snapshot when no
+ * Stripe client is active (or the snapshot carries no id). A retrieve failure
+ * re-throws so the webhook 500s and Stripe redelivers.
+ */
+async function currentInvoice(invoice: Stripe.Invoice, stripe: Stripe | null): Promise<Stripe.Invoice> {
+  if (!stripe || !invoice.id) return invoice;
+  try {
+    return await stripe.invoices.retrieve(invoice.id);
+  } catch (err) {
+    incCounter('billing_invoice_retrieve_failed_total', { reason: 'invoice_reversal' });
+    logger.error('Stripe invoice re-read failed — rethrowing so Stripe redelivers', { invoiceId: invoice.id, error: errorMessage(err) });
+    throw err;
+  }
+}
+
+/**
  * `invoice.voided` / `invoice.marked_uncollectible` — an invoice reversed at the
  * invoice level. Re-ingest so the ledger row flips to `void`/`uncollectible` via
  * `mapInvoiceStatus` (making those branches live) with the invoice's current
  * amounts, then claw back recently-granted promotion credits.
  */
-export async function handleInvoiceReversal(invoice: Stripe.Invoice, reason: string): Promise<void> {
+export async function handleInvoiceReversal(event: Stripe.Invoice, reason: string): Promise<void> {
+  // Act on the invoice as it is NOW, not as the event snapshot had it. Stripe
+  // delivers unordered and redelivers for days, and an uncollectible invoice
+  // can still be paid: delivered paid-first, the stale `marked_uncollectible`
+  // clawed back the promotions of an account that had just paid, and — with no
+  // local subscription — flipped the paid ledger row to uncollectible with
+  // nothing collected. A failed re-read throws so Stripe redelivers, rather than
+  // the reversal being decided blind.
+  const invoice = await currentInvoice(event, activeStripeClient());
   const stripeSubscriptionId = invoiceSubscriptionId(invoice);
   const subscription = stripeSubscriptionId ? await findSubscriptionByStripeId(stripeSubscriptionId) : null;
+
+  if (invoice.status !== 'void' && invoice.status !== 'uncollectible') {
+    incCounter('billing_invoice_reversal_stale_total', { reason });
+    logger.info('Invoice reversal event is stale — the invoice is no longer reversed; nothing clawed back', {
+      reason, invoiceId: invoice.id, status: invoice.status,
+    });
+    // The ledger still takes the CURRENT invoice (its own state machine keeps a
+    // stale status from moving the row backwards).
+    if (subscription) {
+      await ingestStripeInvoice(subscription.orgId, invoice as unknown as Parameters<typeof ingestStripeInvoice>[1]).catch((err) => {
+        logger.warn('Ledger re-ingest failed', { orgId: subscription.orgId, invoiceId: invoice.id, reason, error: errorMessage(err) });
+      });
+    }
+    return;
+  }
 
   if (subscription) {
     // Re-ingest reflects Stripe's current (void/uncollectible) invoice state onto

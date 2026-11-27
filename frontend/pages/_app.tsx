@@ -6,6 +6,7 @@ import { MotionConfig } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { FeaturesProvider } from '@/hooks/useFeatures';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { IdleSessionGuard } from '@/components/auth/IdleSessionGuard';
 import { ToastProvider } from '@/components/ui/Toast';
 import { initClientErrorReporting } from '@/lib/error-reporter';
 import { isPublicDirectoryRoute } from '@/lib/public-directory/routes';
@@ -118,6 +119,10 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
               <AnimatedPageShell>{page}</AnimatedPageShell>
             </FeaturesProvider>
           )}
+          {/* Inactivity warning + sign-out for every signed-in page, public
+              directory included — outside the page shell, so an org switch's
+              remount never resets its timers. */}
+          <IdleSessionGuard />
         </ToastProvider>
       </AuthProvider>
     </ErrorBoundary>

@@ -101,6 +101,19 @@ describe('aws-marketplace', () => {
       expect.stringContaining('AWS_MARKETPLACE_DIMENSION_PRICE_MAP is empty'),
     ]);
   });
+
+  it('treats a price map of only malformed (non-whole-cent) prices as empty, and names them', () => {
+    Object.assign(cfg, {
+      billingProvider: 'aws-marketplace',
+      meteringEnabled: true,
+      marketplace: mp({ dimensionToPlanMap: { pro: 'pro' }, dimensionPriceMap: { seats: 2.5, pipelines: '500' } }),
+    });
+    validateProviderConfig();
+    expect(warnings()).toEqual([
+      expect.stringContaining('not a positive whole number of cents'),
+      expect.stringContaining('AWS_MARKETPLACE_DIMENSION_PRICE_MAP is empty'),
+    ]);
+  });
 });
 
 it('checks nothing for other providers', () => {

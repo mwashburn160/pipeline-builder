@@ -87,6 +87,17 @@ export interface SubscriptionDocument extends Document {
    * within seconds of its first use.
    */
   supportIncidentSpends: Array<{ key: string; consumed: boolean; refunded: boolean; at: Date }>;
+  /** The recent KEYED operator grants — what makes a retried grant POST grant
+   *  once. Bounded like the spends. */
+  supportIncidentGrants: Array<{ key: string; count: number; at: Date }>;
+  /**
+   * The support size floor's top-up, CHARGED per billing period — one row per
+   * period key, claimed before the provider charge is posted, so a redelivered
+   * invoice webhook (or a second invoice in the same period) never bills the
+   * floor twice. Bounded to the newest periods (see
+   * `SUPPORT_FLOOR_CHARGE_HISTORY` in helpers/support-floor-charge.ts). `providerRef` is the provider's line-item id once the charge landed.
+   */
+  supportFloorCharges: Array<{ periodKey: string; cents: number; at: Date; providerRef?: string }>;
   /**
    * A NEGOTIATED support size floor, replacing the computed ramp.
    *
@@ -202,6 +213,25 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
       }],
       default: [],
     },
+    supportIncidentGrants: {
+      type: [{
+        _id: false,
+        key: { type: String, required: true },
+        count: { type: Number, required: true, min: 1 },
+        at: { type: Date, required: true },
+      }],
+      default: [],
+    },
+    supportFloorCharges: {
+      type: [{
+        _id: false,
+        periodKey: { type: String, required: true },
+        cents: { type: Number, required: true, min: 1 },
+        at: { type: Date, required: true },
+        providerRef: { type: String },
+      }],
+      default: [],
+    },
     // Absent by default — the ramp applies. `seats` is the count the price was
     // agreed AT, not a cap: it is what lets a grown account be flagged stale.
     supportFloorOverride: {
@@ -269,6 +299,13 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
   {
     collection: 'subscriptions',
     timestamps: true,
+    // Keep an empty `metadata: {}` in the stored document. Minimized away, a
+    // loaded document holds NO metadata object, and Mongoose then saves a
+    // one-key write (`set('metadata.x', v)`) as a replacement of the whole
+    // object — erasing a marker another writer `$set` on the stored document in
+    // the meantime. With the object always present the save writes only its
+    // own path (see helpers/subscription-metadata.ts).
+    minimize: false,
   },
 );
 

@@ -141,9 +141,15 @@ describe('won disputes', () => {
 });
 
 describe('invoice-level reversals', () => {
+  /** The handler re-reads the invoice; Stripe answers with `live` (the event itself by default). */
+  const reversal = async (event: Record<string, unknown>, live: Record<string, unknown> = event) => {
+    activeProvider = new StripeProvider({ invoicePayments, invoices: { retrieve: async () => live } });
+    await handleInvoiceReversal(event as any, 'invoice_voided');
+  };
+
   it('a failing reverse-ingest is fail-soft: the clawback still runs', async () => {
     ingestStripeInvoice.mockRejectedValueOnce(new Error('ledger down'));
-    await handleInvoiceReversal({ id: 'in_5', status: 'void', subscription: 'sub_stripe' } as any, 'invoice_voided');
+    await reversal({ id: 'in_5', status: 'void', subscription: 'sub_stripe' });
     expect(logger.warn).toHaveBeenCalledWith('Ledger reverse-ingest failed', expect.objectContaining({ invoiceId: 'in_5', error: 'ledger down' }));
     expect(clawbackRecentPromotions).toHaveBeenCalled();
   });
@@ -151,11 +157,17 @@ describe('invoice-level reversals', () => {
   it.each([
     ['uncollectible', 'uncollectible'],
     ['void', 'void'],
-    ['open', 'void'],
   ])('an out-of-band %s invoice flips its ledger row to %s', async (status, expected) => {
     findSubscriptionByStripeId.mockResolvedValue(null);
-    await handleInvoiceReversal({ id: 'in_6', status, subscription: 'sub_gone' } as any, 'invoice_voided');
+    await reversal({ id: 'in_6', status, subscription: 'sub_gone' });
     expect(reverseLedgerInvoice).toHaveBeenCalledWith('in_6', expected, 0);
+    expect(clawbackRecentPromotions).not.toHaveBeenCalled();
+  });
+
+  it.each(['open', 'paid'])('an out-of-band invoice Stripe now reports %s is not reversed (a stale event)', async (status) => {
+    findSubscriptionByStripeId.mockResolvedValue(null);
+    await reversal({ id: 'in_6', status: 'uncollectible', subscription: 'sub_gone' }, { id: 'in_6', status, subscription: 'sub_gone' });
+    expect(reverseLedgerInvoice).not.toHaveBeenCalled();
     expect(clawbackRecentPromotions).not.toHaveBeenCalled();
   });
 

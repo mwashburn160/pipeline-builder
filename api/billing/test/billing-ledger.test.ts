@@ -79,7 +79,7 @@ const mockUpdateOne = jest.fn(async (filter: any, update: any, _opts: any) => {
   const existing = store.get(key);
   // A conditional ingest upsert whose filter misses an existing row: the insert
   // trips the unique externalInvoiceId, as Mongo's would.
-  if (existing && filter.status?.$nin?.includes(existing.status)) throw Object.assign(new Error('dup'), { code: 11000 });
+  if (existing && filter.status?.$in && !filter.status.$in.includes(existing.status)) throw Object.assign(new Error('dup'), { code: 11000 });
   const base = existing ?? { externalInvoiceId: key, ...(update.$setOnInsert ?? {}) };
   const merged: any = { ...base, ...(update.$set ?? {}) };
   for (const [k, v] of Object.entries(update.$inc ?? {})) merged[k] = (merged[k] ?? 0) + (v as number);

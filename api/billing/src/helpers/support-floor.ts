@@ -193,8 +193,7 @@ export function supportFloor(
   // No support held -> no floor. THE correction: a bare max() would bill an org
   // that bought nothing.
   if (pos.contacts <= 0 || pos.level === null) return none();
-  if (!cfg.enabled || cfg.perSeatCents <= 0) return none();
-  if (pos.seats < 0) return none();
+  if (!cfg.enabled) return none();
 
   /*
    * A NEGOTIATED floor short-circuits the ramp entirely.
@@ -207,24 +206,42 @@ export function supportFloor(
    * The volume percent still carries through, for the same reason it does on the
    * ramp: a credit the customer earned and can see on the invoice must not be
    * silently cancelled by the floor.
+   *
+   * And it is checked BEFORE the ramp's own inputs (an unlimited seat grant, a
+   * zero per-seat rate): those leave the RAMP with no number to compute, but an
+   * agreement is a signed price that needs none — and the accounts that get one
+   * are the large ones most likely to hold an unlimited seat grant. Gated behind
+   * them, a negotiated floor billed exactly nothing.
    */
   if (pos.override) {
     const interval = pos.override.floorCents * pos.months;
-    // Snapped for the same reason the computed ramp below is: the floor IS the
-    // support charge, and the volume factor lands it on arbitrary cents.
-    const floorCents = snapUpPrice(Math.round(interval * (100 - pos.volumePercent) / 100));
+    // With no volume discount the agreement is billed AS SIGNED: the agreed
+    // monthly figure times the interval's months, exact to the cent. Snapping it
+    // re-priced a signed deal — an agreed $123.45 billed $123.49 — and made the
+    // annual floor disagree with 10x the monthly one ($14,275.99 against
+    // 10 x $1,427.59). Only when the volume factor lands it on arbitrary cents is
+    // it snapped, for the same reason the computed ramp below is.
+    const floorCents = pos.volumePercent > 0
+      ? snapUpPrice(Math.round(interval * (100 - pos.volumePercent) / 100))
+      : interval;
     const binds = floorCents > pos.contactsPriceCents;
     return {
       floorCents,
       binds,
       chargeCents: binds ? floorCents : pos.contactsPriceCents,
-      billableSeats: Math.max(0, pos.seats - cfg.freeSeats),
+      billableSeats: pos.seats < 0 ? 0 : Math.max(0, pos.seats - cfg.freeSeats),
       weightPercent: 0,
       negotiated: true,
-      // Honoured but flagged: the account has outgrown what was signed for.
-      overrideStale: pos.seats > pos.override.seats,
+      // Honoured but flagged: the account has outgrown what was signed for. An
+      // UNLIMITED grant has no measured size to hold to the agreed count, so it
+      // is always flagged — somebody should look at what the deal assumed.
+      overrideStale: pos.seats < 0 || pos.seats > pos.override.seats,
     };
   }
+
+  // The RAMP's own inputs. An unlimited seat grant is an operator decision, not
+  // a measured size, and a zero rate is the ramp switched off.
+  if (cfg.perSeatCents <= 0 || pos.seats < 0) return none();
 
   const billableSeats = Math.max(0, pos.seats - cfg.freeSeats);
   if (billableSeats === 0) return none();

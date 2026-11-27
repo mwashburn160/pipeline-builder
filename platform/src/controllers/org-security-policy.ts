@@ -193,7 +193,7 @@ export const updateSessionPolicy = withController('Update session policy', async
     affectedOrgId: id,
     details: {
       maxAgeDays: { from: from.maxAgeDays ?? null, to: to.maxAgeDays ?? null },
-      idleTimeoutDays: { from: from.idleTimeoutDays ?? null, to: to.idleTimeoutDays ?? null },
+      idleTimeoutMinutes: { from: from.idleTimeoutMinutes ?? null, to: to.idleTimeoutMinutes ?? null },
     },
   });
   incCounter('platform_session_policy_changes_total');

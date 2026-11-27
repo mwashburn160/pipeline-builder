@@ -96,6 +96,7 @@ suite('refresh-session slots (real Mongo)', () => {
     hash: string;
     scope?: string;
     lastUsedAt: Date;
+    lastActiveAt: Date;
     userAgent?: string;
     lastIp?: string;
     tokenVersion: number;
@@ -135,11 +136,12 @@ suite('refresh-session slots (real Mongo)', () => {
    */
   async function refresh(
     refreshToken: string,
-    opts: { browser?: boolean } = {},
+    opts: { browser?: boolean; activity?: string } = {},
   ): Promise<{ status: number; body: any; res: any }> {
+    const activity = opts.activity === undefined ? {} : { activity: opts.activity };
     const req: any = opts.browser
-      ? { body: {}, headers: { 'x-pb-client': 'web', 'cookie': `pb_refresh=${refreshToken}` } }
-      : { body: { refreshToken }, headers: {} };
+      ? { body: { ...activity }, headers: { 'x-pb-client': 'web', 'cookie': `pb_refresh=${refreshToken}` } }
+      : { body: { refreshToken, ...activity }, headers: {} };
     const r = res();
     let passed = false;
     await authMw.requireRefreshSession(req, r, () => { passed = true; });
@@ -276,7 +278,9 @@ suite('refresh-session slots (real Mongo)', () => {
     await authCtl.switchOrg({ user: token.verifyAccessToken(a.accessToken), headers, params: {}, body: { organizationId: second } } as never, r);
     expect(r.status).toHaveBeenCalledWith(200);
     const body = r.json.mock.calls[0][0];
-    expect(Object.keys(body.data).sort()).toEqual(['accessToken', 'expiresIn']);
+    // An access token and the session's idle state — never a refresh token.
+    expect(Object.keys(body.data).sort()).toEqual(['accessToken', 'expiresIn', 'session']);
+    expect(body.data.session.idleTimeoutMinutes).toBe(15);
     expect(r.cookie).not.toHaveBeenCalled();
     expect(orgOf(body.data.accessToken)).toBe(second);
     expect(sidOf(body.data.accessToken)).toBe(sidOf(a.refreshToken));
@@ -559,11 +563,12 @@ suite('refresh-session slots (real Mongo)', () => {
 
   describe('session lifetime', () => {
     const DAY = 86400_000;
-    /** Age the slot behind `t`: signed in `signedInDaysAgo`, last used `usedDaysAgo`. */
-    const age = async (t: string, signedInDaysAgo: number, usedDaysAgo: number) => {
+    const MINUTE = 60_000;
+    /** Age the slot behind `t`: signed in `signedInDaysAgo`, last ACTIVE `idleMinutes` ago. */
+    const age = async (t: string, signedInDaysAgo: number, idleMinutes: number) => {
       await RefreshSession.updateOne(
         { userId, id: sidOf(t) },
-        { $set: { authTime: new Date(Date.now() - signedInDaysAgo * DAY), lastUsedAt: new Date(Date.now() - usedDaysAgo * DAY) } },
+        { $set: { authTime: new Date(Date.now() - signedInDaysAgo * DAY), lastActiveAt: new Date(Date.now() - idleMinutes * MINUTE) } },
       );
     };
 
@@ -573,13 +578,47 @@ suite('refresh-session slots (real Mongo)', () => {
       expect((await refresh(a.refreshToken)).status).toBe(200);
     });
 
-    it('a session idle past the platform idle timeout (7d) is refused with SESSION_EXPIRED and dropped', async () => {
+    it('a browser refresh answers the effective idle timeout and the server idle deadline', async () => {
+      const a = await signIn();
+      await age(a.refreshToken, 0, 4);
+      const out = await refresh(a.refreshToken, { browser: true });
+      expect(out.status).toBe(200);
+      expect(out.body.data.session.idleTimeoutMinutes).toBe(15);
+      const deadline = new Date(out.body.data.session.idleExpiresAt).getTime();
+      expect(Math.abs(deadline - (Date.now() - 4 * MINUTE + 15 * MINUTE))).toBeLessThan(5000);
+    });
+
+    it('a PASSIVE refresh keeps the idle clock; activity "user" moves it; anything else is passive', async () => {
+      const a = await signIn();
+      await age(a.refreshToken, 0, 10);
+      const before = new Date((await slotOf(a.refreshToken)).lastActiveAt).getTime();
+      const p = await refresh(a.refreshToken, { activity: 'passive' });
+      expect(p.status).toBe(200);
+      expect(new Date((await slotOf(a.refreshToken)).lastActiveAt).getTime()).toBe(before);
+      const junk = await refresh(p.body.data.refreshToken, { activity: 'definitely-user' });
+      expect(junk.status).toBe(200);
+      expect(new Date((await slotOf(a.refreshToken)).lastActiveAt).getTime()).toBe(before);
+      const u = await refresh(junk.body.data.refreshToken, { activity: 'user' });
+      expect(u.status).toBe(200);
+      expect(Date.now() - new Date((await slotOf(a.refreshToken)).lastActiveAt).getTime()).toBeLessThan(5000);
+    });
+
+    it('switch-org counts as user activity', async () => {
+      const { second } = await twoOrgs();
+      const a = await signIn();
+      await age(a.refreshToken, 0, 10);
+      expect((await switchOrg(a.accessToken, second)).status).toBe(200);
+      expect(Date.now() - new Date((await slotOf(a.refreshToken)).lastActiveAt).getTime()).toBeLessThan(5000);
+    });
+
+    it('a session idle past the platform idle timeout (15 min) is refused with SESSION_EXPIRED and dropped', async () => {
       const a = await signIn();
       const b = await signIn();
-      await age(a.refreshToken, 8, 8);
+      await age(a.refreshToken, 0, 16);
       const out = await refresh(a.refreshToken, { browser: true });
       expect(out.status).toBe(401);
       expect(out.body.code).toBe('SESSION_EXPIRED');
+      expect(out.body.details).toEqual({ reason: 'idle', idleTimeoutMinutes: 15 });
       // The dead cookie is cleared, the slot is gone, and other devices are untouched.
       expect(out.res.clearCookie).toHaveBeenCalled();
       expect((await slots()).map((sl) => sl.id)).toEqual([sidOf(b.refreshToken)]);
@@ -618,12 +657,12 @@ suite('refresh-session slots (real Mongo)', () => {
 
     it('an ancestor\'s stricter idle timeout governs a team session', async () => {
       const owner = new mongoose.Types.ObjectId();
-      const root = await Organization.create({ name: 'Root', owner, tier: 'team', sessionPolicy: { idleTimeoutDays: 1 } });
+      const root = await Organization.create({ name: 'Root', owner, tier: 'team', sessionPolicy: { idleTimeoutMinutes: 5 } });
       const team = await Organization.create({ name: 'Team', owner, tier: 'team', parentOrgId: String(root._id) });
       await UserOrganization.create({ userId, organizationId: team._id, role: 'member', isActive: true, joinedAt: new Date(1000) });
       const a = await signIn();
       expect(orgOf(a.accessToken)).toBe(String(team._id));
-      await age(a.refreshToken, 2, 2);
+      await age(a.refreshToken, 0, 6);
       expect((await refresh(a.refreshToken)).body.code).toBe('SESSION_EXPIRED');
     });
 
@@ -642,7 +681,7 @@ suite('refresh-session slots (real Mongo)', () => {
 
     it('machine slots are never idle-timed — only their own fixed end applies', async () => {
       const m = await token.issueTokens(await loadUser(), undefined, { kind: 'machine', auth: token.signInAuth('pwd'), lifetimeSeconds: 90 * 86400 });
-      await age(m.refreshToken, 60, 20);
+      await age(m.refreshToken, 60, 20 * 24 * 60);
       expect((await refresh(m.refreshToken)).status).toBe(200);
       // Past its fixed end it is refused with the same code, and dropped.
       await RefreshSession.updateOne({ userId, id: sidOf(m.refreshToken) }, { $set: { expiresAt: new Date(Date.now() - 1000) } });

@@ -12,6 +12,12 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
+// The shared S3 client has no default credential; this suite's mocked object
+// store still needs the per-service keys every deployment sets.
+process.env.S3_ACCESS_KEY_ID ??= 'test-svc';
+process.env.S3_SECRET_ACCESS_KEY ??= 'test-svc-secret';
+
+
 const mockSend = jest.fn<(cmd: unknown) => Promise<unknown>>();
 const mockEmitCounter = jest.fn<(...args: unknown[]) => void>();
 

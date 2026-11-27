@@ -19,7 +19,9 @@ import { grantRecurringPromotions, qualifyReferral } from './promotion-engine.js
 import { findSubscriptionByStripeId, invoiceSubscriptionId, type StripeEventMeta } from './stripe-helpers.js';
 import { invoiceCreditPeriodKey, recurringInvoicePeriod } from './stripe-period.js';
 import { acceptStripeEvent, awaitsLocalRow, grantOnBecomingEntitled, settleCanceledDuplicate } from './stripe-subscription-handlers.js';
+import { setMetadataKey } from './subscription-metadata.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
+import { chargeSupportFloorForPeriod } from './support-floor-charge.js';
 import { config } from '../config.js';
 import { Plan, type PlanDocument } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -166,8 +168,9 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
       subscription.status = 'active';
       settleReferralCode = subscription.metadata?.pendingReferralCode as string | undefined;
       if (settleReferralCode) {
-        const { pendingReferralCode: _consumed, ...rest } = subscription.metadata ?? {};
-        subscription.metadata = rest;
+        // One path, not the whole object: the save below must not write back
+        // markers another writer set meanwhile (helpers/subscription-metadata.ts).
+        setMetadataKey(subscription, 'pendingReferralCode', undefined);
       }
     }
 
@@ -225,6 +228,13 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
   await ingestStripeInvoice(subscription.orgId, invoice as unknown as Parameters<typeof ingestStripeInvoice>[1]).catch((err) => {
     logger.warn('Billing ledger ingest failed', { orgId: subscription.orgId, invoiceId: invoice.id, error: String(err) });
   });
+
+  // Bill the support size floor's top-up for the period this invoice opens —
+  // once per period (claimed on the subscription, idempotency-keyed at Stripe),
+  // as a labelled line on the next invoice. Placed before the event row below on
+  // purpose: a provider failure THROWS so Stripe redelivers, and every effect
+  // above is idempotent on its own key, so the retry repeats nothing but this.
+  await chargeSupportFloorForPeriod(subscription, invoiceCreditPeriodKey(invoice, subscription));
 
   await createBillingEvent(subscription.orgId, 'payment_succeeded', {
     provider: 'stripe',

@@ -9,6 +9,7 @@ import { Callout } from '@/components/ui/Callout';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { RetryError } from '@/components/ui/RetryError';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -21,14 +22,49 @@ import type { OrgSessionPolicy } from '@/types';
 /** The most an org may store for either bound (platform `SESSION_POLICY_MAX_DAYS`). */
 export const SESSION_POLICY_MAX_DAYS = 365;
 
-type Field = 'maxAgeDays' | 'idleTimeoutDays';
+/** The shortest idle timeout anything may set (platform `SESSION_IDLE_TIMEOUT_MIN_MINUTES`). */
+export const SESSION_IDLE_TIMEOUT_MIN_MINUTES = 5;
 
-/** A draft field: empty = clear the org's own bound; otherwise whole days 1–365. */
+/**
+ * Idle-timeout presets (minutes): 5, 10 and 15 minutes fit the default
+ * 15-minute ceiling; the longer ones appear only when an operator raised the
+ * ceiling (`SESSION_IDLE_TIMEOUT_MINUTES`) far enough — an org can only shorten it.
+ */
+export const IDLE_TIMEOUT_PRESETS = [5, 10, 15, 30, 60, 480, 1440] as const;
+
+/** The idle select's value for "type my own". */
+const CUSTOM = 'custom';
+
+/** A draft maximum age: empty = clear the org's own bound; otherwise whole days 1–365. */
 export function parseSessionDays(raw: string): { value: number | null; invalid: boolean } {
   const t = raw.trim();
   if (t === '') return { value: null, invalid: false };
   const n = Number(t);
   return { value: n, invalid: !Number.isInteger(n) || n < 1 || n > SESSION_POLICY_MAX_DAYS };
+}
+
+/** A draft custom idle timeout: empty = clear; otherwise whole minutes from 5 up to `ceiling`. */
+export function parseIdleMinutes(raw: string, ceiling: number): { value: number | null; invalid: boolean } {
+  const t = raw.trim();
+  if (t === '') return { value: null, invalid: false };
+  const n = Number(t);
+  return { value: n, invalid: !Number.isInteger(n) || n < SESSION_IDLE_TIMEOUT_MIN_MINUTES || n > ceiling };
+}
+
+/** "5 minutes", "1 hour", "8 hours", "1 day". */
+export function formatMinutes(n: number): string {
+  if (n % 1440 === 0) return `${n / 1440} day${n === 1440 ? '' : 's'}`;
+  if (n % 60 === 0) return `${n / 60} hour${n === 60 ? '' : 's'}`;
+  return `${n} minute${n === 1 ? '' : 's'}`;
+}
+
+/** The idle draft: a preset (its minutes as a string), '' (platform default) or custom + its text. */
+interface IdleDraft { choice: string; custom: string }
+
+function idleDraftOf(own: number | null, ceiling: number): IdleDraft {
+  if (own === null) return { choice: '', custom: '' };
+  const preset = IDLE_TIMEOUT_PRESETS.some((p) => p === own && p <= ceiling);
+  return preset ? { choice: String(own), custom: '' } : { choice: CUSTOM, custom: String(own) };
 }
 
 /** Raising a bound, or clearing one that was set, lengthens sessions. */
@@ -39,10 +75,13 @@ function lengthens(from: number | null, to: number | null): boolean {
 const days = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
 
 /**
- * The org's interactive-session lifetime: a MAXIMUM AGE (from the sign-in that
- * opened the session — however active it has been) and an IDLE TIMEOUT (since
- * its last use). Both may only TIGHTEN the platform ceiling, and the strictest
- * value across this org and its parents applies.
+ * The org's interactive-session lifetime: a MAXIMUM AGE in days (from the
+ * sign-in that opened the session — however active it has been) and an IDLE
+ * TIMEOUT in minutes (since its last real activity — a polling tab nobody
+ * touches is idle). Both may only TIGHTEN the platform ceiling, and the
+ * strictest value across this org and its parents applies. The idle timeout
+ * offers presets up to the platform ceiling, the platform default, and a
+ * custom value (5 minutes up to the ceiling).
  *
  * Stated in the UI because it is what an admin needs to know: a tightened bound
  * takes effect at each session's next refresh (within minutes), and machine
@@ -52,7 +91,8 @@ const days = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
  * also needs a session opened with a second factor (the server says so if not).
  */
 export function SessionPolicySettings({ orgId, readOnly }: { orgId: string; readOnly: boolean }) {
-  const [draft, setDraft] = useState<Record<Field, string>>({ maxAgeDays: '', idleTimeoutDays: '' });
+  const [maxAgeDraft, setMaxAgeDraft] = useState('');
+  const [idleDraft, setIdleDraft] = useState<IdleDraft>({ choice: '', custom: '' });
   const [confirmingSave, setConfirmingSave] = useState(false);
 
   const read = useFetch(
@@ -69,25 +109,27 @@ export function SessionPolicySettings({ orgId, readOnly }: { orgId: string; read
 
   useEffect(() => {
     if (policy) {
-      setDraft({
-        maxAgeDays: policy.own.maxAgeDays === null ? '' : String(policy.own.maxAgeDays),
-        idleTimeoutDays: policy.own.idleTimeoutDays === null ? '' : String(policy.own.idleTimeoutDays),
-      });
+      setMaxAgeDraft(policy.own.maxAgeDays === null ? '' : String(policy.own.maxAgeDays));
+      setIdleDraft(idleDraftOf(policy.own.idleTimeoutMinutes, policy.platform.idleTimeoutMinutes));
     }
   }, [policy]);
 
-  const maxAge = parseSessionDays(draft.maxAgeDays);
-  const idle = parseSessionDays(draft.idleTimeoutDays);
+  const idleCeiling = policy?.platform.idleTimeoutMinutes ?? SESSION_IDLE_TIMEOUT_MIN_MINUTES;
+  const maxAge = parseSessionDays(maxAgeDraft);
+  // An empty custom box is not "clear": it is unfinished.
+  const idle = idleDraft.choice === CUSTOM
+    ? (idleDraft.custom.trim() === '' ? { value: null, invalid: true } : parseIdleMinutes(idleDraft.custom, idleCeiling))
+    : { value: idleDraft.choice === '' ? null : Number(idleDraft.choice), invalid: false };
   const invalid = maxAge.invalid || idle.invalid;
 
   /** Only the fields that changed — the PATCH treats an absent field as unchanged. */
-  const body: { maxAgeDays?: number | null; idleTimeoutDays?: number | null } = {};
+  const body: { maxAgeDays?: number | null; idleTimeoutMinutes?: number | null } = {};
   if (policy && maxAge.value !== policy.own.maxAgeDays) body.maxAgeDays = maxAge.value;
-  if (policy && idle.value !== policy.own.idleTimeoutDays) body.idleTimeoutDays = idle.value;
+  if (policy && !idle.invalid && idle.value !== policy.own.idleTimeoutMinutes) body.idleTimeoutMinutes = idle.value;
   const dirty = Object.keys(body).length > 0;
   const loosening = !!policy && (
     ('maxAgeDays' in body && lengthens(policy.own.maxAgeDays, maxAge.value))
-    || ('idleTimeoutDays' in body && lengthens(policy.own.idleTimeoutDays, idle.value))
+    || ('idleTimeoutMinutes' in body && lengthens(policy.own.idleTimeoutMinutes, idle.value))
   );
 
   const save = useMutation({
@@ -111,50 +153,95 @@ export function SessionPolicySettings({ orgId, readOnly }: { orgId: string; read
     }
   };
 
-  const edit = (field: Field, value: string) => {
-    setDraft((d) => ({ ...d, [field]: value }));
+  const editMaxAge = (value: string) => {
+    setMaxAgeDraft(value);
+    save.reset();
+  };
+  const editIdle = (next: Partial<IdleDraft>) => {
+    setIdleDraft((d) => ({ ...d, ...next }));
     save.reset();
   };
 
   const summary = () => {
     const parts: string[] = [];
     if ('maxAgeDays' in body) parts.push(body.maxAgeDays == null ? 'clear the maximum session age' : `end sessions ${days(body.maxAgeDays)} after sign-in`);
-    if ('idleTimeoutDays' in body) parts.push(body.idleTimeoutDays == null ? 'clear the idle timeout' : `sign out sessions idle for ${days(body.idleTimeoutDays)}`);
+    if ('idleTimeoutMinutes' in body) parts.push(body.idleTimeoutMinutes == null ? 'clear the idle timeout' : `sign out sessions idle for ${formatMinutes(body.idleTimeoutMinutes)}`);
     const text = parts.join(' and ');
     return text.charAt(0).toUpperCase() + text.slice(1);
   };
 
-  const field = (
-    key: Field,
-    label: string,
-    effective: number,
-    platformValue: number,
-    parsed: { invalid: boolean },
-    inheritedFromName: string | undefined,
-    inherited: boolean,
-  ) => (
+  const inForce = (effective: string, inheritedFromName: string | undefined, inherited: boolean) =>
+    `In force now: ${effective}${inherited ? ` (set by ${inheritedFromName ?? 'a parent organization'})` : ''}.`;
+
+  const maxAgeField = (p: OrgSessionPolicy) => (
     <div>
       <FormField
-        label={label}
-        hint={`Platform default: ${days(platformValue)}. In force now: ${days(effective)}${inherited ? ` (set by ${inheritedFromName ?? 'a parent organization'})` : ''}. Leave empty to use the platform default.`}
+        label="Maximum session age (days)"
+        hint={`Platform default: ${days(p.platform.maxAgeDays)}. ${inForce(days(p.maxAgeDays), p.maxAgeInheritedFromName, !!p.maxAgeInheritedFrom)} Leave empty to use the platform default.`}
       >
         <Input
           type="number"
           min={1}
           max={SESSION_POLICY_MAX_DAYS}
-          value={draft[key]}
-          placeholder={String(platformValue)}
+          value={maxAgeDraft}
+          placeholder={String(p.platform.maxAgeDays)}
           disabled={readOnly}
-          onChange={(e) => edit(key, e.target.value)}
+          onChange={(e) => editMaxAge(e.target.value)}
           className="w-32"
-          aria-invalid={parsed.invalid}
+          aria-invalid={maxAge.invalid}
         />
       </FormField>
-      {parsed.invalid && (
+      {maxAge.invalid && (
         <p className="mt-1 text-xs text-danger">Enter a whole number of days from 1 to {SESSION_POLICY_MAX_DAYS}.</p>
       )}
     </div>
   );
+
+  const idleField = (p: OrgSessionPolicy) => {
+    const ceiling = p.platform.idleTimeoutMinutes;
+    const presets = IDLE_TIMEOUT_PRESETS.filter((m) => m <= ceiling);
+    return (
+      <div className="space-y-2">
+        <FormField
+          label="Idle timeout"
+          hint={`Platform default: ${formatMinutes(ceiling)}. ${inForce(formatMinutes(p.idleTimeoutMinutes), p.idleTimeoutInheritedFromName, !!p.idleTimeoutInheritedFrom)} Members with no activity for this long are signed out; a tab that only refreshes in the background counts as idle.`}
+        >
+          <Select
+            value={idleDraft.choice}
+            disabled={readOnly}
+            onChange={(e) => editIdle({ choice: e.target.value })}
+            className="w-56"
+          >
+            <option value="">Platform default ({formatMinutes(ceiling)})</option>
+            {presets.map((m) => <option key={m} value={String(m)}>{formatMinutes(m)}</option>)}
+            <option value={CUSTOM}>Custom…</option>
+          </Select>
+        </FormField>
+        {idleDraft.choice === CUSTOM && (
+          <div>
+            <FormField label="Custom idle timeout (minutes)">
+              <Input
+                type="number"
+                min={SESSION_IDLE_TIMEOUT_MIN_MINUTES}
+                max={ceiling}
+                step={1}
+                value={idleDraft.custom}
+                disabled={readOnly}
+                onChange={(e) => editIdle({ custom: e.target.value })}
+                className="w-32"
+                aria-invalid={idle.invalid}
+              />
+            </FormField>
+            {idle.invalid && (
+              <p className="mt-1 text-xs text-danger">
+                Enter a whole number of minutes from {SESSION_IDLE_TIMEOUT_MIN_MINUTES} to {ceiling}.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <SectionCard
@@ -179,16 +266,14 @@ export function SessionPolicySettings({ orgId, readOnly }: { orgId: string; read
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            {field('maxAgeDays', 'Maximum session age (days)', policy.maxAgeDays, policy.platform.maxAgeDays, maxAge,
-              policy.maxAgeInheritedFromName, !!policy.maxAgeInheritedFrom)}
-            {field('idleTimeoutDays', 'Idle timeout (days)', policy.idleTimeoutDays, policy.platform.idleTimeoutDays, idle,
-              policy.idleTimeoutInheritedFromName, !!policy.idleTimeoutInheritedFrom)}
+            {maxAgeField(policy)}
+            {idleField(policy)}
           </div>
 
           <Callout variant="info">
-            These can only shorten the platform defaults — a longer value has no effect. A shorter limit applies to
-            signed-in browsers and CLI sessions at their next refresh, within minutes; members past it are asked to
-            sign in again. Access keys and service accounts keep their own expiry.
+            These can only shorten the platform defaults. A shorter limit applies to signed-in browsers and CLI
+            sessions at their next refresh, within minutes; members past it are asked to sign in again. Browsers warn
+            2 minutes before an idle sign-out. Access keys and service accounts keep their own expiry.
           </Callout>
 
           {loosening && (

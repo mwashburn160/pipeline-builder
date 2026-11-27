@@ -146,6 +146,22 @@ export interface PaymentProvider {
    */
   debitUsageCredit?(externalCustomerId: string, cents: number, idempotencyKey: string): Promise<{ ref?: DiscountRef }>;
 
+  /**
+   * Add a one-off CHARGE line to the subscription's next invoice — how the
+   * support size floor's top-up is billed (a visible line that names itself,
+   * not a silent minimum). `cents` is a positive whole number; `idempotencyKey`
+   * dedupes a retried post. Optional: a provider with no invoice of its own to
+   * add a line to (Marketplace bills through AWS contracts) omits it, and the
+   * floor is then reported unrealizable rather than silently waived.
+   */
+  addInvoiceCharge?(
+    externalCustomerId: string,
+    externalSubscriptionId: string,
+    cents: number,
+    description: string,
+    idempotencyKey: string,
+  ): Promise<{ ref: string }>;
+
   /** How this provider realizes a usage credit. Absent = none. */
   readonly usageCreditSupport?: UsageCreditSupport;
 

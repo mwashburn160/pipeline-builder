@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { providerLabel } from '@/lib/constants';
-import { SIGN_IN_REASON_MESSAGES } from '@/lib/sign-in-reason';
+import { signInReasonMessage } from '@/lib/sign-in-reason';
 import { LostFactorHelp } from './LostFactorHelp';
 import { MfaStep } from './MfaStep';
 import { PasswordChangeStep } from './PasswordChangeStep';
@@ -19,7 +19,7 @@ import { useSignInFlow } from './useSignInFlow';
 export function SignInCard() {
   const flow = useSignInFlow();
   const {
-    pwChange, mfaChallengeId, sessionExpired, signInReason, error, mfaPolicyBlocked, ssoRequired,
+    pwChange, mfaChallengeId, sessionExpired, signInReason, signInReasonMinutes, error, mfaPolicyBlocked, ssoRequired,
     passkeySupported, providers, handlePasskeySignIn, isSubmitting, passkeyBusy, oauthBusy, startOAuth,
   } = flow;
 
@@ -34,7 +34,7 @@ export function SignInCard() {
       )}
       {signInReason && !error && !mfaChallengeId && !pwChange && (
         <div className="alert-warning mb-3" role="status" aria-live="polite">
-          <p>{SIGN_IN_REASON_MESSAGES[signInReason]}</p>
+          <p>{signInReasonMessage(signInReason, signInReasonMinutes)}</p>
         </div>
       )}
       <ErrorAlert message={error} className="mb-3" />

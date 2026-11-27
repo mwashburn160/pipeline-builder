@@ -210,6 +210,16 @@ describe('session renewal (G5)', () => {
     expect(store.loadSession('http://127.0.0.1:1')?.refreshToken).toBe('r1');
   });
 
+  it('renews as USER activity — every CLI command is a deliberate act, so it restarts the idle clock', async () => {
+    expired();
+    handler = (req, _body, res) => (req.url === '/api/auth/refresh'
+      ? json(res, 200, { data: { accessToken: 'fresh.jwt', refreshToken: 'r2', expiresIn: 60 } })
+      : json(res, 200, {}));
+    await expect(resolveToken({})).resolves.toBeTruthy();
+    const call = seen.find((r) => r.url === '/api/auth/refresh');
+    expect(JSON.parse(call!.body)).toEqual({ refreshToken: 'r1', activity: 'user' });
+  });
+
   it('a 400 rejection forgets the session (as a 401 does)', async () => {
     expired();
     handler = (_req, _body, res) => json(res, 400, { message: 'Refresh token required' });

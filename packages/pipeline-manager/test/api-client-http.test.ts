@@ -268,7 +268,7 @@ describe('credential resolution', () => {
     store.saveSession(baseUrl, { accessToken: 'old', refreshToken: 'r1', expiresAt: Date.now() - 1000, organizationId: 'org-1' });
     handler = (req, body, res) => {
       expect(req.headers['x-pb-client']).toBe('cli');
-      expect(JSON.parse(body)).toEqual({ refreshToken: 'r1' });
+      expect(JSON.parse(body)).toEqual({ refreshToken: 'r1', activity: 'user' });
       json(res, 200, { data: { accessToken: 'new', refreshToken: 'r2', expiresIn: 60 } });
     };
     await expect(resolveToken({})).resolves.toBe('new');

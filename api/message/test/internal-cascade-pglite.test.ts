@@ -16,6 +16,12 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/glo
 import { routeHandler } from '@pipeline-builder/api-core/testing';
 import { bootTenantDb, type TenantTestDb } from '@pipeline-builder/pipeline-data/testing';
 
+// The shared S3 client has no default credential; this suite's mocked object
+// store still needs the per-service keys every deployment sets.
+process.env.S3_ACCESS_KEY_ID ??= 'test-svc';
+process.env.S3_SECRET_ACCESS_KEY ??= 'test-svc-secret';
+
+
 process.env.JWT_SECRET ||= 'internal-org-purge-test-secret';
 
 const { createInternalOrgPurgeRoutes } = await import('../src/routes/internal-org-purge.js');

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0c1e9dbd713b1367e7abf5f98f469797132a939f29bbe5c1319d2e7813b1832e
+// SOURCE-SHA256: c5a48621e11da1ea2f4ffcf140a4ca9c68c731d222a16e0e5a2a49a786c200a7
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -287,9 +287,9 @@ export const envVariablesTopic: HelpTopic = {
               "Platform ceiling on an INTERACTIVE session's age, counted from the sign-in that opened it (renewal never resets it). Past it /auth/refresh answers 401 SESSION_EXPIRED and the person signs in again; the refresh token never outlives it. An org may only shorten it (PATCH /organization/:id/session-policy). Machine credentials keep their own fixed end. Minimum 1. See Session validity."
             ],
             [
-              "SESSION_IDLE_TIMEOUT_DAYS",
-              "7",
-              "Platform ceiling on how long an INTERACTIVE session may go unused (no refresh / switch-org) before /auth/refresh refuses it with SESSION_EXPIRED. An org may only shorten it. Not applied to machine credentials, which renew unattended. Minimum 1."
+              "SESSION_IDLE_TIMEOUT_MINUTES",
+              "15",
+              "Platform ceiling (minutes) on how long an INTERACTIVE session may go without real activity before it is signed out. Only real activity counts: a /auth/refresh the client marks activity: \"user\" (input since its last refresh — pointer, key, touch, scroll; every CLI renewal), a switch-org, or the sign-in itself. A background poll's refresh (passive, or no signal) renews the token but never moves the idle clock, so an unattended open tab still times out; past the deadline /auth/refresh answers 401 SESSION_EXPIRED (details.reason: \"idle\"). The browser warns 2 minutes before the deadline and then signs every tab out. An org may only shorten it (PATCH /organization/:id/session-policy idleTimeoutMinutes). Not applied to machine credentials, which renew unattended. Minimum 5. See Session validity."
             ],
             [
               "AUTH_REFRESH_COOKIE_PATH",
@@ -1824,7 +1824,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLUGIN_VULN_MAX_FINDINGS",
               "0",
-              "The platform vulnerability floor: a build whose image has MORE fixable findings (grype reports a fixed version) at or above PLUGIN_VULN_FAIL_ON (default Critical) fails permanently with PLUGIN_VULN_GATE (the message lists the CVEs and their fixed versions) — every build path (upload, prebuilt, AI deploy, bulk, catalog loader) and the anonymous-submission quarantine gates. The nightly rescan flags a stored version that exceeds it. -1 disables the floor and the flag. Org compliance rules can still be stricter"
+              "The platform vulnerability floor: a build whose image has MORE fixable findings (grype reports a fixed version) at or above PLUGIN_VULN_FAIL_ON (default Critical) fails permanently with PLUGIN_VULN_GATE (the message lists the CVEs and their fixed versions) — every build path (upload, prebuilt, AI deploy, bulk, catalog loader) and the anonymous-submission quarantine gates. The nightly rescan flags a stored version that exceeds it. -1 disables the floor and the flag, for plugin builds and for managed toolchain releases alike (promotion, canary rollout and canary serving apply the same rule). Org compliance rules can still be stricter"
             ],
             [
               "PLUGIN_VULN_FAIL_ON",
@@ -3172,12 +3172,12 @@ export const envVariablesTopic: HelpTopic = {
             [
               "S3_ACCESS_KEY_ID",
               "message-svc",
-              "Per-service, bucket-scoped access key (created by the bootstrap Job — not the object store's root creds)."
+              "Required, no code default. Per-service, bucket-scoped access key (created by the bootstrap Job — not the object store's root creds). A service that touches object storage without it fails on first use instead of falling back to a default login."
             ],
             [
               "S3_SECRET_ACCESS_KEY",
               "message-svc-secret",
-              "Secret key. Change for any real deployment."
+              "Required, no code default. Secret key. Change for any real deployment."
             ],
             [
               "S3_FORCE_PATH_STYLE",
@@ -3704,17 +3704,17 @@ export const envVariablesTopic: HelpTopic = {
             [
               "REPORTING_ROLLUP_INTERVAL_MINUTES",
               "60",
-              "How often the daily rollup pass runs. Each pass rebuilds the last REPORTING_ROLLUP_BATCH_DAYS settled days."
+              "How often the daily rollup pass runs. Each pass rebuilds the last REPORTING_ROLLUP_BATCH_DAYS settled days. Minimum 1."
             ],
             [
               "REPORTING_ROLLUP_STARTUP_DELAY_MS",
               "60000",
-              "Settle time before the first rollup pass after boot."
+              "Settle time before the first rollup pass after boot. Minimum 0."
             ],
             [
               "REPORTING_ROLLUP_LOCK_TTL_MS",
               "shared crash-recovery window",
-              "Leader-lock TTL for the rollup pass (the lock heartbeats while a pass runs)."
+              "Leader-lock TTL for the rollup pass (the lock heartbeats while a pass runs). Minimum 1000."
             ],
             [
               "REPORTING_ROLLUP_SETTLE_HOURS",

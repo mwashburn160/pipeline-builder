@@ -47,7 +47,9 @@ export function OrgSupportIncidentsCard({ org }: { org: OrganizationDetail }) {
     formatError: (e) => (e instanceof MfaRequiredError ? '' : formatError(e, 'Could not grant incidents')),
     onSuccess: (data, body) => {
       const where = data.accountOrgId !== org.id ? ` Held by the account root ${data.accountOrgId}.` : '';
-      setResult(`Granted ${body.count} ${body.count === 1 ? 'incident' : 'incidents'}. Balance is now ${data.balance}.${where}`);
+      setResult(data.duplicate
+        ? `Already granted: nothing new was added. Balance is ${data.balance}.${where}`
+        : `Granted ${body.count} ${body.count === 1 ? 'incident' : 'incidents'}. Balance is now ${data.balance}.${where}`);
       setCount('1');
       setNote('');
     },
@@ -63,7 +65,9 @@ export function OrgSupportIncidentsCard({ org }: { org: OrganizationDetail }) {
     }
     setInvalid(null);
     const trimmed = note.trim();
-    setPending({ count: n, ...(trimmed ? { note: trimmed } : {}) });
+    // One key per submit: the step-up replay and any network retry of THIS
+    // grant reuse it, so the server applies it once.
+    setPending({ count: n, ...(trimmed ? { note: trimmed } : {}), idempotencyKey: `grant-${crypto.randomUUID()}` });
   };
 
   return (

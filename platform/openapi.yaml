@@ -143,11 +143,25 @@ paths:
       description: >-
         Rotates the refresh token's session slot (one per signed-in device). Presenting a
         refresh token that was already rotated revokes that device's session; other
-        devices stay signed in.
+        devices stay signed in. `activity: user` (real input since the client's last
+        refresh) restarts an interactive session's idle clock; `passive` or no value
+        (a background poll) renews the token without moving it. A refresh past the idle
+        deadline or maximum age answers 401 SESSION_EXPIRED with
+        `details.reason` (`idle` | `max-age` | `credential-end`) and, for `idle`,
+        `details.idleTimeoutMinutes`.
       operationId: refresh
       tags: [Authentication]
       security:
         - refreshToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string, description: Non-browser callers; a browser presents the pb_refresh cookie }
+                activity: { type: string, enum: [user, passive], default: passive }
       responses:
         '200':
           description: Tokens refreshed
@@ -1168,7 +1182,19 @@ components:
       type: object
       properties:
         accessToken: { type: string }
-        refreshToken: { type: string }
+        refreshToken: { type: string, description: Non-browser callers only — a browser's rides in the pb_refresh cookie }
+        expiresIn: { type: integer, description: Access-token lifetime in seconds }
+        session:
+          type: object
+          description: INTERACTIVE sessions only — the idle state the server enforces.
+          properties:
+            idleTimeoutMinutes:
+              type: integer
+              description: Effective idle timeout — the strictest of SESSION_IDLE_TIMEOUT_MINUTES and the org's session policy
+            idleExpiresAt:
+              type: string
+              format: date-time
+              description: The session's last real activity plus the idle timeout; a refresh after it is 401 SESSION_EXPIRED
 
     OAuthProvider:
       type: string

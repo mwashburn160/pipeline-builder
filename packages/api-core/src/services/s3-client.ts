@@ -5,18 +5,18 @@
  * The shared S3-compatible client, and the bucket-ensure backstop that goes
  * with it.
  *
- * Backed by MinIO in every environment (self-hosted, no AWS-account coupling);
- * because MinIO speaks the S3 API this uses the AWS S3 SDK, so a real-S3 swap is
- * a pure config change (drop the custom endpoint + path-style, supply IAM creds).
+ * Backed by RustFS in every environment (self-hosted, no AWS-account coupling);
+ * because RustFS speaks the S3 API this uses the AWS S3 SDK, so a real-S3 swap is
+ * a pure config change (drop the custom endpoint + path-style, set the AWS keys).
  *
  * Config (env) — one set of names, read identically by every service; each
  * container is pointed at its OWN bucket with bucket-scoped credentials:
- *   S3_ENDPOINT           MinIO/S3 endpoint URL (e.g. http://minio:9000). Empty
- *                         ⇒ default AWS S3 (no custom endpoint).
+ *   S3_ENDPOINT           object-store endpoint URL (e.g. http://rustfs:9000).
+ *                         Empty ⇒ default AWS S3 (no custom endpoint).
  *   S3_REGION             region (default 'us-east-1').
- *   S3_ACCESS_KEY_ID      access key.
- *   S3_SECRET_ACCESS_KEY  secret key.
- *   S3_FORCE_PATH_STYLE   'true' for MinIO (path-style addressing); default true.
+ *   S3_ACCESS_KEY_ID      access key (required; no default).
+ *   S3_SECRET_ACCESS_KEY  secret key (required; no default).
+ *   S3_FORCE_PATH_STYLE   path-style addressing, which RustFS needs; default true.
  *
  * `S3_BUCKET` is deliberately NOT read here: the bucket is the caller's, and
  * each service keeps its own default and its own key convention.
@@ -45,16 +45,21 @@ let client: S3Client | null = null;
 export function s3Client(): S3Client {
   if (client) return client;
   const endpoint = envStr('S3_ENDPOINT', '');
+  // No default credential: every deployment issues per-service, bucket-scoped
+  // keys, so a missing one is a misconfiguration to surface, never a reason to
+  // fall back to an object store's well-known root login.
+  const accessKeyId = envStr('S3_ACCESS_KEY_ID', '');
+  const secretAccessKey = envStr('S3_SECRET_ACCESS_KEY', '');
+  for (const [name, value] of [['S3_ACCESS_KEY_ID', accessKeyId], ['S3_SECRET_ACCESS_KEY', secretAccessKey]] as const) {
+    if (!value) throw new Error(`${name} is not set: the object store needs this service's own access key`);
+  }
   client = new S3Client({
     region: envStr('S3_REGION', 'us-east-1'),
     ...(endpoint ? { endpoint } : {}),
-    // Path-style is required by MinIO (no virtual-host bucket DNS). Harmless
-    // against real S3, but default-on here because MinIO is the default backend.
+    // Path-style is required by RustFS, the bundled object store (no
+    // virtual-host bucket DNS), and harmless against real S3.
     forcePathStyle: envBool('S3_FORCE_PATH_STYLE', true),
-    credentials: {
-      accessKeyId: envStr('S3_ACCESS_KEY_ID', 'minioadmin'),
-      secretAccessKey: envStr('S3_SECRET_ACCESS_KEY', 'minioadmin'),
-    },
+    credentials: { accessKeyId, secretAccessKey },
   });
   return client;
 }
@@ -65,13 +70,13 @@ const bucketsReady = new Map<string, Promise<void>>();
 /**
  * Ensure `bucket` exists, once per process per bucket.
  *
- * MinIO — unlike an auto-provisioned S3 bucket — won't create a bucket on first
+ * RustFS — unlike an auto-provisioned S3 bucket — won't create a bucket on first
  * write, so HEAD it and CREATE on 404/NoSuchBucket. Idempotent and
  * concurrency-safe: concurrent callers share the single in-flight promise.
  *
  * The important part is the failure branch. A CreateBucket failure is EITHER a
  * benign race (another replica created it between our HEAD and our CREATE) or a
- * real outage (MinIO not up yet, credentials wrong, network down). Re-HEADing
+ * real outage (RustFS not up yet, credentials wrong, network down). Re-HEADing
  * tells them apart:
  *
  *  - it now exists  → benign race, continue;
@@ -79,7 +84,7 @@ const bucketsReady = new Map<string, Promise<void>>();
  *
  * Dropping the entry is load-bearing. Memoizing a resolved "ready" after a
  * failed create caches a permanently-broken success for the process lifetime:
- * every later upload then fails `NoSuchBucket` against a MinIO that came up
+ * every later upload then fails `NoSuchBucket` against a RustFS that came up
  * seconds after boot, until the pod is restarted.
  */
 export async function ensureBucket(bucket: string): Promise<void> {

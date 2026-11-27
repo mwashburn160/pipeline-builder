@@ -14,6 +14,12 @@ import { Readable } from 'node:stream';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
+// The shared S3 client has no default credential; this suite's mocked object
+// store still needs the per-service keys every deployment sets.
+process.env.S3_ACCESS_KEY_ID ??= 'test-svc';
+process.env.S3_SECRET_ACCESS_KEY ??= 'test-svc-secret';
+
+
 type Cmd = { __type: string; input: Record<string, unknown> };
 const sent: Cmd[] = [];
 // An entry may be a function so a test can vary the outcome across calls — the

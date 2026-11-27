@@ -277,13 +277,15 @@ export const config = {
     /**
      * Platform ceiling on INTERACTIVE session lifetime (helpers/session-policy.ts).
      * `maxAgeDays`: from the sign-in that opened the session, however active it
-     * is. `idleTimeoutDays`: since the session was last used (refresh /
-     * switch-org). An org can only tighten either (`Organization.sessionPolicy`).
-     * Machine credentials keep their own fixed end and are not idle-timed.
+     * is. `idleTimeoutMinutes`: since the session's last real ACTIVITY (a
+     * refresh the client marks `activity: 'user'`, or switch-org — never a
+     * background poll); default 15, minimum 5. An org can only tighten either
+     * (`Organization.sessionPolicy`). Machine credentials keep their own fixed
+     * end and are not idle-timed.
      */
     session: {
       maxAgeDays: Math.max(1, envInt('SESSION_MAX_AGE_DAYS', 30)),
-      idleTimeoutDays: Math.max(1, envInt('SESSION_IDLE_TIMEOUT_DAYS', 7)),
+      idleTimeoutMinutes: Math.max(5, envInt('SESSION_IDLE_TIMEOUT_MINUTES', 15)),
     },
     /**
      * Email-verification token lifetime (ms). 24 h default; tokens are

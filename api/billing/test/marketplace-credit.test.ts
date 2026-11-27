@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
+import { prng } from './helpers/prng.js';
 import { computeMeteredDrawdown, planMeteredDrawdown } from '../src/helpers/marketplace-credit.js';
 
 describe('computeMeteredDrawdown', () => {
@@ -69,5 +70,54 @@ describe('planMeteredDrawdown', () => {
   it('is a no-op with zero balance (not unrealizable)', () => {
     const plan = planMeteredDrawdown([{ bundleId: 'seat_pack', quantity: 2 }], dimMap, priceMap, 0);
     expect(plan).toMatchObject({ consumedCents: 0, remainingCents: 0, unrealizable: false });
+  });
+});
+
+// A price that is not a positive whole number of cents cannot value a withheld
+// unit: 2.5 drew fractional cents into the balance (`creditBalanceCents` stops
+// being an integer and every later comparison against it is float arithmetic),
+// and a NaN or string entry from a hand-edited env map coerced its way in.
+describe('planMeteredDrawdown — malformed dimension prices', () => {
+  const dimMap = { seat_pack: 'seats' };
+
+  it.each([
+    ['fractional', 2.5],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['numeric string', '250' as unknown as number],
+    ['negative', -100],
+  ])('treats a %s price as unpriced (reported in full, nothing drawn)', (_label, price) => {
+    const plan = planMeteredDrawdown([{ bundleId: 'seat_pack', quantity: 4 }], dimMap, { seats: price }, 1001);
+    expect(plan.consumedCents).toBe(0);
+    expect(plan.remainingCents).toBe(1001);
+    expect(plan.adjustedAddons).toEqual([{ bundleId: 'seat_pack', quantity: 4 }]);
+  });
+});
+
+// INVARIANTS, over seeded random compositions: the drawdown never spends credit
+// the balance does not hold, every amount stays an integer number of cents, the
+// credit consumed is exactly what the withheld units are worth, and consumed +
+// remaining reconciles to the starting balance.
+describe('planMeteredDrawdown — money invariants (seeded property test)', () => {
+  const dims = ['a', 'b', 'c', 'd'];
+  const dimMap = Object.fromEntries(dims.map((d) => [`${d}_pack`, d]));
+
+  it('never overdraws, stays in whole cents, and reconciles consumed + remaining = balance', () => {
+    for (let seed = 1; seed <= 500; seed++) {
+      const r = prng(seed);
+      const priceMap = Object.fromEntries(dims.map((d) => [d, r.int(0, 3) === 0 ? 0 : r.int(1, 5000)]));
+      const addons = dims.filter(() => r.int(0, 1) === 1).map((d) => ({ bundleId: `${d}_pack`, quantity: r.int(0, 50) }));
+      const balance = r.int(-500, 200_000);
+      const plan = planMeteredDrawdown(addons, dimMap, priceMap, balance);
+      const ctx = `seed=${seed}`;
+      expect({ ctx, ok: plan.consumedCents >= 0 && plan.remainingCents >= 0 }).toEqual({ ctx, ok: true });
+      expect({ ctx, sum: plan.consumedCents + plan.remainingCents }).toEqual({ ctx, sum: Math.max(0, balance) });
+      expect({ ctx, int: Number.isSafeInteger(plan.consumedCents) && Number.isSafeInteger(plan.remainingCents) }).toEqual({ ctx, int: true });
+      const worth = plan.perLine.reduce((n, l) => n + l.withheldUnits * (priceMap[l.dimension] ?? 0), 0);
+      expect({ ctx, worth }).toEqual({ ctx, worth: plan.consumedCents });
+      for (const line of plan.perLine) {
+        expect({ ctx, ok: line.reportedQuantity >= 0 && line.withheldUnits >= 0 }).toEqual({ ctx, ok: true });
+      }
+    }
   });
 });

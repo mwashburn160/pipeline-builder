@@ -11,6 +11,7 @@ import { retryPendingCreditDebits } from './credit-debits.js';
 import { reconcileEntitlementDrift } from './entitlement-drift.js';
 import { syncEntitlements } from './entitlement-sync.js';
 import { reconcileUnknownProviderOutcomes } from './provider-reconcile.js';
+import { setMetadataKey } from './subscription-metadata.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
@@ -150,7 +151,7 @@ async function checkGracePeriodExpiry(): Promise<void> {
         { $set: { 'metadata.gracePeriodDowngradedAt': claimedAt } },
       );
       if (!claimed) continue;
-      subscription.metadata = { ...subscription.metadata, gracePeriodDowngradedAt: claimedAt };
+      setMetadataKey(subscription, 'gracePeriodDowngradedAt', claimedAt);
 
       // Route through syncEntitlements (not syncTierToQuotaService directly) so
       // the seat leg runs too — a lapsed sub must lose paid seats — and so the
@@ -499,7 +500,7 @@ async function claimStaleDowngrade(
   );
   if (!claimed) return false;
   subscription.status = 'canceled';
-  subscription.metadata = { ...subscription.metadata, staleDowngradedAt: at };
+  setMetadataKey(subscription, 'staleDowngradedAt', at);
   return true;
 }
 

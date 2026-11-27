@@ -17,12 +17,13 @@ import { deleteSlot, findSlot, insertSlot, updateSlotIf, type RefreshSession } f
 import { config } from '../../config/index.js';
 import type { RefreshSessionKind } from '../../constants/vocabulary.js';
 import type { ClientInfo } from '../../helpers/client-info.js';
-import { interactiveSessionExpired, interactiveSessionEnd, platformSessionLimits, sessionLimitsFor } from '../../helpers/session-policy.js';
+import type { SessionActivity } from '../../helpers/session-activity.js';
+import { interactiveSessionEnd, interactiveSessionEndReason, platformSessionLimits, sessionLimitsFor } from '../../helpers/session-policy.js';
 import { publishSessionSlotRevocation } from '../../helpers/session-revocation.js';
 import { User } from '../../models/index.js';
 import type { UserDocument } from '../../models/user.js';
 import type { RefreshTokenPayload } from '../../types/index.js';
-import { SESSION_EXPIRED, TOKEN_SCOPE_ESCALATION } from '../auth-errors.js';
+import { SESSION_EXPIRED, SessionExpiredError, TOKEN_SCOPE_ESCALATION } from '../auth-errors.js';
 import { signUserJwt } from '../token-signing/index.js';
 
 export type { RefreshSession } from './session-store.js';
@@ -94,11 +95,25 @@ export function hashRefreshToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+/**
+ * The idle state of an INTERACTIVE session, returned with every token it is
+ * minted (sign-in, refresh, switch-org) so a client can warn before — and sign
+ * out at — the deadline the server will enforce.
+ */
+export interface SessionIdleState {
+  /** The effective idle timeout: the strictest of the platform ceiling and the policy of the org minted for. */
+  idleTimeoutMinutes: number;
+  /** ISO time past which the next refresh is refused (`lastActiveAt` + the timeout). */
+  idleExpiresAt: string;
+}
+
 /** Shape returned by {@link issueTokens}. */
 export interface IssuedTokens {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  /** INTERACTIVE slots only. */
+  session?: SessionIdleState;
 }
 
 /** A signed access token plus what the caller persists for it. */
@@ -110,6 +125,8 @@ interface MintedAccessToken {
   sessionEndsAt?: Date;
   /** The org the token was actually scoped to (after any fallback); absent when none resolved. */
   organizationId?: string;
+  /** INTERACTIVE slots: the idle state AFTER this mint (see {@link MintOptions.activity}). */
+  session?: SessionIdleState;
   /** `issuedTokens` history entry (ring-buffered to the 20 most recent). */
   historyEntry: { id: string; createdAt: Date; expiresAt: Date; tokenVersionAtIssue: number };
 }
@@ -152,13 +169,20 @@ interface MintOptions {
   /** The slot's fixed end (machine credentials): nothing minted outlives it. */
   slotExpiresAt?: Date;
   /**
-   * INTERACTIVE slots: when the session was signed into and last used. Once the
-   * org is resolved, the session-lifetime policy of THAT org (strictest with the
-   * platform ceiling, helpers/session-policy.ts) is applied: a session past its
-   * maximum age or idle timeout mints nothing (`SESSION_EXPIRED`), and nothing
-   * minted outlives its maximum age.
+   * INTERACTIVE slots: when the session was signed into and last ACTIVE. Once
+   * the org is resolved, the session-lifetime policy of THAT org (strictest
+   * with the platform ceiling, helpers/session-policy.ts) is applied: a session
+   * past its maximum age or idle timeout mints nothing (`SESSION_EXPIRED`), and
+   * nothing minted outlives its maximum age.
    */
-  lifetime?: { authTime: Date; lastUsedAt: Date };
+  lifetime?: { authTime: Date; lastActiveAt: Date };
+  /**
+   * INTERACTIVE slots: whether this mint records real activity (`user`: the
+   * idle clock restarts at the mint) or not (`passive`: it stays). Judged
+   * AFTER the expiry check, so activity can never revive an idle-expired
+   * session. Default `passive`.
+   */
+  activity?: SessionActivity;
   scope?: TokenScope;
   mfaEnrollmentPending?: boolean;
   permissions?: readonly string[];
@@ -215,10 +239,15 @@ async function mintAccessToken(user: UserDocument, opts: MintOptions): Promise<M
   // exactly like the slot's own).
   const now = new Date();
   let sessionEndsAt: Date | undefined;
+  let session: SessionIdleState | undefined;
   if (opts.lifetime) {
     const limits = await sessionLimitsFor([membership?.organizationId]);
-    if (interactiveSessionExpired(opts.lifetime, limits, now)) throw new Error(SESSION_EXPIRED);
-    sessionEndsAt = interactiveSessionEnd(opts.lifetime, limits).absoluteEnd;
+    const ended = interactiveSessionEndReason(opts.lifetime, limits, now);
+    if (ended) throw new SessionExpiredError(ended, limits.idleTimeoutMinutes);
+    const lastActiveAt = opts.activity === 'user' ? now : opts.lifetime.lastActiveAt;
+    const end = interactiveSessionEnd({ authTime: opts.lifetime.authTime, lastActiveAt }, limits);
+    sessionEndsAt = end.absoluteEnd;
+    session = { idleTimeoutMinutes: limits.idleTimeoutMinutes, idleExpiresAt: end.idleEnd.toISOString() };
   }
 
   // Per-tier override → global default. The per-tier path lets
@@ -238,6 +267,7 @@ async function mintAccessToken(user: UserDocument, opts: MintOptions): Promise<M
     accessToken,
     expiresIn: tokenExpiresIn,
     ...(sessionEndsAt ? { sessionEndsAt } : {}),
+    ...(session ? { session } : {}),
     ...(membership ? { organizationId: membership.organizationId } : {}),
     historyEntry: {
       id: crypto.randomBytes(8).toString('hex'),
@@ -276,7 +306,12 @@ async function mintTokens(user: UserDocument, opts: MintOptions): Promise<Minted
   const refreshToken = await generateRefreshToken(user, opts.sessionId, refreshExpiresIn);
   return {
     ...minted,
-    tokens: { accessToken: minted.accessToken, refreshToken, expiresIn: minted.expiresIn },
+    tokens: {
+      accessToken: minted.accessToken,
+      refreshToken,
+      expiresIn: minted.expiresIn,
+      ...(minted.session ? { session: minted.session } : {}),
+    },
     refreshHash: hashRefreshToken(refreshToken),
   };
 }
@@ -339,7 +374,8 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
     slotExpiresAt,
     // An interactive slot that INHERITS an older sign-in (a device approval,
     // the survivor of "sign out everywhere") is bounded by that sign-in's age.
-    ...(session.kind === 'interactive' ? { lifetime: { authTime: session.auth.authTime, lastUsedAt: openedAt } } : {}),
+    // A sign-in is activity: the idle clock starts at it.
+    ...(session.kind === 'interactive' ? { lifetime: { authTime: session.auth.authTime, lastActiveAt: openedAt }, activity: 'user' as const } : {}),
     scope: session.scope,
     mfaEnrollmentPending: session.mfaEnrollmentPending,
     permissions: session.permissions,
@@ -351,6 +387,7 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
     hash: refreshHash,
     createdAt: historyEntry.createdAt,
     lastUsedAt: historyEntry.createdAt,
+    lastActiveAt: historyEntry.createdAt,
     ...(organizationId ? { activeOrgId: organizationId } : {}),
     ...(slotExpiresAt ? { expiresAt: slotExpiresAt } : {}),
     ...(session.scope ? { scope: session.scope } : {}),
@@ -427,7 +464,7 @@ async function liveSlot(
   // A slot past its fixed end (a machine credential's lifetime) renews nothing.
   if (current.expiresAt && new Date(current.expiresAt).getTime() <= Date.now()) {
     await endExpiredSlot(user._id, sessionId);
-    throw new Error(SESSION_EXPIRED);
+    throw new SessionExpiredError('credential-end');
   }
   const slotScope = current.scope as TokenScope | undefined;
   if (mint.scope !== undefined && mint.scope !== slotScope) {
@@ -476,7 +513,7 @@ async function mintForSlot<T>(user: UserDocument, sessionId: string, mint: () =>
 /** The lifetime inputs of an INTERACTIVE slot (machine slots have a fixed end instead). */
 function lifetimeOf(current: RefreshSession): MintOptions['lifetime'] {
   return current.kind === 'interactive'
-    ? { authTime: new Date(current.authTime), lastUsedAt: new Date(current.lastUsedAt) }
+    ? { authTime: new Date(current.authTime), lastActiveAt: new Date(current.lastActiveAt) }
     : undefined;
 }
 
@@ -485,15 +522,17 @@ function slotMatchOf(user: UserDocument, sessionId: string, { current, slotScope
   return { id: sessionId, tokenVersion: user.tokenVersion, kind: current.kind, scope: slotScope ?? null };
 }
 
-/** `$set` fields recording a use of the slot. */
+/** `$set` fields recording a use of the slot (and, for `user` activity, a restart of its idle clock). */
 function slotUseFields(
   current: RefreshSession,
   at: Date,
   organizationId: string | undefined,
   client: ClientInfo | undefined,
+  activity: SessionActivity,
 ): Record<string, unknown> {
   return {
     lastUsedAt: at,
+    ...(activity === 'user' ? { lastActiveAt: at } : {}),
     purgeAt: purgeAtFor({ ...current, lastUsedAt: at }),
     ...(organizationId ? { activeOrgId: organizationId } : {}),
     ...(client?.userAgent ? { userAgent: client.userAgent } : {}),
@@ -536,8 +575,9 @@ export async function renewSessionTokens(
   user: UserDocument,
   activeOrgId: string | undefined,
   slot: { sessionId: string; presentedToken?: string; kind?: RefreshSessionKind },
-  mint: { scope?: TokenScope; permissions?: readonly string[]; client?: ClientInfo } = {},
+  mint: { scope?: TokenScope; permissions?: readonly string[]; client?: ClientInfo; activity?: SessionActivity } = {},
 ): Promise<IssuedTokens | null> {
+  const activity = mint.activity ?? 'passive';
   const live = await liveSlot(user, slot.sessionId, slot.kind, mint);
   if (!live) return null;
   const { current, slotScope, slotPermissions, auth } = live;
@@ -548,6 +588,7 @@ export async function renewSessionTokens(
     auth,
     slotExpiresAt: current.expiresAt ? new Date(current.expiresAt) : undefined,
     lifetime: lifetimeOf(current),
+    activity,
     scope: slotScope,
     mfaEnrollmentPending: current.mfaEnrollmentPending,
     permissions: slotPermissions,
@@ -558,7 +599,7 @@ export async function renewSessionTokens(
       ...slotMatchOf(user, slot.sessionId, live),
       ...(slot.presentedToken === undefined ? {} : { hash: hashRefreshToken(slot.presentedToken) }),
     },
-    { hash: refreshHash, ...slotUseFields(current, historyEntry.createdAt, organizationId, mint.client) },
+    { hash: refreshHash, ...slotUseFields(current, historyEntry.createdAt, organizationId, mint.client, activity) },
   );
   if (!updated) return null;
   await recordIssuedToken(user._id, historyEntry);
@@ -569,6 +610,8 @@ export async function renewSessionTokens(
 export interface SwitchedAccessToken {
   accessToken: string;
   expiresIn: number;
+  /** INTERACTIVE slots: the idle state after the switch (a switch is activity). */
+  session?: SessionIdleState;
 }
 
 /**
@@ -609,6 +652,8 @@ export async function switchSessionOrg(
       auth,
       slotExpiresAt: current.expiresAt ? new Date(current.expiresAt) : undefined,
       lifetime: lifetimeOf(current),
+      // Choosing an org is a deliberate act — it restarts the idle clock.
+      activity: 'user',
       scope: slotScope,
       mfaEnrollmentPending: current.mfaEnrollmentPending,
       permissions: slotPermissions,
@@ -624,9 +669,13 @@ export async function switchSessionOrg(
   const updated = await updateSlotIf(
     user._id,
     slotMatchOf(user, sessionId, live),
-    slotUseFields(current, minted.historyEntry.createdAt, organizationId, client),
+    slotUseFields(current, minted.historyEntry.createdAt, organizationId, client, 'user'),
   );
   if (!updated) return 'session-invalid';
   await recordIssuedToken(user._id, minted.historyEntry);
-  return { accessToken: minted.accessToken, expiresIn: minted.expiresIn };
+  return {
+    accessToken: minted.accessToken,
+    expiresIn: minted.expiresIn,
+    ...(minted.session ? { session: minted.session } : {}),
+  };
 }

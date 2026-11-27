@@ -72,8 +72,27 @@ function replaceableBy(status: LedgerStatus): LedgerStatus[] {
   return (Object.keys(REVERSAL_RANK) as LedgerStatus[]).filter((s) => REVERSAL_RANK[s] <= REVERSAL_RANK[status]);
 }
 
-/** Charge-level reversals a re-ingest of the invoice must not overwrite. */
-const PRESERVED_REVERSALS: readonly LedgerStatus[] = ['refunded', 'disputed'];
+/**
+ * The INVOICE-level statuses an ingest of status `next` may overwrite — Stripe's
+ * own state machine: draft/open → paid | void | uncollectible, uncollectible →
+ * paid | void, and paid and void are terminal. Every webhook carries the invoice
+ * as it was when the event fired and Stripe delivers unordered, so the snapshot
+ * in hand can be OLDER than the row: an `invoice.marked_uncollectible` delivered
+ * after `invoice.payment_succeeded` used to set a paid row back to uncollectible
+ * with nothing paid, dropping collected revenue out of every summary. A
+ * snapshot may only move the row forward; a stale one re-syncs the amounts but
+ * leaves the status (and the amount paid that goes with it) alone.
+ */
+const INGEST_REPLACES: Readonly<Record<LedgerStatus, readonly LedgerStatus[]>> = {
+  open: ['open'],
+  uncollectible: ['open', 'uncollectible'],
+  paid: ['open', 'uncollectible', 'paid'],
+  void: ['open', 'uncollectible', 'void'],
+  // Never produced by an ingest (charge-level reversals are set by
+  // reverseLedgerInvoice) — and, being in no set above, never overwritten by one.
+  refunded: [],
+  disputed: [],
+};
 
 /** Statuses never collected: kept on the row, left out of billed totals. */
 const UNCOLLECTED_STATUSES: readonly LedgerStatus[] = ['void', 'uncollectible'];
@@ -260,10 +279,16 @@ export async function ingestStripeInvoice(orgId: string, invoice: StripeInvoiceL
   // where the row is NOT reversed; on a reversed row its filter misses, the
   // insert trips the unique `externalInvoiceId`, and the fallback re-syncs the
   // rest without them.
+  //
+  // The same filter carries the invoice state machine ({@link INGEST_REPLACES}):
+  // the status (and the amount paid that goes with it) is written only onto a
+  // row this snapshot may move FORWARD, so a stale snapshot delivered late takes
+  // the fallback too. Charge-level reversals are outside every allowed set.
+  const status = mapInvoiceStatus(invoice.status);
   try {
     await BillingInvoice.updateOne(
-      { externalInvoiceId: invoice.id, status: { $nin: [...PRESERVED_REVERSALS] } },
-      { $set: { ...set, amountPaidCents: invoice.amount_paid ?? 0, status: mapInvoiceStatus(invoice.status) } },
+      { externalInvoiceId: invoice.id, status: { $in: [...INGEST_REPLACES[status]] } },
+      { $set: { ...set, amountPaidCents: invoice.amount_paid ?? 0, status } },
       { upsert: true },
     );
   } catch (err) {

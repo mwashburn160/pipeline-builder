@@ -1,6 +1,6 @@
 // GENERATED FROM docs/support.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7dba403f6095689b1eb1ec2250027c40201e8179c33be4e9efd4ae21e5dd2f77
+// SOURCE-SHA256: cec8a6a314f0f74f29331a7234d6671fed9dfc751d51d4f0ee5d67b1367c556b
 // SPDX-License-Identifier: Apache-2.0
 import { LifeBuoy } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -121,7 +121,7 @@ export const supportTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Annual is about 10× monthly, rounded like every other price. Volume pricing applies as contact counts rise. Larger accounts also carry a seat-derived size floor (BILLING_SUPPORT_FLOOR_*, on by default): beyond the first 15 seats, the support price is at least $4.99 per seat per month, weighted by level and billed as a visible top-up line — never charged to an account holding no support. See Environment Variables. Premium is an upgrade to a Standard or Priority contact rather than a separate level, so it is bought for the specific people who need round-the-clock cover."
+          "content": "Annual is about 10× monthly, rounded like every other price. Volume pricing applies as contact counts rise. Larger accounts also carry a seat-derived size floor (BILLING_SUPPORT_FLOOR_*, on by default): beyond the first 15 seats, the support price is at least $4.99 per seat per month, weighted by level and billed as a visible top-up line — never charged to an account holding no support. The top-up is charged once per billing period (an annual period carries the ten-month figure) as a labelled line on the subscription's next Stripe invoice; on AWS Marketplace, where AWS contracts carry the price, it is not billed and is counted as billing_support_floor_unrealizable_total. See Environment Variables. Premium is an upgrade to a Standard or Priority contact rather than a separate level, so it is bought for the specific people who need round-the-clock cover."
         },
         {
           "type": "text",

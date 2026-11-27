@@ -61,7 +61,7 @@ function getDatabaseConfig() {
     password: process.env.DB_PASSWORD || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('DB_PASSWORD is required in production'); })() as string : ''),
     maxPoolSize: envInt('DRIZZLE_MAX_POOL_SIZE', defaultPoolSize),
     idleTimeoutMillis: envInt('DRIZZLE_IDLE_TIMEOUT_MS', defaultIdleTimeout),
-    connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MS', 5000),
+    connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MS', 10_000),
   };
 }
 

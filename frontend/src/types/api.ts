@@ -28,6 +28,12 @@ export interface AuthTokens {
   accessToken: string;
   /** Access-token lifetime in seconds, when the endpoint reports it. */
   expiresIn?: number;
+  /**
+   * INTERACTIVE sessions: the effective idle timeout (minutes) and the
+   * server's idle deadline (ISO, server clock) — returned by sign-in, refresh
+   * and switch-org. The client warns before, and signs out at, the deadline.
+   */
+  session?: { idleTimeoutMinutes: number; idleExpiresAt: string };
 }
 
 /**

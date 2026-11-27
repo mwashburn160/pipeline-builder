@@ -19,7 +19,7 @@ jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
     passwordMinLength: 8,
     jwt: { secret: 'test-jwt-secret', expiresIn: 900, algorithm: 'HS256', saltRounds: 12 },
     refreshToken: { secret: 'x', expiresIn: 2592000 },
-    session: { maxAgeDays: 30, idleTimeoutDays: 7 },
+    session: { maxAgeDays: 30, idleTimeoutMinutes: 15 },
   },
 }));
 
@@ -45,6 +45,7 @@ const { renewSessionTokens, switchSessionOrg, hashRefreshToken } = await import(
 (await import('./helpers/signing.js')).installTestSigningKeys();
 
 const DAY = 86400_000;
+const MINUTE = 60_000;
 const user = { _id: { toString: () => 'u1' }, username: 'u', email: 'u@x.test', isEmailVerified: true, tokenVersion: 2 } as any;
 
 function seed(over: Record<string, unknown> = {}) {
@@ -56,6 +57,7 @@ function seed(over: Record<string, unknown> = {}) {
     hash: hashRefreshToken('rt'),
     createdAt: new Date(),
     lastUsedAt: new Date(),
+    lastActiveAt: new Date(),
     authTime: new Date(),
     amr: ['pwd'],
     aal: 1,
@@ -71,7 +73,7 @@ beforeEach(() => {
 
 describe('renewSessionTokens — interactive lifetime', () => {
   it('renews inside both bounds, recording the use and a new purge time', async () => {
-    seed({ authTime: new Date(Date.now() - 10 * DAY), lastUsedAt: new Date(Date.now() - DAY) });
+    seed({ authTime: new Date(Date.now() - 10 * DAY), lastUsedAt: new Date(Date.now() - MINUTE), lastActiveAt: new Date(Date.now() - 5 * MINUTE) });
     const tokens = await renewSessionTokens(user, undefined, { sessionId: 's1', presentedToken: 'rt', kind: 'interactive' });
     expect(tokens).not.toBeNull();
     expect(store.rows[0].hash).toBe(hashRefreshToken(tokens!.refreshToken));
@@ -80,10 +82,10 @@ describe('renewSessionTokens — interactive lifetime', () => {
   });
 
   it.each([
-    ['idle past the timeout', 10, 8],
+    ['idle past the timeout', 10, 16],
     ['past the maximum age', 31, 0],
-  ])('%s → SESSION_EXPIRED, slot dropped and its sid revoked', async (_l, signedIn, used) => {
-    seed({ authTime: new Date(Date.now() - signedIn * DAY), lastUsedAt: new Date(Date.now() - used * DAY) });
+  ])('%s → SESSION_EXPIRED, slot dropped and its sid revoked', async (_l, signedIn, idleMinutes) => {
+    seed({ authTime: new Date(Date.now() - signedIn * DAY), lastActiveAt: new Date(Date.now() - idleMinutes * MINUTE) });
     await expect(renewSessionTokens(user, undefined, { sessionId: 's1', presentedToken: 'rt', kind: 'interactive' }))
       .rejects.toThrow('SESSION_EXPIRED');
     expect(store.rows).toHaveLength(0);
@@ -102,10 +104,72 @@ describe('renewSessionTokens — interactive lifetime', () => {
   });
 });
 
+describe('renewSessionTokens — the activity signal', () => {
+  const renew = (activity?: 'user' | 'passive') =>
+    renewSessionTokens(user, undefined, { sessionId: 's1', presentedToken: 'rt', kind: 'interactive' }, activity ? { activity } : {});
+
+  it('a PASSIVE refresh (a background poll) renews the token but does not move the idle clock', async () => {
+    const lastActiveAt = new Date(Date.now() - 10 * MINUTE);
+    seed({ lastActiveAt, lastUsedAt: lastActiveAt });
+    const tokens = await renew('passive');
+    expect(tokens).not.toBeNull();
+    expect(new Date(store.rows[0].lastActiveAt).getTime()).toBe(lastActiveAt.getTime());
+    // The use itself is still recorded (sessions page, purge time).
+    expect(Date.now() - new Date(store.rows[0].lastUsedAt).getTime()).toBeLessThan(5000);
+  });
+
+  it('a refresh with NO signal is passive', async () => {
+    const lastActiveAt = new Date(Date.now() - 10 * MINUTE);
+    seed({ lastActiveAt });
+    await renew();
+    expect(new Date(store.rows[0].lastActiveAt).getTime()).toBe(lastActiveAt.getTime());
+  });
+
+  it('a passive refresh past the idle timeout is refused with SESSION_EXPIRED (reason idle) and drops the slot', async () => {
+    seed({ lastActiveAt: new Date(Date.now() - 16 * MINUTE), lastUsedAt: new Date(Date.now() - MINUTE) });
+    const err = await renew('passive').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('SESSION_EXPIRED');
+    expect(err).toMatchObject({ reason: 'idle', idleTimeoutMinutes: 15 });
+    expect(store.rows).toHaveLength(0);
+  });
+
+  it('polling cannot keep a session alive: passive refreshes keep the original idle deadline', async () => {
+    const lastActiveAt = new Date(Date.now() - 14 * MINUTE);
+    seed({ lastActiveAt });
+    const first = await renew('passive');
+    expect(first!.session!.idleExpiresAt).toBe(new Date(lastActiveAt.getTime() + 15 * MINUTE).toISOString());
+  });
+
+  it('a USER refresh moves the idle clock to now', async () => {
+    seed({ lastActiveAt: new Date(Date.now() - 10 * MINUTE) });
+    const tokens = await renew('user');
+    const at = new Date(store.rows[0].lastActiveAt).getTime();
+    expect(Date.now() - at).toBeLessThan(5000);
+    expect(new Date(tokens!.session!.idleExpiresAt).getTime()).toBe(at + 15 * MINUTE);
+  });
+
+  it('a user refresh cannot revive a session already past its idle deadline', async () => {
+    seed({ lastActiveAt: new Date(Date.now() - 16 * MINUTE) });
+    await expect(renew('user')).rejects.toThrow('SESSION_EXPIRED');
+  });
+
+  it('reports the effective idle timeout and the server idle deadline', async () => {
+    seed({ lastActiveAt: new Date(Date.now() - MINUTE) });
+    const tokens = await renew('passive');
+    expect(tokens!.session).toEqual({
+      idleTimeoutMinutes: 15,
+      idleExpiresAt: new Date(new Date(store.rows[0].lastActiveAt).getTime() + 15 * MINUTE).toISOString(),
+    });
+  });
+});
+
 describe('renewSessionTokens — machine slots', () => {
-  it('are never idle-timed', async () => {
-    seed({ kind: 'machine', authTime: new Date(Date.now() - 200 * DAY), lastUsedAt: new Date(Date.now() - 60 * DAY), expiresAt: new Date(Date.now() + DAY) });
-    await expect(renewSessionTokens(user, undefined, { sessionId: 's1', kind: 'machine' })).resolves.not.toBeNull();
+  it('are never idle-timed, and carry no idle deadline', async () => {
+    seed({ kind: 'machine', authTime: new Date(Date.now() - 200 * DAY), lastUsedAt: new Date(Date.now() - 60 * DAY), lastActiveAt: new Date(Date.now() - 60 * DAY), expiresAt: new Date(Date.now() + DAY) });
+    const tokens = await renewSessionTokens(user, undefined, { sessionId: 's1', kind: 'machine' });
+    expect(tokens).not.toBeNull();
+    expect(tokens!.session).toBeUndefined();
   });
 
   it('end at their fixed expiresAt → SESSION_EXPIRED and dropped', async () => {
@@ -121,6 +185,12 @@ describe('switchSessionOrg — lifetime', () => {
     await expect(switchSessionOrg(user, 'org-x', 's1')).resolves.toBe('session-expired');
     expect(store.rows).toHaveLength(1);
     expect(mockPublishSlot).not.toHaveBeenCalled();
+  });
+
+  it('a session past its idle timeout cannot switch org (switching would otherwise revive it)', async () => {
+    seed({ lastActiveAt: new Date(Date.now() - 16 * MINUTE) });
+    await expect(switchSessionOrg(user, 'org-x', 's1')).resolves.toBe('session-expired');
+    expect(store.rows).toHaveLength(1);
   });
 
   it('is session-invalid for a missing slot', async () => {

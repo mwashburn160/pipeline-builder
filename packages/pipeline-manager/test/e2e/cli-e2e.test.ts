@@ -210,7 +210,7 @@ describe('pipeline-manager e2e (stub platform)', () => {
     // The renewed pair was stored, so the async path needs no second refresh.
     const res = await cli(['pipeline', 'synth', '--id', pipelineId, '--show-resolved']);
     expectExit(res, 0);
-    expect(refresh!.body).toEqual({ refreshToken: 'rt-1' });
+    expect(refresh!.body).toEqual({ refreshToken: 'rt-1', activity: 'user' }); // a CLI renewal is real use, never a passive poll
     // Renewed by the pre-command hook on the earlier `pipeline list`, so this run
     // simply uses the stored pair.
     expect(res.stderr).toContain('Using the stored session');

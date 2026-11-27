@@ -24,6 +24,7 @@
 import {
   BILLING_INTERNAL,
   ErrorCode,
+  INCIDENT_KEY_PATTERN,
   SYSTEM_ORG_ID,
   actorId,
   audited,
@@ -63,11 +64,14 @@ const logger = createLogger('support-incidents-routes');
 const { consumeSupportIncident: CONSUME, refundSupportIncident: REFUND } = BILLING_INTERNAL;
 
 const GRANT_COUNT_MESSAGE = `count must be an integer in 1..${MAX_INCIDENT_GRANT}`;
+const GRANT_KEY_MESSAGE = 'idempotencyKey must be 8-128 characters of [A-Za-z0-9_-]';
 
 /** `{ count, note? }` — an operator grant. */
 const IncidentGrantSchema = z.object({
   count: z.number({ error: GRANT_COUNT_MESSAGE }).int(GRANT_COUNT_MESSAGE).min(1, GRANT_COUNT_MESSAGE).max(MAX_INCIDENT_GRANT, GRANT_COUNT_MESSAGE),
   note: z.string({ error: 'note must be a string' }).optional(),
+  /** Makes a retried grant POST grant once (same shape as the consume's key). */
+  idempotencyKey: z.string({ error: GRANT_KEY_MESSAGE }).regex(INCIDENT_KEY_PATTERN, GRANT_KEY_MESSAGE).optional(),
 }).strict();
 
 /**
@@ -221,13 +225,19 @@ export function createSupportIncidentRoutes(): Router {
       // opened from that team will look for it.
       const accountOrgId = await accountOrgOr503(res, orgId);
       if (!accountOrgId) return;
-      const balance = await grantSupportIncidents(accountOrgId, body.count, actorId({ userId }));
+      const granted = await grantSupportIncidents(accountOrgId, body.count, actorId({ userId }), body.idempotencyKey);
       // Null means no manageable subscription — a cancelled or missing account.
       // 404 rather than a silent success, because a concession the operator
       // believes they granted and the customer never received is worse than a
       // refusal they can see.
-      if (balance === null) {
+      if (granted === null) {
         return sendError(res, 404, 'No manageable subscription for that organization', ErrorCode.NOT_FOUND);
+      }
+      const { balance } = granted;
+      // A repeated key granted nothing: answer with the balance as it stands,
+      // and record no second audit row for a grant that did not happen.
+      if (granted.duplicate) {
+        return sendSuccess(res, 200, { balance, accountOrgId, duplicate: true });
       }
 
       recordAudit({

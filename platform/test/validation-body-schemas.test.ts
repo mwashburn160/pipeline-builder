@@ -57,3 +57,26 @@ describe('admin user-create schema', () => {
     expect(v.adminCreateUserSchema.safeParse({ ...base, role: 'member' }).success).toBe(true);
   });
 });
+
+describe('session-policy body (idle timeout in minutes)', () => {
+  const parse = (b: unknown) => v.updateSessionPolicySchema.safeParse(b);
+
+  it('accepts whole minutes from 5 up to the platform ceiling, and null to clear', () => {
+    expect(parse({ idleTimeoutMinutes: 5 }).success).toBe(true);
+    expect(parse({ idleTimeoutMinutes: 15 }).success).toBe(true);
+    expect(parse({ idleTimeoutMinutes: null }).success).toBe(true);
+  });
+
+  it.each([
+    ['below the 5-minute floor', 4],
+    ['fractional', 7.5],
+    ['above the platform ceiling (an org can only shorten it)', 16],
+    ['not a number', '10'],
+  ])('refuses a value %s', (_label, value) => {
+    expect(parse({ idleTimeoutMinutes: value }).success).toBe(false);
+  });
+
+  it('no longer knows the days field', () => {
+    expect(parse({ idleTimeoutDays: 1 }).success).toBe(false);
+  });
+});

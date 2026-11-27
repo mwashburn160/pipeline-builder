@@ -77,7 +77,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   updateSessionPolicySchema: {},
 }));
 // The platform session ceiling (helpers/session-policy.ts reads it from config).
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { session: { maxAgeDays: 30, idleTimeoutDays: 7 } } } }));
+jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { session: { maxAgeDays: 30, idleTimeoutMinutes: 15 } } } }));
 
 const ctrl = await import('../src/controllers/org-security-policy.js');
 
@@ -218,18 +218,18 @@ describe('session policy', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json.mock.calls[0][0].data).toMatchObject({
       maxAgeDays: 14,
-      idleTimeoutDays: 7,
-      own: { maxAgeDays: 14, idleTimeoutDays: null },
-      platform: { maxAgeDays: 30, idleTimeoutDays: 7 },
+      idleTimeoutMinutes: 15,
+      own: { maxAgeDays: 14, idleTimeoutMinutes: null },
+      platform: { maxAgeDays: 30, idleTimeoutMinutes: 15 },
     });
   });
 
   it('names the ancestor whose stricter bound is in force', async () => {
-    lineage = [{ _id: 'org-1', sessionPolicy: { idleTimeoutDays: 5 } }, { _id: 'root', sessionPolicy: { maxAgeDays: 3, idleTimeoutDays: 2 } }];
+    lineage = [{ _id: 'org-1', sessionPolicy: { idleTimeoutMinutes: 12 } }, { _id: 'root', sessionPolicy: { maxAgeDays: 3, idleTimeoutMinutes: 10 } }];
     const res = await run(ctrl.getSessionPolicy, req());
     expect(res.json.mock.calls[0][0].data).toMatchObject({
       maxAgeDays: 3,
-      idleTimeoutDays: 2,
+      idleTimeoutMinutes: 10,
       maxAgeInheritedFrom: 'root',
       maxAgeInheritedFromName: 'name-of-root',
       idleTimeoutInheritedFrom: 'root',
@@ -250,26 +250,27 @@ describe('session policy', () => {
 
   it('tightening stays open to a single-factor admin, and is audited with both sides', async () => {
     orgDoc = { sessionPolicy: { maxAgeDays: 14 } };
-    const res = await run(ctrl.updateSessionPolicy, req({ maxAgeDays: 7, idleTimeoutDays: 1 }));
+    const res = await run(ctrl.updateSessionPolicy, req({ maxAgeDays: 7, idleTimeoutMinutes: 10 }));
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mockRefuseWeak).not.toHaveBeenCalled();
-    expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'org-1' }, { $set: { sessionPolicy: { maxAgeDays: 7, idleTimeoutDays: 1 } } });
+    expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'org-1' }, { $set: { sessionPolicy: { maxAgeDays: 7, idleTimeoutMinutes: 10 } } });
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'org.session_policy.update', expect.objectContaining({
-      details: { maxAgeDays: { from: 14, to: 7 }, idleTimeoutDays: { from: null, to: 1 } },
+      details: { maxAgeDays: { from: 14, to: 7 }, idleTimeoutMinutes: { from: null, to: 10 } },
     }));
   });
 
   it('a partial update keeps the other field', async () => {
-    orgDoc = { sessionPolicy: { maxAgeDays: 14, idleTimeoutDays: 3 } };
-    await run(ctrl.updateSessionPolicy, req({ idleTimeoutDays: 2 }));
-    expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'org-1' }, { $set: { sessionPolicy: { maxAgeDays: 14, idleTimeoutDays: 2 } } });
+    orgDoc = { sessionPolicy: { maxAgeDays: 14, idleTimeoutMinutes: 10 } };
+    await run(ctrl.updateSessionPolicy, req({ idleTimeoutMinutes: 5 }));
+    expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'org-1' }, { $set: { sessionPolicy: { maxAgeDays: 14, idleTimeoutMinutes: 5 } } });
   });
 
   it.each([
     ['raising a bound', { maxAgeDays: 21 }],
-    ['clearing a bound', { idleTimeoutDays: null }],
+    ['clearing a bound', { idleTimeoutMinutes: null }],
+    ['raising the idle timeout', { idleTimeoutMinutes: 12 }],
   ])('%s lengthens sessions and needs an aal 2 session', async (_label, body) => {
-    orgDoc = { sessionPolicy: { maxAgeDays: 14, idleTimeoutDays: 3 } };
+    orgDoc = { sessionPolicy: { maxAgeDays: 14, idleTimeoutMinutes: 10 } };
     const res = await run(ctrl.updateSessionPolicy, req(body));
     expect(mockRefuseWeak).toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(403);

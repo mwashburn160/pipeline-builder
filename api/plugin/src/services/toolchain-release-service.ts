@@ -20,12 +20,12 @@
 
 import {
   AppError, ConflictError, ErrorCode, MANAGED_TOOLCHAIN, MANAGED_TOOLCHAIN_PLUGINS, NotFoundError, SYSTEM_ORG_ID, ValidationError,
-  exceedsVulnFloor, gatedFindingCount, gatedFixableCount, getStatusForErrorCode, lastScannedAt, pluginVulnFailOn,
+  getStatusForErrorCode, lastScannedAt, pluginVulnFailOn,
   pluginVulnMaxFindings, recordAudit, toolchainFromMetadata,
-  type PluginScanSummary, type RemoteAuditAction,
+  type RemoteAuditAction,
 } from '@pipeline-builder/api-core';
 import {
-  executeRows, readCanaryGate, runWithTenantContext, schema, withTenantTx,
+  executeRows, readCanaryGate, runWithTenantContext, schema, toolchainFloorBreach, withTenantTx,
   type CanaryGateParams, type CanaryGateResult, type ToolchainDefaultKind,
 } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -157,18 +157,8 @@ async function wasEverDefault(tx: TenantTx, releaseVersion: string): Promise<boo
   return row !== undefined;
 }
 
-/** Gated findings over the floor for one half — waiver/KEV-aware, the raw scanner counts when the summary can't answer. */
-function floorBreach(row: Plugin): { gated: number; flagged: boolean } | null {
-  const max = pluginVulnMaxFindings();
-  const gated = gatedFindingCount(
-    row.scanSummary as PluginScanSummary | null,
-    { pluginName: row.name, orgId: row.orgId, pluginVersion: row.version, imageDigest: row.imageDigest },
-    pluginVulnFailOn(),
-  ) ?? gatedFixableCount(row);
-  // A nightly-rescan flag is the floor breached since the build.
-  const flagged = row.scanFlaggedAt !== null;
-  return flagged || exceedsVulnFloor(gated, max) ? { gated, flagged } : null;
-}
+/** Gated findings over the floor for one half: the shared rule (pipeline-data). */
+const floorBreach = toolchainFloorBreach;
 
 /**
  * The canary gate: at least N synth runs across at least M orgs (each org

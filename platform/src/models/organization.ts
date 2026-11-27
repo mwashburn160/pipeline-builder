@@ -124,13 +124,14 @@ export interface OrganizationData {
    */
   allowedAuthenticatorAaguids?: string[];
   /**
-   * Org session-lifetime policy for interactive sessions (days): a maximum age
-   * from sign-in and an idle timeout since last use. Either may only TIGHTEN
-   * the platform ceiling (`SESSION_MAX_AGE_DAYS` / `SESSION_IDLE_TIMEOUT_DAYS`).
+   * Org session-lifetime policy for interactive sessions: a maximum age from
+   * sign-in (days) and an idle timeout since the last real activity (minutes,
+   * at least 5). Either may only TIGHTEN the platform ceiling
+   * (`SESSION_MAX_AGE_DAYS` / `SESSION_IDLE_TIMEOUT_MINUTES`).
    * Absent field = the platform value. Read only through
    * `helpers/session-policy.ts`, which owns the ancestor walk (strictest wins).
    */
-  sessionPolicy?: { maxAgeDays?: number; idleTimeoutDays?: number };
+  sessionPolicy?: { maxAgeDays?: number; idleTimeoutMinutes?: number };
   /**
    * When an org admin dismissed the one-time "finish setting up your org" guide
    * (install the CLI, store tokens, set up events) the dashboard offers org
@@ -442,7 +443,7 @@ const organizationSchema = new Schema<OrganizationData>(
       type: new Schema(
         {
           maxAgeDays: { type: Number, min: 1, max: 365 },
-          idleTimeoutDays: { type: Number, min: 1, max: 365 },
+          idleTimeoutMinutes: { type: Number, min: 5, max: 365 * 24 * 60 },
         },
         { _id: false },
       ),

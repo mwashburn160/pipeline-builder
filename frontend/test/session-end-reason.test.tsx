@@ -44,7 +44,7 @@ jest.mock('@/lib/passkeys', () => ({
 import { SignInCard } from '../src/components/auth/SignInCard';
 import { OrgSwitcher } from '../src/components/ui/OrgSwitcher';
 import { OrgReauthDialog } from '../src/components/ui/OrgReauthDialog';
-import { isSessionPolicyReauth, parseSignInReason, signInHref } from '../src/lib/sign-in-reason';
+import { isSessionPolicyReauth, parseSignInReason, signInHref, signInReasonMessage } from '../src/lib/sign-in-reason';
 
 const org = (over: Partial<UserOrgMembership>): UserOrgMembership => ({
   id: 'own', name: 'Own Org', role: 'owner', childOrgCount: 0, roleNames: [], ...over,
@@ -64,6 +64,11 @@ describe('sign-in reason helpers', () => {
     expect(parseSignInReason('<script>')).toBeNull();
     expect(parseSignInReason(undefined)).toBeNull();
     expect(signInHref('session-expired')).toBe('/?reason=session-expired');
+    expect(parseSignInReason('idle')).toBe('idle');
+    expect(signInHref('idle', { minutes: 15 })).toBe('/?reason=idle&minutes=15');
+    expect(signInReasonMessage('idle', '60')).toBe('Signed out after 60 minutes of inactivity.');
+    expect(signInReasonMessage('idle', '0')).toBe('Signed out after a period of inactivity.');
+    expect(signInReasonMessage('session-expired', '15')).toBe('Your session expired. Sign in again.');
   });
 
   it('recognises the switch-org refusal by its code', () => {
@@ -78,6 +83,18 @@ describe('the sign-in card says why the person is here', () => {
     mockQuery = { reason: 'session-expired' };
     await act(async () => { render(<SignInCard />); });
     expect(screen.getByRole('status')).toHaveTextContent('Your session expired. Sign in again.');
+  });
+
+  it('an inactivity sign-out: "Signed out after N minutes of inactivity"', async () => {
+    mockQuery = { reason: 'idle', minutes: '15' };
+    await act(async () => { render(<SignInCard />); });
+    expect(screen.getByRole('status')).toHaveTextContent('Signed out after 15 minutes of inactivity.');
+  });
+
+  it('an inactivity sign-out with a missing or junk duration still says why', async () => {
+    mockQuery = { reason: 'idle', minutes: '<b>' };
+    await act(async () => { render(<SignInCard />); });
+    expect(screen.getByRole('status')).toHaveTextContent('Signed out after a period of inactivity.');
   });
 
   it('an org that needs a fresh sign-in', async () => {

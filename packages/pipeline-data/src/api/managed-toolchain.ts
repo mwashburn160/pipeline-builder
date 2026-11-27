@@ -26,9 +26,10 @@
  */
 
 import {
-  AppError, compareSemver, createLogger, envInt, ErrorCode, fetchParentOrgId, getStatusForErrorCode, isSystemOrgId,
-  MANAGED_TOOLCHAIN, MANAGED_TOOLCHAIN_PLUGINS, MAX_ORG_DEPTH, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN, toolchainFromMetadata, toOrgIdString,
-  type GetParentOrgId, type ManagedToolchainPlugin, type PluginToolchain, type ToolchainResolvedVia,
+  AppError, compareSemver, createLogger, ErrorCode, exceedsVulnFloor, fetchParentOrgId, gatedFindingCount, gatedFixableCount,
+  getStatusForErrorCode, isSystemOrgId, MANAGED_TOOLCHAIN, MANAGED_TOOLCHAIN_PLUGINS, MAX_ORG_DEPTH, pluginVulnFailOn,
+  pluginVulnMaxFindings, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN, toolchainFromMetadata, toOrgIdString,
+  type GetParentOrgId, type ManagedToolchainPlugin, type PluginScanSummary, type PluginToolchain, type ToolchainResolvedVia,
 } from '@pipeline-builder/api-core';
 import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import type { CrudTx } from './crud-service.js';
@@ -269,9 +270,24 @@ export function bootstrapToolchainOf(row: Plugin | null | undefined): PluginTool
   return row ? toolchainFromMetadata(row.metadata) : null;
 }
 
-/** `PLUGIN_VULN_MAX_FINDINGS` (default 0): the fixable-Critical floor a release must be within. */
-function vulnFloor(): number {
-  return envInt('PLUGIN_VULN_MAX_FINDINGS', 0, { min: 0 });
+/**
+ * One toolchain half's breach of the platform vulnerability floor, or null.
+ *
+ * THE single floor rule for a release, shared by promotion (api/plugin's
+ * toolchain-release-service) and canary rollout and serving
+ * ({@link toolchainCandidateProblems}), so `PLUGIN_VULN_MAX_FINDINGS` means one
+ * thing everywhere: gated findings (waiver- and KEV-aware, the raw fixable
+ * count when the summary can't answer) over the floor, or a nightly-rescan
+ * flag. `-1` turns the count off; a rescan flag still breaches.
+ */
+export function toolchainFloorBreach(row: Plugin): { gated: number; flagged: boolean } | null {
+  const gated = gatedFindingCount(
+    row.scanSummary as PluginScanSummary | null,
+    { pluginName: row.name, orgId: row.orgId, pluginVersion: row.version, imageDigest: row.imageDigest },
+    pluginVulnFailOn(),
+  ) ?? gatedFixableCount(row);
+  const flagged = row.scanFlaggedAt !== null;
+  return flagged || exceedsVulnFloor(gated, pluginVulnMaxFindings()) ? { gated, flagged } : null;
 }
 
 /**
@@ -284,7 +300,7 @@ export function toolchainCandidateProblems(h: ReleaseHalves): ErrorCode[] {
   const out: ErrorCode[] = [];
   const halves = [h.bootstrap, h.synth];
   if (halves.some((p) => !p.scannedAt)) out.push(ErrorCode.TOOLCHAIN_GUARD_UNSCANNED);
-  else if (halves.some((p) => (p.vulnCriticalFixable ?? 0) > vulnFloor())) out.push(ErrorCode.TOOLCHAIN_GUARD_VULN_FLOOR);
+  else if (halves.some((p) => toolchainFloorBreach(p) !== null)) out.push(ErrorCode.TOOLCHAIN_GUARD_VULN_FLOOR);
   if (!bootstrapToolchainOf(h.bootstrap)) out.push(ErrorCode.TOOLCHAIN_GUARD_METADATA);
   return out;
 }

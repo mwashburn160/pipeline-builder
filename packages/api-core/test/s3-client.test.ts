@@ -58,11 +58,13 @@ beforeEach(() => {
   clientConfigs.length = 0;
   failOn = {};
   delete process.env.S3_ENDPOINT;
+  process.env.S3_ACCESS_KEY_ID = 'plugin-svc';
+  process.env.S3_SECRET_ACCESS_KEY = 'plugin-svc-secret';
 });
 
 describe('s3Client', () => {
   it('builds ONE client, lazily, from the S3_* env names', async () => {
-    process.env.S3_ENDPOINT = 'http://minio:9000';
+    process.env.S3_ENDPOINT = 'http://rustfs:9000';
     const { s3Client } = await loadS3();
     // Nothing constructed until someone actually asks for the client.
     expect(clientConfigs).toHaveLength(0);
@@ -72,10 +74,20 @@ describe('s3Client', () => {
     expect(clientConfigs).toHaveLength(1);
     expect(clientConfigs[0]).toMatchObject({
       region: 'us-east-1',
-      endpoint: 'http://minio:9000',
+      endpoint: 'http://rustfs:9000',
       forcePathStyle: true,
-      credentials: { accessKeyId: 'minioadmin', secretAccessKey: 'minioadmin' },
+      credentials: { accessKeyId: 'plugin-svc', secretAccessKey: 'plugin-svc-secret' },
     });
+  });
+
+  it.each(['S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'])('refuses to build without %s (no default credential)', async (name) => {
+    // Every deployment issues per-service, bucket-scoped keys. A missing one is a
+    // misconfiguration; falling back to an object store's well-known root
+    // credentials would only hide it.
+    delete process.env[name];
+    const { s3Client } = await loadS3();
+    expect(() => s3Client()).toThrow(name);
+    expect(clientConfigs).toHaveLength(0);
   });
 
   it('omits the endpoint entirely against real S3 (no S3_ENDPOINT)', async () => {

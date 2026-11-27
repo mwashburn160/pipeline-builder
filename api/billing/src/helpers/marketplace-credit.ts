@@ -44,6 +44,11 @@ export function computeMeteredDrawdown(creditBalanceCents: number, unitPriceCent
   };
 }
 
+/** A positive, safe-integer number of cents — the only shape a unit price may take. */
+export function isWholeCents(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
 /** An add-on's reported quantity after withholding, plus what was withheld. */
 export interface DrawdownLine {
   bundleId: string;
@@ -90,7 +95,12 @@ export function planMeteredDrawdown(
     const quantity = Math.max(0, Math.trunc(addon.quantity));
     const dimension = bundleToDimensionMap[addon.bundleId];
     const unitPrice = dimension ? dimensionPriceMap[dimension] : undefined;
-    if (!dimension || !unitPrice || unitPrice <= 0 || quantity === 0) {
+    // Only a positive whole number of cents can value a withheld unit. The map is
+    // hand-written JSON in the environment: a fractional price put fractional
+    // cents on the balance, `Infinity` made `0 × Infinity` a NaN balance, and a
+    // numeric STRING coerced its way through the arithmetic. Any of those is
+    // treated as unpriced — reported in full, never drawn against.
+    if (!dimension || !isWholeCents(unitPrice) || quantity === 0) {
       adjustedAddons.push({ bundleId: addon.bundleId, quantity });
       continue;
     }

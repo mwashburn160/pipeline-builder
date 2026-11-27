@@ -2986,21 +2986,60 @@ switch-org:
   sign-out-everywhere) inherits that sign-in's age. Nothing minted for the
   session outlives it: the refresh token's lifetime is
   `min(REFRESH_TOKEN_EXPIRES_IN, time left before the maximum age)`.
-- **Idle timeout** — counted from the slot's last use (`lastUsedAt`: refresh,
-  switch-org). Platform default **7 days** (`SESSION_IDLE_TIMEOUT_DAYS`).
+- **Idle timeout** — counted from the slot's last real **activity**
+  (`lastActiveAt`), in minutes. Platform default **15 minutes**
+  (`SESSION_IDLE_TIMEOUT_MINUTES`, minimum 5). It applies to everyone, platform
+  administrators included.
+
+**What counts as activity.** `POST /auth/refresh` takes a body field
+`activity: "user" | "passive"`:
+
+- `user` — the client saw real input since its last refresh. The idle clock
+  restarts at this refresh. The browser sends it when there was pointer, key,
+  touch, wheel or scroll input in **any** of its tabs; the CLI sends it on
+  every renewal (a renewal only happens because someone ran a command).
+- `passive`, or no value at all — a background poll renewing the token of a
+  tab nobody is using. The token is renewed (rotation, reuse detection and the
+  maximum age all apply as usual) but the idle clock does **not** move, so a
+  visible tab that polls the API still reaches its idle timeout. A client that
+  never reports activity therefore times out.
+
+A sign-in starts the clock and a switch-org restarts it. The slot also keeps
+`lastUsedAt` (the last refresh of any kind), which the Sessions page shows and
+the purge time counts from. A refresh after the idle deadline is refused
+whatever it reports — activity cannot revive an idle-expired session.
+
+Every interactive token delivery (sign-in, refresh, switch-org) answers
+`session: { idleTimeoutMinutes, idleExpiresAt }`: the effective timeout (the
+strictest of the platform ceiling and the policy of the org the token is for)
+and the server's idle deadline. The browser warns **2 minutes** before the
+deadline ("You'll be signed out in 2 minutes for inactivity", with a live
+countdown, **Stay signed in** and **Sign out**). Staying counts as activity and
+refreshes at once. At the deadline, or on a `SESSION_EXPIRED` answer, every tab
+of the browser signs out together and lands on the sign-in page with "Signed
+out after N minutes of inactivity". Activity and the sign-out are shared
+between tabs over a `BroadcastChannel` (falling back to the `storage` event).
+Between refreshes the browser reports activity on its own as well, at the
+latest halfway to the server deadline, so the server deadline is never earlier
+than the one the browser shows.
 
 An org may only **tighten** either bound —
-`GET`/`PATCH /organization/:id/session-policy` `{ maxAgeDays?, idleTimeoutDays? }`
-(days, 1–365; `null` clears a field back to the platform / ancestor value;
-`org_settings:write` + step-up; lengthening needs an `aal: 2` session; audited
-`org.session_policy.update`). The effective policy is the strictest of the
+`GET`/`PATCH /organization/:id/session-policy` `{ maxAgeDays?, idleTimeoutMinutes? }`
+(`maxAgeDays`: days, 1–365; `idleTimeoutMinutes`: whole minutes from 5 up to
+the platform ceiling, a longer value is refused with 400; `null` clears a field
+back to the platform / ancestor value; `org_settings:write` + step-up;
+lengthening needs an `aal: 2` session; audited `org.session_policy.update`).
+Org settings → Security offers presets (5, 10 and 15 minutes, then 30 minutes,
+1 hour, 8 hours and 1 day — each only when the ceiling allows it), the platform
+default, and a custom value. The effective policy is the strictest of the
 platform ceiling, the org's own values and every ancestor's (a parent account
 can shorten sessions for every team), and it is the policy of the **org the
 token is minted for** that applies. A tightened policy bites at each session's
 next refresh — within one access-token lifetime.
 
 A refresh past either bound answers **`401 SESSION_EXPIRED`** ("Your session has
-expired — please sign in again"), drops the slot (publishing `revoke:sid`) and
+expired — please sign in again", `details: { reason: "idle" | "max-age" |
+"credential-end", idleTimeoutMinutes? }`), drops the slot (publishing `revoke:sid`) and
 clears the browser's refresh cookie; it is not reuse and is not audited as such
 (`platform_session_expired_total{kind}` counts it). A refresh token past its own
 `exp` answers the same code. Switch-org into an org whose policy the session is

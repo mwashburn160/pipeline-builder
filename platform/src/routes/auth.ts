@@ -7,6 +7,7 @@ import { Router } from 'express';
 import recoveryCodesRoutes from './recovery-codes.js';
 import totpRoutes from './totp.js';
 import webauthnRoutes from './webauthn.js';
+import { AUTH_RATE_LIMITS } from '../config/rate-limits.js';
 import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail, markEmailVerified, completeOnboarding, getDomainOrgs, joinDomainOrg, withdrawDomainJoinRequest } from '../controllers/index.js';
 import { completeRequiredPasswordChange } from '../controllers/password-change-required.js';
 import { confirmReset, requestReset } from '../controllers/password-reset.js';
@@ -46,8 +47,8 @@ router.post('/login', signInLimiter, loginAccountLimiter, audited('user.login', 
  */
 const exchangeKeyLimiter = createLimiter({
   name: 'token-exchange-key',
-  windowMs: 60_000,
-  max: 60,
+  windowMs: AUTH_RATE_LIMITS.exchangeKey.windowMs,
+  max: AUTH_RATE_LIMITS.exchangeKey.max,
   // Key on the HASH of the presented credential — never the credential itself,
   // which would put a live secret into the shared Redis store's key space.
   keyGenerator: (req) => (typeof req.body?.key === 'string' && req.body.key
@@ -58,8 +59,8 @@ const exchangeKeyLimiter = createLimiter({
 
 const exchangeIpLimiter = createLimiter({
   name: 'token-exchange-ip',
-  windowMs: 60_000,
-  max: 300,
+  windowMs: AUTH_RATE_LIMITS.exchangeIp.windowMs,
+  max: AUTH_RATE_LIMITS.exchangeIp.max,
   keyGenerator: extractClientIp,
   skip: (req) => verifyServicePrincipal(req),
   message: 'Too many access-key exchanges. Please wait a minute and try again.',
@@ -185,8 +186,8 @@ router.post('/step-up/totp', requireAuth, stepUpLimiter, signInLimiter, audited(
  */
 const mfaVerifyLimiter = createLimiter({
   name: 'mfa-verify',
-  windowMs: 60_000,
-  max: 10,
+  windowMs: AUTH_RATE_LIMITS.mfaVerify.windowMs,
+  max: AUTH_RATE_LIMITS.mfaVerify.max,
   keyGenerator: (req) => (typeof req.body?.challengeId === 'string' && req.body.challengeId
     ? `c:${createHash('sha256').update(req.body.challengeId).digest('hex')}`
     : extractClientIp(req)),
@@ -211,15 +212,15 @@ router.post('/password/change-required', signInLimiter, audited('user.password.c
  */
 const passwordResetIpLimiter = createLimiter({
   name: 'password-reset-ip',
-  windowMs: 15 * 60_000,
-  max: 20,
+  windowMs: AUTH_RATE_LIMITS.passwordResetIp.windowMs,
+  max: AUTH_RATE_LIMITS.passwordResetIp.max,
   keyGenerator: extractClientIp,
   message: 'Too many password reset attempts. Please wait a few minutes and try again.',
 });
 const passwordResetEmailLimiter = createLimiter({
   name: 'password-reset-email',
-  windowMs: 15 * 60_000,
-  max: 3,
+  windowMs: AUTH_RATE_LIMITS.passwordResetEmail.windowMs,
+  max: AUTH_RATE_LIMITS.passwordResetEmail.max,
   keyGenerator: (req) => (typeof req.body?.email === 'string' && req.body.email
     ? `e:${createHash('sha256').update(req.body.email.trim().toLowerCase()).digest('hex')}`
     : extractClientIp(req)),
@@ -249,8 +250,8 @@ router.use('/recovery-codes', recoveryCodesRoutes);
  */
 const domainJoinLimiter = createLimiter({
   name: 'domain-join',
-  windowMs: 60_000,
-  max: 15,
+  windowMs: AUTH_RATE_LIMITS.domainJoin.windowMs,
+  max: AUTH_RATE_LIMITS.domainJoin.max,
   keyGenerator: userOrIpKey,
   message: 'Too many requests. Please wait a minute and try again.',
 });

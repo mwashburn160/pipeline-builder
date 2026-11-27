@@ -17,7 +17,7 @@ const mockRouter = { push: mockPush, asPath: '/dashboard/executions?status=faile
 jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 jest.mock('@/lib/passkeys', () => ({ signInWithPasskey: jest.fn<AnyFn>(async () => undefined) }));
 
-let expire: ((reason?: string) => void) | null = null;
+let expire: ((reason?: string, detail?: { idleTimeoutMinutes?: number }) => void) | null = null;
 const mockApi = {
   isAuthenticated: jest.fn<AnyFn>(() => true),
   restoreSession: jest.fn<AnyFn>(async () => true),
@@ -31,7 +31,7 @@ const mockApi = {
   onAccessTokenChange: () => () => undefined,
   onOrganizationChange: () => () => undefined,
   onIdentityChange: () => () => undefined,
-  onSessionExpired: jest.fn<AnyFn>((cb: (reason?: string) => void) => { expire = cb; return () => { expire = null; }; }),
+  onSessionExpired: jest.fn<AnyFn>((cb: (reason?: string, detail?: { idleTimeoutMinutes?: number }) => void) => { expire = cb; return () => { expire = null; }; }),
   login: jest.fn<AnyFn>(async () => ({ success: true, data: {} })),
   verifyMfaLogin: jest.fn<AnyFn>(async () => ({ success: true })),
   logout: jest.fn<AnyFn>(async () => undefined),
@@ -76,6 +76,21 @@ describe('useAuth return-to', () => {
     act(() => { expire?.('session-expired'); });
     expect(window.sessionStorage.getItem(POST_SIGN_IN_KEY)).toBe('/dashboard/executions?status=failed');
     expect(mockPush).toHaveBeenCalledWith('/?reason=session-expired');
+  });
+
+  it('an IDLE session (ended here or in another tab) lands on sign-in saying how long it was idle', async () => {
+    await mounted();
+    act(() => { expire?.('idle', { idleTimeoutMinutes: 15 }); });
+    expect(window.sessionStorage.getItem(POST_SIGN_IN_KEY)).toBe('/dashboard/executions?status=failed');
+    expect(mockPush).toHaveBeenCalledWith('/?reason=idle&minutes=15');
+  });
+
+  it('an inactivity sign-out ends the session in every tab and keeps the page to come back to', async () => {
+    const result = await mounted();
+    await act(async () => { await result.current.logout({ reason: 'idle', idleTimeoutMinutes: 30 }); });
+    expect(mockApi.logout).toHaveBeenLastCalledWith({ reason: 'idle', idleTimeoutMinutes: 30 });
+    expect(mockPush).toHaveBeenLastCalledWith('/?reason=idle&minutes=30');
+    await waitFor(() => expect(window.sessionStorage.getItem(POST_SIGN_IN_KEY)).toBe('/dashboard/executions?status=failed'));
   });
 
   it.each([

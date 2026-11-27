@@ -285,8 +285,8 @@ export async function sessionPolicyView(orgId: string) {
   return {
     // What applies to this org's interactive sessions (min of platform, own, ancestors).
     maxAgeDays: policy.maxAgeDays,
-    idleTimeoutDays: policy.idleTimeoutDays,
-    own: { maxAgeDays: policy.own.maxAgeDays ?? null, idleTimeoutDays: policy.own.idleTimeoutDays ?? null },
+    idleTimeoutMinutes: policy.idleTimeoutMinutes,
+    own: { maxAgeDays: policy.own.maxAgeDays ?? null, idleTimeoutMinutes: policy.own.idleTimeoutMinutes ?? null },
     platform: policy.platform,
     ...(policy.maxAgeInheritedFrom ? { maxAgeInheritedFrom: policy.maxAgeInheritedFrom } : {}),
     ...(maxAgeInheritedFromName ? { maxAgeInheritedFromName } : {}),
@@ -305,20 +305,20 @@ export async function readOwnSessionPolicy(orgId: string): Promise<OrgSessionPol
   const p = doc?.sessionPolicy ?? {};
   return {
     ...(typeof p.maxAgeDays === 'number' ? { maxAgeDays: p.maxAgeDays } : {}),
-    ...(typeof p.idleTimeoutDays === 'number' ? { idleTimeoutDays: p.idleTimeoutDays } : {}),
+    ...(typeof p.idleTimeoutMinutes === 'number' ? { idleTimeoutMinutes: p.idleTimeoutMinutes } : {}),
   };
 }
 
 /** The org's own policy after applying `update` (`null` clears a field, absent keeps it). */
 export function nextSessionPolicy(
   from: OrgSessionPolicy,
-  update: { maxAgeDays?: number | null; idleTimeoutDays?: number | null },
+  update: { maxAgeDays?: number | null; idleTimeoutMinutes?: number | null },
 ): OrgSessionPolicy {
   const pick = (key: keyof OrgSessionPolicy) => {
     const value = update[key] === undefined ? from[key] : update[key];
     return typeof value === 'number' ? { [key]: value } : {};
   };
-  return { ...pick('maxAgeDays'), ...pick('idleTimeoutDays') };
+  return { ...pick('maxAgeDays'), ...pick('idleTimeoutMinutes') };
 }
 
 /**
@@ -327,7 +327,7 @@ export function nextSessionPolicy(
  * ancestor value). Only a shortening stays open to a single-factor admin.
  */
 export function isLooseningSessionPolicy(from: OrgSessionPolicy, to: OrgSessionPolicy): boolean {
-  return (['maxAgeDays', 'idleTimeoutDays'] as const).some((key) => {
+  return (['maxAgeDays', 'idleTimeoutMinutes'] as const).some((key) => {
     const before = from[key];
     const after = to[key];
     return before !== undefined && (after === undefined || after > before);

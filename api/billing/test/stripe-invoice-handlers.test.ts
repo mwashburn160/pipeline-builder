@@ -79,6 +79,11 @@ const EVT = { id: 'evt_1', created: 1767225600 };
 const planFindById = jest.fn<(id: unknown) => Promise<{ tier: string } | null>>();
 jest.unstable_mockModule('../src/models/plan.js', () => ({ Plan: { findById: planFindById } }));
 
+// The support size floor's per-period charge has its own suite
+// (support-floor-charge.test.ts); here only the wiring is asserted.
+const chargeSupportFloorForPeriod = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({ status: 'none' }));
+jest.unstable_mockModule('../src/helpers/support-floor-charge.js', () => ({ chargeSupportFloorForPeriod }));
+
 const { handleInvoiceUpcoming, handlePaymentSucceeded, handlePaymentFailed } =
   await import('../src/helpers/stripe-invoice-handlers.js');
 
@@ -124,6 +129,21 @@ function makeInvoice(over: Record<string, unknown> = {}): Stripe.Invoice {
 beforeEach(() => {
   findSubscriptionByStripeId.mockResolvedValue(makeSub());
   planFindById.mockResolvedValue({ tier: 'pro' });
+});
+
+describe('handlePaymentSucceeded — the support size floor', () => {
+  it('charges the floor for the period the settled invoice opens', async () => {
+    const sub = makeSub();
+    findSubscriptionByStripeId.mockResolvedValue(sub);
+    await handlePaymentSucceeded(makeInvoice(), EVT);
+    // 1767225600 = 2026-01-01T00:00:00Z: the recurring line's period start.
+    expect(chargeSupportFloorForPeriod).toHaveBeenCalledWith(sub, '2026-01-01');
+  });
+
+  it('a provider failure on the floor charge fails the webhook, so Stripe redelivers it', async () => {
+    chargeSupportFloorForPeriod.mockRejectedValueOnce(new Error('stripe down'));
+    await expect(handlePaymentSucceeded(makeInvoice(), EVT)).rejects.toThrow('stripe down');
+  });
 });
 
 describe('handleInvoiceUpcoming', () => {

@@ -5,6 +5,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { setGauge } from '@pipeline-builder/api-server';
 import { getBillingConfig } from '../config/billing-config.js';
 import { config } from '../config.js';
+import { isWholeCents } from './marketplace-credit.js';
 
 const logger = createLogger('billing-config-validate');
 
@@ -105,12 +106,20 @@ function validateMarketplace(): void {
   }
   report('aws-marketplace', 'dimension_map_empty',
     Object.keys(config.marketplace.dimensionToPlanMap ?? {}).length === 0);
-  report('aws-marketplace', 'dimension_price_map_empty',
-    config.meteringEnabled && Object.keys(config.marketplace.dimensionPriceMap ?? {}).length === 0);
+  // Only a positive whole-cent price can value a withheld unit (the drawdown
+  // ignores any other entry), so a map of nothing but malformed prices is as
+  // empty as no map at all.
+  const prices = Object.entries(config.marketplace.dimensionPriceMap ?? {});
+  const malformed = prices.filter(([, cents]) => !isWholeCents(cents)).map(([dimension]) => dimension);
+  const pricedCount = prices.length - malformed.length;
+  if (malformed.length > 0) {
+    logger.warn('AWS_MARKETPLACE_DIMENSION_PRICE_MAP has entries that are not a positive whole number of cents — those dimensions are never drawn against', { dimensions: malformed });
+  }
+  report('aws-marketplace', 'dimension_price_map_empty', config.meteringEnabled && pricedCount === 0);
   if (Object.keys(config.marketplace.dimensionToPlanMap ?? {}).length === 0) {
     logger.warn('AWS_MARKETPLACE_DIMENSION_MAP is empty (identity mapping in effect) — confirm your AWS tier dimensions are named exactly like the plan ids (pro/team/enterprise), or unmapped dimensions resolve to the free developer tier');
   }
-  if (config.meteringEnabled && Object.keys(config.marketplace.dimensionPriceMap ?? {}).length === 0) {
+  if (config.meteringEnabled && pricedCount === 0) {
     logger.warn('BILLING_METERING_ENABLED is on but AWS_MARKETPLACE_DIMENSION_PRICE_MAP is empty — usage-credit drawdown cannot value any dimension, so credits will never reduce the AWS bill');
   }
 }

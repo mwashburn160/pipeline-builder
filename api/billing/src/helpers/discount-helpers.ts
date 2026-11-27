@@ -558,6 +558,9 @@ async function releaseReservation(discountId: string): Promise<void> {
  *  the ledger row, or undefined when the provider doesn't realize credits. */
 async function realizeUsageCredit(subscription: SubscriptionDocument, cents: number, idemSeed: string): Promise<{ kind: string; ref: string } | undefined> {
   const provider = getPaymentProvider();
+  // Nothing to realize for a zero credit (a percent code on a tiny scoped base
+  // can snap to 0) — and the provider refuses a non-positive amount outright.
+  if (!(cents > 0)) return undefined;
   if (provider.applyUsageCredit && provider.usageCreditSupport !== 'none' && subscription.externalCustomerId) {
     const result = await provider.applyUsageCredit(subscription.externalCustomerId, cents, `discount-apply-${idemSeed}`);
     return result.ref;

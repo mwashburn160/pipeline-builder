@@ -269,19 +269,21 @@ export interface OrgPasswordPolicy {
   inheritedFromName?: string;
 }
 
-/** The two interactive-session lifetime bounds, in whole days. */
+/** The two interactive-session lifetime bounds. */
 export interface SessionLifetimeLimits {
-  /** Maximum age, counted from the sign-in that opened the session. */
+  /** Maximum age (whole days), counted from the sign-in that opened the session. */
   maxAgeDays: number;
-  /** Idle timeout, counted from the session's last use. */
-  idleTimeoutDays: number;
+  /** Idle timeout (whole minutes, at least 5), counted from the session's last
+   *  real activity — input in the browser, a CLI command, an org switch; never
+   *  a background poll. */
+  idleTimeoutMinutes: number;
 }
 
 /** GET/PATCH /organization/:id/session-policy. The top-level bounds are what
  *  applies here: min(platform ceiling, this org's own, every ancestor's). */
 export interface OrgSessionPolicy extends SessionLifetimeLimits {
   /** This org's OWN bounds; null = not set (the platform / a parent's applies). */
-  own: { maxAgeDays: number | null; idleTimeoutDays: number | null };
+  own: { maxAgeDays: number | null; idleTimeoutMinutes: number | null };
   /** The platform ceiling an org may only tighten. */
   platform: SessionLifetimeLimits;
   maxAgeInheritedFrom?: string;

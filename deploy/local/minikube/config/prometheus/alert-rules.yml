@@ -1533,6 +1533,49 @@ groups:
           summary: "{{ $value }} handled Stripe event type(s) are not confirmed on the webhook endpoint"
           description: "Billing could not make the Stripe webhook endpoint subscribe to every event it handles, so Stripe may never deliver those events (subscription changes, payments, refunds or disputes would silently stop reconciling). The stripe-webhook-reconcile log line on the billing leader names the missing events and the reason. Grant STRIPE_SECRET_KEY Webhook Endpoints write access, set STRIPE_WEBHOOK_ENDPOINT_ID when the endpoint is not at PLATFORM_BASE_URL/api/billing/stripe/webhook, add the events in the Stripe Dashboard, or, when the reason is endpoint_disabled, fix the failing deliveries and re-enable the endpoint there. See docs/billing-providers.md (Step 4)."
 
+      # ---- Billing money paths ----
+      # The support size floor is billed once per period as a Stripe invoice
+      # item when an invoice is paid. A failed charge releases its claim and
+      # makes Stripe redeliver, so a burst is retried; a sustained rate means
+      # the floor is not being collected.
+      - alert: BillingSupportFloorChargeFailing
+        expr: sum(increase(billing_support_floor_charge_failed_total[1h])) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Support size floor charges are failing ({{ $value }} in the last hour)"
+          description: "Billing could not add the support size floor to a paid invoice's account (the Stripe invoice-item call failed). The claim is released and Stripe redelivers the payment event, so each failure is retried, but while this fires the floor is not being collected. Read the support-floor-charge log lines on billing for the subscription and the provider error. See docs/support.md."
+
+      # A floor the provider cannot bill (AWS Marketplace has no amount-based
+      # invoice item). Counted, never waived: revenue an operator must collect
+      # another way.
+      - alert: BillingSupportFloorUnrealizable
+        expr: sum(increase(billing_support_floor_unrealizable_total[24h])) > 0
+        labels:
+          severity: info
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "A support size floor could not be billed through its provider"
+          description: "A subscription owes a support size floor its billing provider cannot charge (AWS Marketplace accounts). Nothing was waived; collect it through a private offer or invoice. The support-floor-charge log line names the subscription. See docs/support.md."
+
+      # Reversal handling re-reads the live invoice before clawing anything
+      # back. A read that fails throws so Stripe redelivers; sustained failures
+      # mean reversals (void / uncollectible) are not being applied.
+      - alert: BillingInvoiceRetrieveFailing
+        expr: sum(increase(billing_invoice_retrieve_failed_total[30m])) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Billing cannot read invoices back from Stripe ({{ $value }} failures in 30m)"
+          description: "Before applying an invoice reversal, billing reads the invoice's live state from Stripe. Those reads are failing, so voided or uncollectible invoices are not being reconciled (Stripe keeps redelivering). Check STRIPE_SECRET_KEY, Stripe's status and billing's egress. See docs/billing-providers.md."
+
       # ---- Notifications that never reached the organization ----
       # The dropped-after-retries case above is watched; these three are the paths
       # that fail OUTRIGHT, and none of them was. They are invisible by nature: the

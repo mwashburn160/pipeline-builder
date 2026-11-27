@@ -20,6 +20,12 @@ import { stubModule } from '@pipeline-builder/api-core/testing';
 import { bootTenantDb, type TenantTestDb } from '@pipeline-builder/pipeline-data/testing';
 import { createFakeS3Store, fakeS3Module } from './helpers/fake-s3.js';
 
+// The shared S3 client has no default credential; this suite's mocked object
+// store still needs the per-service keys every deployment sets.
+process.env.S3_ACCESS_KEY_ID ??= 'test-svc';
+process.env.S3_SECRET_ACCESS_KEY ??= 'test-svc-secret';
+
+
 const store = createFakeS3Store();
 const mockIncCounter = jest.fn();
 jest.unstable_mockModule('@aws-sdk/client-s3', () => fakeS3Module(store));

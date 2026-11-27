@@ -26,8 +26,8 @@ const mockInvalidateAllSessions = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockFindForTokenIssue = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendError: (res: any, status: number, msg: string, code?: string) =>
-    res.status(status).json({ success: false, message: msg, ...(code ? { code } : {}) }),
+  sendError: (res: any, status: number, msg: string, code?: string, details?: unknown) =>
+    res.status(status).json({ success: false, message: msg, ...(code ? { code } : {}), ...(details ? { details } : {}) }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   createSafeClient: () => ({ post: jest.fn(), delete: jest.fn() }),
   isSystemOrgId: () => false,
@@ -357,6 +357,23 @@ describe('refresh — reuse revokes one slot', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  it.each([
+    ['"user" — real input since the last refresh', { activity: 'user' }, 'user'],
+    ['"passive" — a background poll', { activity: 'passive' }, 'passive'],
+    ['missing — a client that never reports activity times out', {}, 'passive'],
+    ['anything else', { activity: 'USER!' }, 'passive'],
+  ])('passes the activity signal through: %s', async (_label, body, activity) => {
+    mockFindForTokenIssue.mockResolvedValue({ _id: 'u1' });
+    const res = makeRes();
+    res.locals.refreshSessionId = 's1';
+    res.locals.presentedRefreshToken = 'rt';
+    res.locals.refreshSessionKind = 'interactive';
+    await (refresh as any)({ user: { sub: 'u1', organizationId: 'org-1' }, headers: {}, body }, res);
+    expect(mockRenewSessionTokens).toHaveBeenCalledWith(
+      expect.anything(), 'org-1', expect.anything(), expect.objectContaining({ activity }),
+    );
+  });
+
   it('on a rotation miss revokes ONLY that slot — never every session', async () => {
     mockFindForTokenIssue.mockResolvedValue({ _id: 'u1' });
     mockRenewSessionTokens.mockResolvedValue(null);
@@ -390,6 +407,20 @@ describe('refresh — an expired session', () => {
     expect(mockRevokeRefreshSession).not.toHaveBeenCalled();
     expect(mockIncCounter).toHaveBeenCalledWith('platform_session_expired_total', { kind: 'interactive' });
     expect(mockIncCounter).not.toHaveBeenCalledWith('platform_refresh_reuse_total');
+  });
+
+  it('says WHICH bound ended it: idle, with the effective timeout in minutes', async () => {
+    mockFindForTokenIssue.mockResolvedValue({ _id: 'u1' });
+    mockRenewSessionTokens.mockRejectedValue(Object.assign(new Error('SESSION_EXPIRED'), { reason: 'idle', idleTimeoutMinutes: 15 }));
+    const res = makeRes();
+    res.locals.refreshSessionId = 's1';
+    res.locals.presentedRefreshToken = 'rt';
+    res.locals.refreshSessionKind = 'interactive';
+    await (refresh as any)({ user: { sub: 'u1' }, headers: {}, body: {} }, res);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'SESSION_EXPIRED', details: { reason: 'idle', idleTimeoutMinutes: 15 },
+    }));
   });
 
   it('lets any other renewal error through to the controller\'s error handling', async () => {

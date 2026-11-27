@@ -79,9 +79,9 @@ export const config: ReportingConfig = {
   },
   rollup: {
     get enabled() { return envBool('REPORTING_ROLLUP_ENABLED', true); },
-    get intervalMs() { return envInt('REPORTING_ROLLUP_INTERVAL_MINUTES', 60) * 60_000; },
-    get startupDelayMs() { return envInt('REPORTING_ROLLUP_STARTUP_DELAY_MS', 60_000); },
-    get lockTtlMs() { return envInt('REPORTING_ROLLUP_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS); },
+    get intervalMs() { return envInt('REPORTING_ROLLUP_INTERVAL_MINUTES', 60, { min: 1 }) * 60_000; },
+    get startupDelayMs() { return envInt('REPORTING_ROLLUP_STARTUP_DELAY_MS', 60_000, { min: 0 }); },
+    get lockTtlMs() { return envInt('REPORTING_ROLLUP_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1000 }); },
   },
   scheduler: {
     get enabled() { return envBool('REPORT_SCHEDULER_ENABLED', true); },

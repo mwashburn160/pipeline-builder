@@ -25,6 +25,7 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
+import { prng } from './helpers/prng.js';
 import { loadBillingConfig } from '../src/config/billing-config.js';
 import { priceBreakdown } from '../src/helpers/addon-catalog.js';
 import { activeComboCredits, priceForInterval, volumeCredits } from '../src/helpers/combo-pricing.js';
@@ -430,6 +431,31 @@ describe('a NEGOTIATED floor replaces the ramp', () => {
     expect(shrunk.overrideStale).toBe(false);
   });
 
+  // The ramp has no number to work from at unlimited seats or a zero per-seat
+  // rate — but an AGREEMENT does not need one: it is a signed price, and the
+  // accounts that get one are exactly the large ones most likely to hold an
+  // unlimited seat grant. Gating the override behind the ramp's own inputs
+  // billed a negotiated customer nothing at all.
+  it('still applies to an UNLIMITED seat grant, flagged stale (no measured size to compare)', () => {
+    const v = supportFloor(pos({ seats: -1, override: agreed(2500, 800000) }), CFG);
+    expect(v.negotiated).toBe(true);
+    expect(v.floorCents).toBe(800000);
+    expect(v.binds).toBe(true);
+    expect(v.overrideStale).toBe(true);
+    expect(v.billableSeats).toBe(0);
+  });
+
+  it('still applies when the RAMP rate is zero (the agreement is not a ramp)', () => {
+    const v = supportFloor(pos({ seats: 2500, override: agreed(2500, 800000) }), { ...CFG, perSeatCents: 0 });
+    expect(v.negotiated).toBe(true);
+    expect(v.floorCents).toBe(800000);
+  });
+
+  it('is still OFF when the floor itself is switched off (the fixed model)', () => {
+    const v = supportFloor(pos({ seats: 2500, override: agreed(2500, 800000) }), { ...CFG, enabled: false });
+    expect(v.floorCents).toBe(0);
+  });
+
   it('gets its OWN invoice label, because the ramp wording would be a lie', async () => {
     // "85 seats over the included 15" is simply untrue of an agreed price, and a
     // line that explains itself with the wrong reason is worse than one that
@@ -479,5 +505,61 @@ describe('the floor prices support lines exactly as volumeCredits bills them', (
     const combo = supportFloorLine('enterprise', withCombo, bundles, 'monthly', CFG)!;
     expect(combo).not.toBeNull();
     expect(combo.cents + supportCost(withCombo)).toBe(floorCents);
+  });
+});
+
+// INVARIANTS over seeded random positions — the floor × interval arithmetic.
+// `floor × months` must be EXACT in cents: a monthly figure multiplied out to
+// the annual interval, never re-rounded on the way, and a NEGOTIATED monthly
+// price billed as signed (an agreed $123.45 is not $123.49).
+describe('support floor — money invariants (seeded property test)', () => {
+  const levels = ['support_standard', 'support_priority'] as const;
+
+  it('floor x months is exact in cents, the charge never undercuts the contacts, and every figure is whole cents', () => {
+    for (let seed = 1; seed <= 400; seed++) {
+      const r = prng(seed);
+      const cfg: SupportFloorConfig = {
+        enabled: true,
+        perSeatCents: r.int(1, 2000),
+        freeSeats: r.int(0, 40),
+        weightPercent: { support_standard: r.int(50, 200), support_priority: r.int(50, 300), support_premium: r.int(100, 400) },
+      };
+      const base = {
+        seats: r.int(0, 5000),
+        contacts: r.int(1, 30),
+        premiumContacts: r.int(0, 2),
+        level: r.pick(levels),
+        contactsPriceCents: r.int(0, 400_000),
+        volumePercent: 0,
+        ...(r.int(0, 2) === 0 ? { override: { seats: r.int(0, 5000), floorCents: r.int(0, 2_000_000) } } : {}),
+      };
+      const monthly = supportFloor({ ...base, months: 1 }, cfg);
+      const annual = supportFloor({ ...base, months: 10, contactsPriceCents: base.contactsPriceCents * 10 }, cfg);
+      const ctx = `seed=${seed}`;
+      expect({ ctx, annual: annual.floorCents }).toEqual({ ctx, annual: monthly.floorCents * 10 });
+      if (base.override) expect({ ctx, signed: monthly.floorCents }).toEqual({ ctx, signed: base.override.floorCents });
+      for (const v of [monthly, annual]) {
+        expect({ ctx, int: Number.isSafeInteger(v.floorCents) && Number.isSafeInteger(v.chargeCents) }).toEqual({ ctx, int: true });
+        expect({ ctx, ok: v.floorCents >= 0 && v.chargeCents >= 0 }).toEqual({ ctx, ok: true });
+        expect({ ctx, charge: v.chargeCents }).toEqual({ ctx, charge: Math.max(v.floorCents, v === monthly ? base.contactsPriceCents : base.contactsPriceCents * 10) });
+      }
+    }
+  });
+
+  it('the invoice line is a positive TOP-UP that lands the support total exactly on the floor', () => {
+    const { bundles } = loadBillingConfig();
+    for (let seed = 1; seed <= 200; seed++) {
+      const r = prng(seed);
+      const addons = [
+        { bundleId: r.pick(levels), quantity: r.int(1, 25) },
+        { bundleId: 'seat', quantity: r.int(0, 200) },
+        ...(r.int(0, 1) ? [{ bundleId: 'support_premium', quantity: 1 }] : []),
+      ];
+      for (const interval of ['monthly', 'annual'] as const) {
+        const line = supportFloorLine('enterprise', addons, bundles, interval, CFG);
+        if (!line) continue;
+        expect({ seed, interval, positive: line.cents > 0 && Number.isSafeInteger(line.cents) }).toEqual({ seed, interval, positive: true });
+      }
+    }
   });
 });

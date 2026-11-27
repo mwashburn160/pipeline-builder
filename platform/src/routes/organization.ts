@@ -3,6 +3,7 @@
 
 import { audited, requireAssurance, requireInternalService, requireOrgAdminAssurance, requirePermission, requireSystemOrgPermission, requireServicePrincipal, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import { Router } from 'express';
+import { AUTH_RATE_LIMITS } from '../config/rate-limits.js';
 import {
   getMyOrganization,
   createOrganization,
@@ -135,8 +136,8 @@ const setupMfaGrade = requireAssurance({
  *  requireAuth runs first). */
 const domainVerifyLimiter = createLimiter({
   name: 'domain-verify',
-  windowMs: 60_000,
-  max: 10,
+  windowMs: AUTH_RATE_LIMITS.domainVerify.windowMs,
+  max: AUTH_RATE_LIMITS.domainVerify.max,
   keyGenerator: userOrIpKey,
   message: 'Too many verification attempts. Please wait a minute and try again.',
 });

@@ -101,6 +101,21 @@ describe('compactCreditLedger', () => {
     expect(compactCreditLedger(out, 2)).toEqual(out);
   });
 
+  // A tombstone a DISPUTE left (`clawbackRef` + `clawedBackCents`) is what a won
+  // dispute re-grants from (`regrantDisputeClawback` reads exactly those two
+  // fields). Folded into a carry row it lost both, so winning the dispute
+  // re-granted nothing — the customer kept the chargeback's clawback for good.
+  it('never folds a dispute-tagged clawback tombstone (a won dispute re-grants from it)', () => {
+    const rows = Array.from({ length: 6 }, (_, i) => periodic('promo:x', i + 1, 100));
+    rows[0] = { ...rows[0], cents: 0, grantCount: 0, clawedBackAt: new Date(Date.UTC(2026, 0, 20)), clawbackRef: 'dispute:dp_1', clawedBackCents: 100 };
+    const out = compactCreditLedger(rows, 2);
+    const tomb = out.find((r) => r.clawbackRef === 'dispute:dp_1');
+    expect(tomb).toMatchObject({ clawedBackCents: 100, dedupeKey: 'p-1' });
+    // Spend stays exact: the tombstone counts 0 grants and its own (consumed) cents.
+    expect(totals(out, 'promo:x')).toEqual({ cents: 500, grants: 5 });
+    expect(compactCreditLedger(out, 2)).toEqual(out);
+  });
+
   it('exposes a sane default keep window (bounded but well beyond a redelivery window)', () => {
     expect(DEFAULT_KEEP_RECENT).toBeGreaterThanOrEqual(6);
     const rows = Array.from({ length: DEFAULT_KEEP_RECENT }, (_, i) => periodic('promo:x', i + 1));

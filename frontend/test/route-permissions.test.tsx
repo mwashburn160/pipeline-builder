@@ -464,7 +464,7 @@ const API_DEFAULTS: Record<string, unknown> = {
   getMyOrganization: { organization: { id: 'org-1', orgName: 'Acme', slug: 'acme' } },
   getImpersonationPolicy: { own: { policy: 'consent', allowSelfApproval: false }, effective: { policy: 'consent', source: 'own' } },
   getPasswordPolicy: { policy: {} },
-  getSessionPolicy: { maxAgeDays: 30, idleTimeoutDays: 7, own: { maxAgeDays: null, idleTimeoutDays: null }, platform: { maxAgeDays: 30, idleTimeoutDays: 7 } },
+  getSessionPolicy: { maxAgeDays: 30, idleTimeoutMinutes: 15, own: { maxAgeDays: null, idleTimeoutMinutes: null }, platform: { maxAgeDays: 30, idleTimeoutMinutes: 15 } },
   getAuthenticatorPolicy: { own: [], effective: [], inheritedFrom: [], mds: { models: [] }, compliance: { modelsInUse: [] } },
   getMfaPolicy: { own: { required: false }, effective: { required: false }, inheritedFrom: [] },
   getPluginSecurityNotifications: {

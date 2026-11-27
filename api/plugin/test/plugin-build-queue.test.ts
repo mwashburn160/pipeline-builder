@@ -17,6 +17,12 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 // though it references a mocked module — it has no runtime effect.
 import type { PluginBuildJobData } from '../src/helpers/plugin-helpers.js';
 
+// The shared S3 client has no default credential; this suite's mocked object
+// store still needs the per-service keys every deployment sets.
+process.env.S3_ACCESS_KEY_ID ??= 'test-svc';
+process.env.S3_SECRET_ACCESS_KEY ??= 'test-svc-secret';
+
+
 // Mock state must be hoisted before imports
 
 const mockQueueAdd = jest.fn<(...args: any[]) => any>();

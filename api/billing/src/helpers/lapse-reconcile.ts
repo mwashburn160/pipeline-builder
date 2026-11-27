@@ -23,6 +23,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { recordReactivatePlanMissing } from './billing-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
+import { setMetadataKey } from './subscription-metadata.js';
 import { isGraceDowngraded } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import type { SubscriptionDocument } from '../models/subscription.js';
@@ -49,8 +50,9 @@ export function prepareLapseReconcile(
   if (!ENTITLED_STATUSES.includes(subscription.status)) return null;
   if (!isGraceDowngraded(subscription)) return null;
 
-  const { gracePeriodDowngradedAt: cleared, ...rest } = subscription.metadata ?? {};
-  subscription.metadata = rest;
+  const cleared = subscription.metadata?.gracePeriodDowngradedAt;
+  // ONE path, not the whole object: see helpers/subscription-metadata.ts.
+  setMetadataKey(subscription, 'gracePeriodDowngradedAt', undefined);
   const subscriptionId = subscription._id.toString();
   logger.info('Entitled subscription still carried the grace-lapse marker — clearing and re-granting tier', {
     orgId: subscription.orgId, subscriptionId, status: subscription.status, lapsedAt: cleared, source,

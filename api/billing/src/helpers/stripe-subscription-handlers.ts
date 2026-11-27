@@ -24,6 +24,7 @@ import { prepareLapseReconcile } from './lapse-reconcile.js';
 import { runSignupPromotions } from './signup-promotions.js';
 import { claimStripeEventOrder, findSubscriptionByStripeId, mapStripeStatus, type StripeEventMeta } from './stripe-helpers.js';
 import { stripeSubscriptionPeriod } from './stripe-period.js';
+import { setMetadataKey } from './subscription-metadata.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
 import { Plan, type PlanDocument } from '../models/plan.js';
@@ -454,8 +455,8 @@ export async function handleSubscriptionUpdated(payload: Stripe.Subscription, ev
   // the entitling transition so it can't be replayed by a later crossing.
   const pendingReferralCode = subscription.metadata?.pendingReferralCode as string | undefined;
   if (becameEntitled && pendingReferralCode) {
-    const { pendingReferralCode: _consumed, ...rest } = subscription.metadata ?? {};
-    subscription.metadata = rest;
+    // One path, not the whole object (see helpers/subscription-metadata.ts).
+    setMetadataKey(subscription, 'pendingReferralCode', undefined);
     dirty = true;
   }
 

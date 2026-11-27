@@ -10,6 +10,7 @@ import { clientInfoOf } from '../helpers/client-info.js';
 import { ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { graceTokensFor, rememberRotation } from '../helpers/refresh-grace.js';
+import { parseSessionActivity } from '../helpers/session-activity.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
 import { completeInteractiveSignIn, openMfaChallengeIfOwed, sendMfaChallenge } from '../helpers/sign-in.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
@@ -441,6 +442,13 @@ export const login = withController('Login', async (req, res) => {
  *
  * The presented token comes from `requireRefreshSession` — the browser's cookie
  * or a CLI caller's body — and the rotated one goes back the same way.
+ *
+ * ACTIVITY. The body's `activity` says whether the person did anything since
+ * the client's last refresh: `'user'` restarts an interactive session's idle
+ * clock; anything else (`'passive'`, absent) renews the token WITHOUT moving
+ * it, so a tab that only polls still reaches its idle timeout. An interactive
+ * renewal answers `session: { idleTimeoutMinutes, idleExpiresAt }`; a refresh
+ * past the deadline is `401 SESSION_EXPIRED` with `details.reason`.
  */
 export const refresh = withController('Refresh', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
@@ -459,7 +467,7 @@ export const refresh = withController('Refresh', async (req, res) => {
       user,
       req.user.organizationId || user.lastActiveOrgId?.toString(),
       { sessionId, presentedToken, kind },
-      { client: clientInfoOf(req) },
+      { client: clientInfoOf(req), activity: parseSessionActivity((req.body as { activity?: unknown } | undefined)?.activity) },
     );
   } catch (error) {
     if (!(error instanceof Error) || error.message !== SESSION_EXPIRED) throw error;
@@ -473,7 +481,13 @@ export const refresh = withController('Refresh', async (req, res) => {
     } catch {
       // No registry — nothing to count into.
     }
-    return sendError(res, SESSION_EXPIRED_ERROR.status, SESSION_EXPIRED_ERROR.message, SESSION_EXPIRED_ERROR.code);
+    // Which bound ended it, so the client can say "signed out after N minutes
+    // of inactivity" rather than a bare "expired".
+    const { reason, idleTimeoutMinutes } = error as { reason?: unknown; idleTimeoutMinutes?: unknown };
+    const details = typeof reason === 'string'
+      ? { reason, ...(typeof idleTimeoutMinutes === 'number' ? { idleTimeoutMinutes } : {}) }
+      : undefined;
+    return sendError(res, SESSION_EXPIRED_ERROR.status, SESSION_EXPIRED_ERROR.message, SESSION_EXPIRED_ERROR.code, details);
   }
   if (!tokens) {
     // A RACE, not reuse: the token was rotated away moments ago by a concurrent
@@ -641,7 +655,12 @@ export const switchOrg = withController('Switch org', async (req, res) => {
 
   // An access token only: the slot's refresh token (the browser's cookie, a
   // CLI's stored token) is unchanged and now renews into this org.
-  sendSuccess(res, 200, { accessToken: switchedTo.accessToken, expiresIn: switchedTo.expiresIn });
+  sendSuccess(res, 200, {
+    accessToken: switchedTo.accessToken,
+    expiresIn: switchedTo.expiresIn,
+    // A switch is activity: the session's idle state after it.
+    ...(switchedTo.session ? { session: switchedTo.session } : {}),
+  });
 }, {
   // A caller token without the identity claims can't have its assurance
   // inherited — fail closed and make it re-authenticate.
