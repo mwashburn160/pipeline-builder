@@ -45,8 +45,9 @@ const runRetentionPass = jest.fn<AnyFn>(async (opts: { dryRun: boolean }) => ({ 
 jest.unstable_mockModule('../src/services/retention/retire.js', () => ({ runRetentionPass }));
 
 const { ROLE_PERMISSIONS, SYSTEM_ORG_ID, createQuotaService } = await import('@pipeline-builder/api-core');
-const { createApp, attachRequestContext } = await import('@pipeline-builder/api-server');
+const { createApp, attachRequestContext, REQUEST_TIMEOUT_MS } = await import('@pipeline-builder/api-server');
 const { mountRoutes } = await import('../src/app-routes.js');
+const { RETENTION_ROUTE_TIMEOUT_MS } = await import('../src/routes/retention.js');
 
 bindTestAuditService();
 const { app, sseManager } = createApp({ enableOpenApi: false, logStream: true });
@@ -117,5 +118,38 @@ describe('POST /plugins/retention/run', () => {
     expect((await call('POST', '/plugins/retention/run', token(MODERATOR, { org: TENANT }), stepUpToken())).status).toBe(403);
     expect((await call('POST', '/plugins/retention/run', token(MODERATOR, { aal: 1 }), stepUpToken())).status).toBe(401);
     expect(runRetentionPass).not.toHaveBeenCalled();
+  });
+});
+
+describe('route deadline', () => {
+  // The pass walks every system plugin in turn (~27s at 129 plugins), past the
+  // server-wide 25s deadline: without the extension the plan always answered 503.
+  it('sits above the server default and under nginx\'s 60s /api/plugins/* proxy timeout', () => {
+    expect(RETENTION_ROUTE_TIMEOUT_MS).toBeGreaterThan(REQUEST_TIMEOUT_MS);
+    expect(RETENTION_ROUTE_TIMEOUT_MS).toBeLessThan(60_000);
+  });
+
+  it.each([
+    ['GET', '/plugins/retention/plan', false],
+    ['POST', '/plugins/retention/run', true],
+  ] as const)('%s %s moves its response deadline to the retention timeout', async (method, path, needsStepUp) => {
+    const setTimeoutSpy = jest.spyOn(http.ServerResponse.prototype, 'setTimeout');
+    try {
+      const res = await call(method, path, token(MODERATOR), needsStepUp ? stepUpToken() : undefined);
+      expect(res.status).toBe(200);
+      expect(setTimeoutSpy.mock.calls.map((c) => c[0])).toContain(RETENTION_ROUTE_TIMEOUT_MS);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
+  it('does not extend the deadline for a request the gates refuse', async () => {
+    const setTimeoutSpy = jest.spyOn(http.ServerResponse.prototype, 'setTimeout');
+    try {
+      expect((await call('GET', '/plugins/retention/plan', token(MODERATOR, { org: TENANT }))).status).toBe(403);
+      expect(setTimeoutSpy.mock.calls.map((c) => c[0])).not.toContain(RETENTION_ROUTE_TIMEOUT_MS);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 });
