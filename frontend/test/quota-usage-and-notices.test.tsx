@@ -64,8 +64,9 @@ describe('QuotaExceededNotice', () => {
     });
     expect(screen.getByText(/Automation calls quota reached/)).toBeInTheDocument();
     expect(screen.getByText(/Resets/)).toBeInTheDocument();
+    // The server's own `upgradeUrl` (the old billing URL, which redirects to the billing tab).
     expect(screen.getByRole('link', { name: /upgrade tier/i })).toHaveAttribute('href', '/dashboard/billing');
-    expect(screen.getByRole('link', { name: /what used it/i })).toHaveAttribute('href', '/dashboard/quotas');
+    expect(screen.getByRole('link', { name: /what used it/i })).toHaveAttribute('href', '/dashboard/usage?tab=quotas');
 
     fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
     expect(container).toBeEmptyDOMElement();
@@ -77,7 +78,7 @@ describe('QuotaExceededNotice', () => {
       window.dispatchEvent(new CustomEvent('quota-exceeded', { detail: { message: 'Quota reached.', upgradeUrl: '//evil.example.com' } }));
     });
     expect(screen.getByText('Quota reached.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /upgrade tier/i })).toHaveAttribute('href', '/dashboard/billing');
+    expect(screen.getByRole('link', { name: /upgrade tier/i })).toHaveAttribute('href', '/dashboard/usage?tab=billing');
   });
 });
 

@@ -135,7 +135,7 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
           discovered after the failure. */}
       <p className="text-xs text-fg-subtle mb-4">
         {canInvite ? (
-          <>No account yet? <Link href="/dashboard/invitations" className="action-link underline">Send them an invitation</Link> instead.</>
+          <>No account yet? <Link href="/dashboard/members?tab=invitations" className="action-link underline">Send them an invitation</Link> instead.</>
         ) : 'If they have no account yet, an admin with invitation access needs to invite them first.'}
       </p>
       <Input
@@ -171,7 +171,7 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
         <p className="mt-2 text-sm text-fg-muted">
           {canInvite ? (
             <>
-              <Link href={`/dashboard/invitations?email=${encodeURIComponent(email.trim().toLowerCase())}`} className="action-link font-medium underline">
+              <Link href={`/dashboard/members?tab=invitations&email=${encodeURIComponent(email.trim().toLowerCase())}`} className="action-link font-medium underline">
                 Send {email.trim().toLowerCase()} an invitation
               </Link>{' '}instead — they&apos;ll join once they accept.
             </>

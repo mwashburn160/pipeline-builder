@@ -11,7 +11,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
-import InboxPage from '../pages/dashboard/inbox';
+import InboxPage from '../src/components/inbox/NotificationsTab';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
@@ -152,12 +152,12 @@ describe('InboxPage — plugin security fixes', () => {
     });
     render(<InboxPage />);
     const approval = await screen.findByText('Security fix for terraform-plan 1.4.2 is awaiting approval');
-    expect(approval.closest('a')?.getAttribute('href')).toBe('/dashboard/plugins?tab=remediations&remediation=r1');
+    expect(approval.closest('a')?.getAttribute('href')).toBe('/dashboard/plugins?tab=security&section=remediations&remediation=r1');
     expect(screen.getByText('terraform-plan 1.4.2 needs its owner to fix 1 finding').closest('a')?.getAttribute('href'))
-      .toBe('/dashboard/plugins?tab=remediations&remediation=r2');
+      .toBe('/dashboard/plugins?tab=security&section=remediations&remediation=r2');
     expect(screen.getByText('Rollout of terraform-plan 1.4.3 is paused and needs review')).toBeInTheDocument();
     expect(screen.getByText('2 pipelines were rolled back from terraform-plan 1.4.3').closest('a')?.getAttribute('href'))
-      .toBe('/dashboard/plugins?tab=remediations&remediation=r3');
+      .toBe('/dashboard/plugins?tab=security&section=remediations&remediation=r3');
     expect(listPluginRemediations).toHaveBeenCalledWith({ stage: 'awaiting_approval,needs_owner,needs_review,rolling_out', limit: 50 });
   });
 

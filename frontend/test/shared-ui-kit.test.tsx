@@ -33,32 +33,29 @@ const baseSidebar = {
   isAdmin: false,
   user: { id: 'u1', username: 'dana', permissions: ['messages:read'] } as unknown as User,
   currentPath: '/dashboard',
-  isDark: false,
-  onToggleDark: jest.fn<AnyFn>(),
-  onLogout: jest.fn<AnyFn>(),
 };
 
 describe('Sidebar — colour is never the only signal', () => {
   it('gives the collapsed unread dot a text equivalent', () => {
     render(<Sidebar {...baseSidebar} unreadCount={7} collapsed />);
-    const messages = screen.getByRole('link', { name: /messages/i });
-    expect(messages).toHaveAccessibleName('Messages 7 unread');
+    const inbox = screen.getByRole('link', { name: /inbox/i });
+    expect(inbox).toHaveAccessibleName('Inbox 7 unread');
   });
 
   it('caps the spoken count like the visible badge', () => {
     render(<Sidebar {...baseSidebar} unreadCount={250} collapsed />);
-    expect(screen.getByRole('link', { name: /messages/i })).toHaveAccessibleName('Messages 99+ unread');
+    expect(screen.getByRole('link', { name: /inbox/i })).toHaveAccessibleName('Inbox 99+ unread');
   });
 
   it('names every icon-only link in the collapsed rail', () => {
     render(<Sidebar {...baseSidebar} unreadCount={0} collapsed />);
     expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Messages' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Inbox' })).toBeInTheDocument();
   });
 
   it('says "unread" in the expanded badge too', () => {
     render(<Sidebar {...baseSidebar} unreadCount={3} />);
-    expect(screen.getByRole('link', { name: /messages/i })).toHaveAccessibleName('Messages 3 unread');
+    expect(screen.getByRole('link', { name: /inbox/i })).toHaveAccessibleName('Inbox 3 unread');
   });
 });
 
@@ -76,8 +73,7 @@ describe('palette-only nav entries', () => {
     // is derived from this same nav declaration, which is why asserting it here
     // proves the deep link and the palette agree.
     '/dashboard/triage': { permission: 'plugins:write' },
-    '/dashboard/discounts': { permission: 'billing:operate' },
-    '/dashboard/promotions': { permission: 'billing:operate' },
+    // Discounts and Promotions are rows of their own now (Platform → Commerce).
   };
 
   it.each(Object.entries(PALETTE_ONLY))('%s is a palette-only entry whose gate is the page gate', (href, gate) => {

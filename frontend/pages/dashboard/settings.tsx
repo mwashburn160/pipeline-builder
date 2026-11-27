@@ -32,6 +32,7 @@ import { AuthenticatorPolicySettings } from '@/components/settings/Authenticator
 import { PluginSecurityNotificationSettings } from '@/components/settings/PluginSecurityNotificationSettings';
 import { PipelineToolchainSettings } from '@/components/settings/PipelineToolchainSettings';
 import { PipelineRunnersSettings } from '@/components/settings/PipelineRunnersSettings';
+import { OrgSettingsPagesCard } from '@/components/settings/OrgSettingsPagesCard';
 import { PIPELINE_RUNNERS_ANCHOR } from '@/lib/pipeline-runners';
 import { ORG_SETTINGS_SECTIONS, PLUGIN_SECURITY_ANCHOR, type OrgSettingsSectionId } from '@/lib/org-settings-sections';
 import { StepUpModal } from '@/components/admin/StepUpModal';
@@ -68,7 +69,7 @@ const ANCHOR_SECTIONS: Readonly<Record<string, OrgSettingsSectionId>> = {
 /** User and organization settings page. Manages profile info, org identity and
  *  policy, AI provider API keys, and account deletion. */
 export default function SettingsPage() {
-  const { user, organizations, isReady, refreshUser, can, isSuperAdmin, isReadOnly } = useAuthGuard();
+  const { user, organizations, isReady, refreshUser, can, isSuperAdmin, isAdmin, isReadOnly } = useAuthGuard();
   // The active org's parent name (teams only): names the parent on the runner
   // signing-key card ("Inherit from …"), which the key DTO only carries in inherit mode.
   const parentOrgName = organizations?.find((o) => o.id === user?.organizationId)?.parentOrgName;
@@ -81,6 +82,10 @@ export default function SettingsPage() {
   const canSeePluginSecurity = canSeeOrgSettings || hasPermission(user, 'plugins:read');
   // Pipeline toolchain: readable with `pipelines:read`, edited with `toolchain:manage`.
   const canSeeToolchain = hasPermission(user, 'pipelines:read');
+  // The org settings with pages of their own, by those pages' gates: SSO rides
+  // `org_idp:write`, incident reporting is org-admin.
+  const canSeeSso = hasPermission(user, 'org_idp:write');
+  const canSeeIncidents = isAdmin;
 
   const orgId = user?.organizationId;
 
@@ -93,6 +98,7 @@ export default function SettingsPage() {
     pipelines: canSeeToolchain || (!!orgId && (canSeeOrgSettings || canSeePluginSecurity)),
     ai: true,
     data: canSeeOrgSettings && !!orgId,
+    integrations: canSeeSso || canSeeIncidents,
   };
   const orgSections = ORG_SETTINGS_SECTIONS.filter((s) => sectionVisible[s.id]);
   const orgSectionIds = orgSections.map((s) => s.id);
@@ -450,6 +456,10 @@ export default function SettingsPage() {
                 read-only session too). Same capability as the endpoint. */}
             {activeSection === 'data' && canSeeOrgSettings && user.organizationId && (
               <OrgDataExport orgId={user.organizationId} orgName={user.organizationName} />
+            )}
+
+            {activeSection === 'integrations' && (
+              <OrgSettingsPagesCard showSso={canSeeSso} showIncidents={canSeeIncidents} />
             )}
             </div>
           </div>

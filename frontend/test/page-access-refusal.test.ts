@@ -27,7 +27,7 @@ import { declaredPagePaths, resolvePageGate, pageGateRefuses } from '../src/lib/
  */
 function guardWouldRefuse(
   pathname: string,
-  v: { isSuperAdmin: boolean; isOrgAdmin: boolean; permissions: string[] },
+  v: { isSuperAdmin: boolean; isOrgAdmin: boolean; permissions: string[]; billingEnabled?: boolean },
 ): 'systemAdmin' | 'admin' | 'permission' | null {
   const gate = resolvePageGate(pathname);
   const isAdmin = v.isSuperAdmin || v.isOrgAdmin;
@@ -35,6 +35,10 @@ function guardWouldRefuse(
   if (gate.adminOnly && !isAdmin) return 'admin';
   // `hasPermission` grants a superadmin everything.
   if (gate.permission && !(v.isSuperAdmin || v.permissions.includes(gate.permission))) return 'permission';
+  // A merged page opens for a holder of ANY of its tabs' gates; a billing tab
+  // counts only while the billing service is on (undefined counts as on).
+  if (gate.anyOf?.length && !gate.anyOf.some((g) => (v.isSuperAdmin || v.permissions.includes(g.permission))
+    && (!g.requiresBillingEnabled || v.billingEnabled !== false))) return 'permission';
   return null;
 }
 
@@ -80,6 +84,22 @@ describe('pageGateRefuses agrees with useAuthGuard', () => {
       if (expected !== actual) disagreements.push(`${path}: guard=${expected} helper=${actual}`);
     }
     expect(disagreements).toEqual([]);
+  });
+
+  it('lets a billing-only viewer onto Usage & billing only while billing is on', () => {
+    const billingOnly = (billingEnabled: boolean) => ({
+      isSuperAdmin: false, isOrgAdmin: false, hasPermission: (p: string) => p === 'billing:read', billingEnabled,
+    });
+    expect(pageGateRefuses('/dashboard/usage', billingOnly(false))).toBe('permission');
+    expect(pageGateRefuses('/dashboard/usage', billingOnly(true))).toBeNull();
+    for (const billingEnabled of [true, false]) {
+      const v = { isSuperAdmin: false, isOrgAdmin: false, permissions: ['billing:read'], billingEnabled };
+      expect(guardWouldRefuse('/dashboard/usage', v)).toBe(pageGateRefuses('/dashboard/usage', billingOnly(billingEnabled)));
+    }
+    // Quotas needs no billing service.
+    expect(pageGateRefuses('/dashboard/usage', {
+      isSuperAdmin: false, isOrgAdmin: false, hasPermission: (p) => p === 'quotas:read', billingEnabled: false,
+    })).toBeNull();
   });
 
   it('returns null for an undeclared pathname rather than blacking it out', () => {

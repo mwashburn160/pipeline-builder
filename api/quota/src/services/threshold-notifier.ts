@@ -175,7 +175,7 @@ export function thresholdNoticeText(input: ThresholdInput, threshold: QuotaNotic
         // A band on a STOCK is a one-time buffer, not a periodic one, and the
         // copy must not imply a reset it will never get.
         ? `Your organization has used all ${formatQuotaAmount(input.quotaType, input.limit)} of its ${label.toLowerCase()}. Pushes keep working up to ${formatQuotaAmount(input.quotaType, band)} — a one-time buffer, not a periodic one — then are refused until space is freed or capacity is added. Retire plugin versions at /dashboard/plugins, or add a Storage Pack at ${QUOTA_UPGRADE_PATH}.`
-        : `Your organization has used all ${input.limit.toLocaleString('en-US')} of its ${label.toLowerCase()} quota for this period. Pipelines and other automation keep running for a grace band of up to ${band.toLocaleString('en-US')} calls, then are refused until the quota resets on ${when}. Add an Automation Pack or upgrade at ${QUOTA_UPGRADE_PATH}, or see what used it at /dashboard/quotas.`,
+        : `Your organization has used all ${input.limit.toLocaleString('en-US')} of its ${label.toLowerCase()} quota for this period. Pipelines and other automation keep running for a grace band of up to ${band.toLocaleString('en-US')} calls, then are refused until the quota resets on ${when}. Add an Automation Pack or upgrade at ${QUOTA_UPGRADE_PATH}, or see what used it at /dashboard/usage?tab=quotas.`,
     };
   }
   // A STOCK never resets, so none of the period copy below is true for it: no
@@ -197,12 +197,12 @@ export function thresholdNoticeText(input: ThresholdInput, threshold: QuotaNotic
   if (threshold >= 100) {
     return {
       subject: `${label} quota reached`,
-      content: `Your organization has used all ${input.limit.toLocaleString('en-US')} of its ${label.toLowerCase()} quota for this period. New requests that need it are refused until it resets on ${when}. Raise the limit at ${QUOTA_UPGRADE_PATH}, or see what used it at /dashboard/quotas.`,
+      content: `Your organization has used all ${input.limit.toLocaleString('en-US')} of its ${label.toLowerCase()} quota for this period. New requests that need it are refused until it resets on ${when}. Raise the limit at ${QUOTA_UPGRADE_PATH}, or see what used it at /dashboard/usage?tab=quotas.`,
     };
   }
   return {
     subject: `${label} quota at ${threshold}%`,
-    content: `Your organization has used ${input.used.toLocaleString('en-US')} of ${input.limit.toLocaleString('en-US')} ${label.toLowerCase()}s this period (${threshold}%). It resets on ${when}. See what is using it at /dashboard/quotas, or raise the limit at ${QUOTA_UPGRADE_PATH}.`,
+    content: `Your organization has used ${input.used.toLocaleString('en-US')} of ${input.limit.toLocaleString('en-US')} ${label.toLowerCase()}s this period (${threshold}%). It resets on ${when}. See what is using it at /dashboard/usage?tab=quotas, or raise the limit at ${QUOTA_UPGRADE_PATH}.`,
   };
 }
 

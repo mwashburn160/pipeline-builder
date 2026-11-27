@@ -46,7 +46,7 @@ describe('InsightsTab', () => {
   it('renders the locked upsell and fetches nothing without advanced_reporting', async () => {
     const onStatus = jest.fn<AnyFn>();
     render(<InsightsTab filters={filters} enabled={false} onStatus={onStatus} />);
-    expect(screen.getByRole('link', { name: /unlock advanced reporting/i }).getAttribute('href')).toBe('/dashboard/billing?highlight=advanced_reporting');
+    expect(screen.getByRole('link', { name: /unlock advanced reporting/i }).getAttribute('href')).toBe('/dashboard/usage?tab=billing&highlight=advanced_reporting');
     await waitFor(() => expect(onStatus).toHaveBeenCalledWith(expect.objectContaining({ loading: false })));
     // Let the timezone read settle: the fetch would fire right after it.
     await waitFor(() => expect(getReportPolicy).toHaveBeenCalled());

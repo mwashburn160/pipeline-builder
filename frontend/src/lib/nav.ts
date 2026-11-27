@@ -31,6 +31,7 @@ import {
   LayoutTemplate,
   Code,
   Inbox,
+  UserRound,
   Siren,
   ScrollText,
   BellRing,
@@ -59,6 +60,12 @@ import { SUPPORT_FEATURE_FLAGS } from './feature-flags';
 // with the same role/feature gating, with no second copy to drift.
 // ---------------------------------------------------------------------------
 
+/** One alternative of {@link NavItem.requiredAnyOf}: all of its fields must hold. */
+export interface NavGate {
+  permission: Permission;
+  requiresBillingEnabled?: boolean;
+}
+
 export interface NavItem {
   title: string;
   href: string;
@@ -79,6 +86,17 @@ export interface NavItem {
    *  the one page using it (the Ecosystem console) enforces the same rule
    *  itself, see `src/lib/ecosystem-access.ts`. */
   requiredAnyPermission?: readonly Permission[];
+  /**
+   * Show when the viewer meets ANY ONE of these whole gates (superadmins bypass
+   * the permission half, never the deployment half). For a tabbed page whose
+   * tabs carry more than a permission: Usage & billing's billing tab also needs
+   * the billing SERVICE, so `billing:read` counts only where billing runs, and
+   * a billing-only viewer on a billing-disabled install sees no row that would
+   * lead to an empty page. Checked in addition to the other gates. Like
+   * `requiredAnyPermission`, not derived into a page gate here; the page
+   * enforces the same rule from its tab table.
+   */
+  requiredAnyOf?: readonly NavGate[];
   /**
    * Show ONLY while the active org is the system org — HIDDEN elsewhere, never
    * locked. This is a governance boundary (only the system org
@@ -128,9 +146,9 @@ export interface NavItem {
   /**
    * Reachable from the command palette (⌘K) but NOT listed in the sidebar.
    * For sub-pages of an existing sidebar entry — the alert views under
-   * Observability, triage under Builds, discounts/promotions under Billing
-   * Admin — that need to be findable by name without a second sidebar row that
-   * would light up alongside its parent. Gating is identical either way, and
+   * Observability, triage under Builds, the tabs of a tabbed page (Messages
+   * under Inbox, Roles under Members) — that need to be findable by name without
+   * a second sidebar row that would light up alongside its parent. Gating is identical either way, and
    * the entry still declares the route's read gate for `page-access.ts`.
    */
   paletteOnly?: boolean;
@@ -140,11 +158,27 @@ export interface NavItem {
    * sidebar ignores them.
    */
   keywords?: string;
+  /**
+   * The sub-group this item sits in within its section (Platform's Tenants,
+   * Catalog, Commerce, Operations). The sidebar renders each group under its own
+   * collapsible heading, in first-appearance order; ⌘K searches the group name.
+   */
+  group?: string;
+  /** Carries the unread-messages badge (the Inbox row). */
+  showsUnreadCount?: boolean;
 }
+
+/**
+ * Where a section renders. `sidebar` (the default) is the left rail; `account`
+ * is the top-bar avatar menu and `help` the top-bar "?" menu. Every placement is
+ * in ⌘K and declares page gates for `page-access.ts` the same way.
+ */
+export type NavPlacement = 'sidebar' | 'account' | 'help';
 
 export interface NavSection {
   label: string;
   items: NavItem[];
+  placement?: NavPlacement;
   /**
    * Pin this section open: it renders expanded, ignores any persisted
    * collapsed state, and shows no collapse chevron. Use for sections whose
@@ -170,23 +204,37 @@ export const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; col
 ];
 
 // ---------------------------------------------------------------------------
-// Journey-based information architecture. Groups map to what a developer is
-// trying to DO — Home (orient) → Build (author) → Deliver (ship & operate) →
-// Insights (analyze) → Govern (policy & audit) — then the admin/settings scopes.
-// Reorganized from the older feature-siloed layout so items live where the task
-// lives (e.g. Deployments/Executions/Logs sit under Deliver, not Build/Insights;
-// Compliance/Audit are their own Govern group rather than mixed into analytics).
+// Journey-based information architecture. Sidebar groups map to what a
+// developer is trying to DO — Home (orient) → Build (author) → Run (ship,
+// operate and watch) → Insights (analyze and govern) — then the org-scoped
+// Organization section and the system-admin Platform section, which is split
+// into sub-groups because it is the longest list in the app.
+//
+// Personal settings and help are NOT sidebar sections: they live in the top
+// bar's avatar menu and "?" menu (`placement`). They stay in this list so ⌘K
+// finds them and `page-access.ts` keeps deriving their page gates.
+//
+// The tabs of Inbox (Messages, Access requests), Members (Teams, Roles,
+// Invitations) and Usage & billing (Quotas, Billing) each have a palette-only
+// entry pointing at the TAB, with the tab's own gate, so ⌘K answers their names.
 // ---------------------------------------------------------------------------
 export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Home',
     items: [
       { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-      // Unified action-item queue (failing owned pipelines, pending reviews, unread messages).
-      { title: 'Inbox', href: '/dashboard/inbox', icon: Inbox },
+      // Notifications, messages and access requests, as tabs. Ungated: the
+      // notifications tab and access requests are for every member; the
+      // messages tab keeps `messages:read` (the palette-only entry below).
+      {
+        title: 'Inbox',
+        href: '/dashboard/inbox',
+        icon: Inbox,
+        showsUnreadCount: true,
+        keywords: 'inbox notifications action items queue',
+      },
       // Developer-portal "my services": the pipelines & plugins this user owns.
       { title: 'My services', href: '/dashboard/my-services', icon: Layers },
-      { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare, requiredPermission: 'messages:read', keywords: 'messages inbox announcement conversation thread' },
       /*
        * The tenant's own support cases: number, status, and the response target
        * each one was opened against.
@@ -205,10 +253,10 @@ export const NAV_SECTIONS: NavSection[] = [
        * locked, routes here and gets the upsell. A support product invisible to
        * non-buyers sells nothing.
        *
-       * Messages stays UNGATED beside it, deliberately: B3's carve-out requires
-       * that security reports, billing disputes and account lockouts still reach
-       * us from an org holding no support add-on, so the route they travel must
-       * not sit behind an entitlement.
+       * Messages stays UNGATED by entitlement beside it, deliberately: B3's
+       * carve-out requires that security reports, billing disputes and account
+       * lockouts still reach us from an org holding no support add-on, so the
+       * route they travel must not sit behind an entitlement.
        */
       {
         title: 'Support',
@@ -218,10 +266,25 @@ export const NAV_SECTIONS: NavSection[] = [
         requiredAnyFeature: SUPPORT_FEATURE_FLAGS,
         keywords: 'support case ticket help response target sla incident contact desk',
       },
-      // Requests to view an account, and live viewing sessions. NO permission gate
-      // on purpose: the person most often asked is the impersonated user, who is
-      // usually not an admin. The server filters what each person sees.
-      { title: 'Access requests', href: '/dashboard/access-requests', icon: KeyRound },
+      // The Messages tab of Inbox, by name in ⌘K.
+      {
+        title: 'Messages',
+        href: '/dashboard/inbox?tab=messages',
+        icon: MessageSquare,
+        requiredPermission: 'messages:read',
+        paletteOnly: true,
+        keywords: 'messages inbox announcement conversation thread',
+      },
+      // The Access requests tab of Inbox. NO permission gate on purpose: the
+      // person most often asked is the impersonated user, who is usually not an
+      // admin. The server filters what each person sees.
+      {
+        title: 'Access requests',
+        href: '/dashboard/inbox?tab=access-requests',
+        icon: KeyRound,
+        paletteOnly: true,
+        keywords: 'access request impersonation view account viewing session approve',
+      },
     ],
   },
   {
@@ -246,16 +309,15 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    label: 'Deliver',
-    // Pinned open — ship & operate surfaces are frequently hit.
+    label: 'Run',
+    // Pinned open — ship, operate and watch surfaces are frequently hit.
     alwaysExpanded: true,
     items: [
       // Deployed-pipelines registry (view/register/deregister + drift vs config).
-      { title: 'Deployments', href: '/dashboard/deployments', icon: Rocket, requiredPermission: 'pipelines:read' },
+      { title: 'Deployments', href: '/dashboard/deployments', icon: Rocket, requiredPermission: 'pipelines:read', keywords: 'deliver ship' },
       // Per-pipeline run health.
       { title: 'Executions', href: '/dashboard/executions', icon: Activity, requiredPermission: 'reports:read' },
-      // Plugin-build queue + failed-build triage. An operate surface, moved out
-      // of the Platform admin group to sit with the other run views.
+      // Plugin-build queue + failed-build triage.
       { title: 'Builds', href: '/dashboard/build-queue', icon: Container, requiredPermission: 'plugin_queue:manage', extraActivePaths: ['/dashboard/triage'] },
       // The failed-build (DLQ) tab of Builds, by name in ⌘K.
       { title: 'Build triage', href: '/dashboard/triage', icon: Wrench, requiredPermission: 'plugins:write', paletteOnly: true },
@@ -263,17 +325,11 @@ export const NAV_SECTIONS: NavSection[] = [
       // member bundle — so logs appear for existing roles with no migration;
       // DOWNLOADING them additionally needs `logs:export`, checked on the page.
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText, requiredPermission: 'observability:read' },
-    ],
-  },
-  {
-    label: 'Insights',
-    items: [
-      { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart, requiredPermission: 'reports:read' },
       // The landing page lists the dashboards the caller can see (GET /dashboards),
       // which the platform gates on `dashboards:read` — in the member bundle, so
       // every built-in role keeps it. Server-side $ORG substitution still scopes
       // the metrics inside a dashboard to the viewer's own org.
-      { title: 'Observability', href: '/dashboard/observability', icon: BarChart3, requiredPermission: 'dashboards:read' },
+      { title: 'Observability', href: '/dashboard/observability', icon: BarChart3, requiredPermission: 'dashboards:read', keywords: 'metrics dashboards grafana monitoring' },
       // The alert views live under /dashboard/observability, so the sidebar's
       // Observability entry already highlights for them (prefix match); listing
       // them there too would light up two rows. In ⌘K they're findable by name.
@@ -284,53 +340,103 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    label: 'Govern',
+    label: 'Insights',
     items: [
-      { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, requiredPermission: 'compliance:read' },
+      { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart, requiredPermission: 'reports:read' },
+      { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, requiredPermission: 'compliance:read', keywords: 'govern policy' },
       // Security audit trail.
       // `audit:read`, not the coarse admin label. The route is `any(audit:read)`,
       // the permission is org-assignable and in the admin bundle (so every admin
       // keeps the page), and TWO Role templates hand it out — Security Officer
       // and Access Approver. On `adminOnly` both templates granted a permission
       // whose only UI was locked behind a label their holders do not have.
-      { title: 'Audit log', href: '/dashboard/audit', icon: History, requiredPermission: 'audit:read' },
-      // Org-wide audit activity charts — same audience as the Audit Log. Its
-      // route sits under /observability, so it's palette-only rather than a
-      // second Govern row.
+      // Its activity charts sit under /observability, so `extraActivePaths`
+      // keeps this row (not Observability) lit there.
+      {
+        title: 'Audit log',
+        href: '/dashboard/audit',
+        icon: History,
+        requiredPermission: 'audit:read',
+        extraActivePaths: ['/dashboard/observability/audit-activity'],
+        keywords: 'govern audit trail',
+      },
+      // Org-wide audit activity charts — same audience as the Audit log.
       { title: 'Audit activity', href: '/dashboard/observability/audit-activity', icon: LineChart, requiredPermission: 'observability:read', paletteOnly: true },
     ],
   },
   {
     label: 'Organization',
     items: [
-      { title: 'Members', href: '/dashboard/members', icon: UsersRound, requiredPermission: 'members:manage' },
-      // Teams (sub-organizations) are created and managed on the Members page —
-      // the roster and the team list are the same admin's job, and a second
-      // sidebar row pointing at the same route would light up alongside Members.
-      // But with no entry of its own, "teams" was unfindable in ⌘K and invisible
-      // to an org that has none yet, which is exactly the org that needs to find
-      // the create control. Palette-only, same gate as the page it opens.
+      // Members, teams, roles and invitations as tabs. Each TAB keeps its own
+      // permission (the palette-only entries below), so the row shows for anyone
+      // holding ANY of them. `requiredAnyPermission` is not derived into a page
+      // gate: the tabbed page enforces "any of these" itself and gates each tab.
+      {
+        title: 'Members',
+        href: '/dashboard/members',
+        icon: UsersRound,
+        requiredAnyPermission: ['members:manage', 'roles:manage', 'invitations:manage'],
+        keywords: 'members people users roster',
+      },
+      // Quotas and billing as tabs; the same "any tab" rule, as whole gates:
+      // the billing tab also needs the billing SERVICE enabled, so a viewer who
+      // holds only `billing:read` on a billing-disabled install sees no row.
+      {
+        title: 'Usage & billing',
+        href: '/dashboard/usage',
+        icon: Gauge,
+        requiredAnyOf: [
+          { permission: 'quotas:read' },
+          { permission: 'billing:read', requiresBillingEnabled: true },
+        ],
+        keywords: 'usage quotas limits billing plan subscription invoices',
+      },
+      // The org tab of the settings page; its profile tab is in the avatar menu.
+      // SSO and incident reporting are sub-pages (`/dashboard/settings/*`), so
+      // this row stays lit on them too.
+      {
+        title: 'Org settings',
+        href: '/dashboard/settings?tab=organization',
+        icon: Settings,
+        keywords: 'organization settings configuration org',
+      },
+      // Teams (sub-organizations) are a tab on Members. With no entry of its own,
+      // "teams" was unfindable in ⌘K and invisible to an org that has none yet,
+      // which is exactly the org that needs to find the create control.
       {
         title: 'Teams',
-        href: '/dashboard/members',
+        href: '/dashboard/members?tab=teams',
         icon: Building2,
         requiredPermission: 'members:manage',
         paletteOnly: true,
         keywords: 'team teams sub-organization suborg child org hierarchy create team',
       },
-      { title: 'Roles', href: '/dashboard/roles', icon: ShieldCheck, requiredPermission: 'roles:manage' },
-      { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, requiredPermission: 'invitations:manage' },
-      { title: 'Quotas', href: '/dashboard/quotas', icon: Gauge, requiredPermission: 'quotas:read' },
+      { title: 'Roles', href: '/dashboard/members?tab=roles', icon: ShieldCheck, requiredPermission: 'roles:manage', paletteOnly: true, keywords: 'roles permissions groups rbac' },
+      { title: 'Invitations', href: '/dashboard/members?tab=invitations', icon: Mail, requiredPermission: 'invitations:manage', paletteOnly: true, keywords: 'invite invitations pending' },
+      { title: 'Quotas', href: '/dashboard/usage?tab=quotas', icon: Gauge, requiredPermission: 'quotas:read', paletteOnly: true, keywords: 'quotas limits usage' },
       // Gated by the `billing:read` permission AND by whether the billing SERVICE
       // is enabled in this deployment (`requiresBillingEnabled` → /api/billing/config).
       // Deliberately NOT a per-user feature-flag gate — billing visibility is a
       // deployment/permission concern, not a tier entitlement.
-      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredPermission: 'billing:read', requiresBillingEnabled: true },
+      { title: 'Billing', href: '/dashboard/usage?tab=billing', icon: CreditCard, requiredPermission: 'billing:read', requiresBillingEnabled: true, paletteOnly: true, keywords: 'billing plan subscription invoices payment stripe' },
+      // Org owner/admin SSO self-service. Gated by the dedicated `org_idp:write`
+      // permission (split out of `org_settings:write`) AND the `sso` tier entitlement;
+      // the page + backend re-enforce both. Locked (not hidden) off-plan in ⌘K.
+      { title: 'Single sign-on', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org_idp:write', requiredFeature: 'sso', paletteOnly: true, keywords: 'sso saml oidc idp identity provider org settings' },
+      // Org-admin incident-reporting setup (DORA post-deploy CFR + MTTR). Stays
+      // `adminOnly` rather than taking a single permission, and this is the one
+      // place in the sweep where that is the RIGHT answer: the page's controls
+      // span two permissions (`org_settings:write` to save the config,
+      // `reports:read` for the wiring test), and a page gate naming either one
+      // admits a viewer that the other control then refuses. `adminOnly` covers
+      // both. Also gated on the `advanced_reporting` entitlement, like DORA.
+      { title: 'Incident reporting', href: '/dashboard/settings/incident-reporting', icon: Siren, adminOnly: true, requiredFeature: 'advanced_reporting', paletteOnly: true, keywords: 'incident reporting dora mttr cfr pagerduty opsgenie org settings' },
     ],
   },
   {
     // Platform-wide administration (system admins only). Kept separate from the
-    // org-scoped "Organization" section above so the two scopes aren't confused.
+    // org-scoped "Organization" section above so the two scopes aren't confused,
+    // and split into sub-groups (`group`) because it is the longest list.
     label: 'Platform',
     items: [
       // `orgs:read`, which is what `GET /organizations` actually asks for — not
@@ -339,9 +445,19 @@ export const NAV_SECTIONS: NavSection[] = [
       // the customer roster does not also hand over the deployment internals:
       // Support Agent and Console Administrator carry `orgs:read` for exactly
       // this page, and a `platform:read` gate here made that pointless.
-      { title: 'All organizations', href: '/dashboard/organizations', icon: Building2, requiredPermission: 'orgs:read' },
-      { title: 'All users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
-      { title: 'Registry', href: '/dashboard/registry', icon: Boxes, requiredPermission: 'registry:read' },
+      { title: 'All organizations', href: '/dashboard/organizations', icon: Building2, requiredPermission: 'orgs:read', group: 'Tenants' },
+      { title: 'All users', href: '/dashboard/users', icon: Users, systemAdminOnly: true, group: 'Tenants' },
+      // The fleet SSO roster is a TAB on All organizations. Kept findable in ⌘K.
+      {
+        title: 'SSO roster',
+        href: '/dashboard/organizations?tab=sso',
+        icon: Fingerprint,
+        requiredPermission: 'org_idp:write',
+        paletteOnly: true,
+        group: 'Tenants',
+        keywords: 'sso idp saml oidc identity provider roster which orgs',
+      },
+      { title: 'Registry', href: '/dashboard/registry', icon: Boxes, requiredPermission: 'registry:read', group: 'Catalog' },
       // The managed pipeline toolchain (build image + cdk-synth releases):
       // canary, promotion, adoption, recovery. `toolchain:operate` is
       // system-org-only and also the page's read gate; `systemOrgOnly` hides
@@ -353,67 +469,8 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: Wrench,
         requiredPermission: 'toolchain:operate',
         systemOrgOnly: true,
+        group: 'Catalog',
         keywords: 'toolchain pipeline-bootstrap cdk-synth build image release canary promote platform default yank rollback',
-      },
-      // Fleet-wide billing admin — a single entry that folds Overview, Discounts,
-      // and Promotions into one page with a tab bar (BillingAdminTabs), mirroring
-      // the Builds queue/triage consolidation. extraActivePaths keeps this item
-      // highlighted while on any of the three sub-routes. All three share the
-      // billing-service gate; Promotions additionally needs BILLING_PROMOTIONS_ENABLED
-      // server-side (its own page handles the disabled case).
-      {
-        title: 'Billing admin',
-        href: '/dashboard/admin/billing',
-        icon: Landmark,
-        requiredPermission: 'billing:operate',
-        requiresBillingEnabled: true,
-        extraActivePaths: ['/dashboard/discounts', '/dashboard/promotions', '/dashboard/campaigns', '/dashboard/admin/offers'],
-      },
-      // The Campaigns / Discounts / Promotions tabs of Billing Admin, by name in ⌘K.
-      { title: 'Campaigns', href: '/dashboard/campaigns', icon: Megaphone, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
-      { title: 'Discounts', href: '/dashboard/discounts', icon: Percent, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
-      { title: 'Promotions', href: '/dashboard/promotions', icon: Megaphone, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
-      // Expansion offers. `subscriptions:read`
-      // rather than `billing:operate`, matching the Overview tab and the routes
-      // it reads — an Account Manager who can run campaigns is not necessarily
-      // the Role that reviews what an automated granter did fleet-wide.
-      { title: 'Offers', href: '/dashboard/admin/offers', icon: Sparkles, requiredPermission: 'subscriptions:read', requiresBillingEnabled: true, paletteOnly: true },
-      // The fleet SSO roster is a TAB on All organizations, not an item here —
-      // it was a page whose first element was "Back to organizations", and this
-      // section was the most crowded in the app. Kept findable in ⌘K by name.
-      {
-        title: 'SSO roster',
-        href: '/dashboard/organizations?tab=sso',
-        icon: Fingerprint,
-        requiredPermission: 'org_idp:write',
-        paletteOnly: true,
-        keywords: 'sso idp saml oidc identity provider roster which orgs',
-      },
-      // "Settings", not "Platform Settings" — this item lives under the
-      // `Platform` section, which already prefixes it.
-      { title: 'Settings', href: '/dashboard/admin/settings', icon: SlidersHorizontal, requiredPermission: 'platform:read' },
-      // Every org's runner signing-key status (never key material) and the
-      // platform pause toggle for all runner traffic. System org only: the
-      // routes behind it are requireSystemOrgPermission('orgs:read').
-      {
-        title: 'Runner signing keys',
-        href: '/dashboard/admin/runner-signing-keys',
-        icon: KeyRound,
-        requiredPermission: 'orgs:read',
-        systemOrgOnly: true,
-        keywords: 'runner signing key rotation jwks pause runs deliveries kill switch over age unreadable',
-      },
-      // The cascade outbox: every downstream leg of an org purge or a user
-      // erasure, and the Redrive for a dead or stuck one (the
-      // PlatformCascadeLegDead runbook step). System org only: the routes are
-      // requireSystemOrgPermission('platform:read'), the redrive 'orgs:manage'.
-      {
-        title: 'Cascade outbox',
-        href: '/dashboard/admin/cascade',
-        icon: Workflow,
-        requiredPermission: 'platform:read',
-        systemOrgOnly: true,
-        keywords: 'cascade outbox org purge user erasure gdpr dead leg redrive redeliver stuck',
       },
       // Plugin-ecosystem governance console (moderation, publisher verification,
       // Ecosystem Manager roster). System org only, and only for Ecosystem
@@ -425,67 +482,167 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: Store,
         systemOrgOnly: true,
         requiredAnyPermission: ECOSYSTEM_CONSOLE_PERMISSIONS,
+        group: 'Catalog',
         keywords: 'ecosystem moderation moderate publish queue publisher verification ecosystem manager marketplace',
       },
-      // The Ecosystem console's Retention tab, by name in ⌘K: superseded system
-      // plugin versions, the dry run and "Run a pass now". Locked without
-      // plugins:moderate, like every gated entry.
+      // The Ecosystem console's Retention tab: superseded system plugin
+      // versions, the dry run and "Run a pass now".
       {
         title: 'Plugin retention',
-        href: '/dashboard/admin/ecosystem?tab=retention',
+        href: '/dashboard/admin/ecosystem?tab=storage&section=retention',
         icon: Store,
         requiredPermission: 'plugins:moderate',
         systemOrgOnly: true,
-        paletteOnly: true,
+        group: 'Catalog',
         keywords: 'retention superseded plugin versions deprecate yank reclaim storage cleanup prune',
       },
+      // Every org's runner signing-key status (never key material) and the
+      // platform pause toggle for all runner traffic. System org only: the
+      // routes behind it are requireSystemOrgPermission('orgs:read').
+      {
+        title: 'Runner signing keys',
+        href: '/dashboard/admin/runner-signing-keys',
+        icon: KeyRound,
+        requiredPermission: 'orgs:read',
+        systemOrgOnly: true,
+        group: 'Catalog',
+        keywords: 'runner signing key rotation jwks pause runs deliveries kill switch over age unreadable',
+      },
+      // Fleet-wide billing admin. Its sibling pages (campaigns, discounts,
+      // promotions, offers) are rows of their own in Commerce, so each lights
+      // its own row. All share the billing-service gate; Promotions additionally
+      // needs BILLING_PROMOTIONS_ENABLED server-side (its page handles that).
+      { title: 'Billing admin', href: '/dashboard/admin/billing', icon: Landmark, requiredPermission: 'billing:operate', requiresBillingEnabled: true, group: 'Commerce' },
+      { title: 'Campaigns', href: '/dashboard/campaigns', icon: Megaphone, requiredPermission: 'billing:operate', requiresBillingEnabled: true, group: 'Commerce' },
+      { title: 'Discounts', href: '/dashboard/discounts', icon: Percent, requiredPermission: 'billing:operate', requiresBillingEnabled: true, group: 'Commerce' },
+      { title: 'Promotions', href: '/dashboard/promotions', icon: Megaphone, requiredPermission: 'billing:operate', requiresBillingEnabled: true, group: 'Commerce' },
+      // Expansion offers. `subscriptions:read` rather than `billing:operate`,
+      // matching the Overview tab and the routes it reads — an Account Manager
+      // who can run campaigns is not necessarily the Role that reviews what an
+      // automated granter did fleet-wide.
+      { title: 'Offers', href: '/dashboard/admin/offers', icon: Sparkles, requiredPermission: 'subscriptions:read', requiresBillingEnabled: true, group: 'Commerce' },
       // The support queue: every open case across ALL tenants, longest-waiting
       // first. Gated on `support_cases:write`, which is what the routes behind it
       // now require — `messages:read` could not stand for this, because ordinary
       // members hold it in every tenant while this surface spans all of them.
-      //
-      // `keywords` carries the words someone would actually type — nobody looks
-      // for a support ticket under "messages", which is where the tenant-facing
-      // half lives.
       {
         title: 'Support queue',
         href: '/dashboard/admin/support',
         icon: LifeBuoy,
         requiredPermission: 'support_cases:write',
+        group: 'Operations',
         keywords: 'support queue case ticket triage ageing sla response',
       },
+      // The cascade outbox: every downstream leg of an org purge or a user
+      // erasure, and the Redrive for a dead or stuck one (the
+      // PlatformCascadeLegDead runbook step). System org only: the routes are
+      // requireSystemOrgPermission('platform:read'), the redrive 'orgs:manage'.
+      {
+        title: 'Cascade outbox',
+        href: '/dashboard/admin/cascade',
+        icon: Workflow,
+        requiredPermission: 'platform:read',
+        systemOrgOnly: true,
+        group: 'Operations',
+        keywords: 'cascade outbox org purge user erasure gdpr dead leg redrive redeliver stuck',
+      },
+      { title: 'Platform settings', href: '/dashboard/admin/settings', icon: SlidersHorizontal, requiredPermission: 'platform:read', group: 'Operations' },
     ],
   },
   {
-    label: 'Settings',
+    // The top-bar avatar menu. Personal, so ungated.
+    label: 'Account',
+    placement: 'account',
     items: [
-      // "Profile & organization", not "Profile": the item covers the org tab
-      // too, and calling the whole settings area "Profile" is what hid passkeys,
-      // TOTP and recovery codes behind a word that denies they exist. The
-      // credentials moved out to their own entry below.
-      { title: 'Profile & organization', href: '/dashboard/settings', icon: Settings },
+      { title: 'Profile', href: '/dashboard/settings?tab=profile', icon: UserRound, keywords: 'profile account name email password' },
       // ONE home for sign-in factors, sessions, access keys and the org's
       // service accounts.
-      { title: 'Security', href: '/dashboard/security', icon: ShieldCheck },
-      // Org owner/admin SSO self-service. Gated by the dedicated `org_idp:write`
-      // permission (split out of `org_settings:write`) AND the `sso` tier entitlement;
-      // the page + backend re-enforce both.
-      { title: 'Single sign-on', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org_idp:write', requiredFeature: 'sso', keywords: 'sso saml oidc idp identity provider' },
-      // Org-admin incident-reporting setup (DORA post-deploy CFR + MTTR). Stays
-      // `adminOnly` rather than taking a single permission, and this is the one
-      // place in the sweep where that is the RIGHT answer: the page's controls
-      // span two permissions (`org_settings:write` to save the config,
-      // `reports:read` for the wiring test), and a page gate naming either one
-      // admits a viewer that the other control then refuses. `adminOnly` covers
-      // both. Also gated on the `advanced_reporting` entitlement, like DORA.
-      { title: 'Incident reporting', href: '/dashboard/settings/incident-reporting', icon: Siren, adminOnly: true, requiredFeature: 'advanced_reporting' },
-      { title: 'Notifications', href: '/dashboard/notifications', icon: Bell },
-      { title: 'API catalog', href: '/dashboard/api-catalog', icon: Code },
-      { title: 'Downloads', href: '/dashboard/downloads', icon: Download },
-      { title: 'Help', href: '/dashboard/help', icon: HelpCircle },
+      { title: 'Security', href: '/dashboard/security', icon: ShieldCheck, keywords: 'passkey totp mfa two-factor recovery codes sessions access keys tokens' },
+      { title: 'Notification preferences', href: '/dashboard/notifications', icon: Bell, keywords: 'notifications email opt out alerts' },
+    ],
+  },
+  {
+    // The top-bar "?" menu.
+    label: 'Help',
+    placement: 'help',
+    items: [
+      { title: 'Help', href: '/dashboard/help', icon: HelpCircle, keywords: 'docs documentation guide' },
+      { title: 'API catalog', href: '/dashboard/api-catalog', icon: Code, keywords: 'api reference openapi endpoints' },
+      { title: 'Downloads', href: '/dashboard/downloads', icon: Download, keywords: 'cli download install command line' },
     ],
   },
 ];
+
+/** The sections the left rail renders, in order. */
+export const SIDEBAR_SECTIONS: NavSection[] = NAV_SECTIONS.filter((s) => (s.placement ?? 'sidebar') === 'sidebar');
+
+const sectionAt = (placement: NavPlacement): NavSection => {
+  const section = NAV_SECTIONS.find((s) => s.placement === placement);
+  if (!section) throw new Error(`no nav section for placement ${placement}`);
+  return section;
+};
+/** The top-bar avatar menu's links. */
+export const ACCOUNT_MENU_SECTION: NavSection = sectionAt('account');
+/** The top-bar "?" menu's links. */
+export const HELP_MENU_SECTION: NavSection = sectionAt('help');
+
+/**
+ * Split a section's items into consecutive sub-groups, in first-appearance
+ * order. Items with no `group` form a leading unnamed run.
+ */
+export function groupNavItems(items: NavItem[]): { group?: string; items: NavItem[] }[] {
+  const out: { group?: string; items: NavItem[] }[] = [];
+  for (const item of items) {
+    const existing = out.find((g) => g.group === item.group);
+    if (existing) existing.items.push(item);
+    else out.push({ group: item.group, items: [item] });
+  }
+  return out;
+}
+
+/** `true` when `path` is `prefix` or a sub-route of it. */
+const underPath = (path: string, prefix: string): boolean => path === prefix || path.startsWith(`${prefix}/`);
+
+/**
+ * The one item among `items` that the URL `currentPath` belongs to, or
+ * `undefined`. `currentPath` may carry a query (`router.asPath`).
+ *
+ * The most specific match wins, so a URL lights exactly one row:
+ *  - an href with a query (`/dashboard/settings?tab=organization`) matches its
+ *    own path only when every query value in the href matches, and any
+ *    sub-route of it (`/dashboard/settings/sso`) regardless;
+ *  - a bare href matches its path and sub-routes (`/dashboard` matches only
+ *    itself);
+ *  - `extraActivePaths` match their path and sub-routes;
+ *  - the longest matched path wins, and an exact query match beats a path match.
+ */
+export function activeNavItem(items: NavItem[], currentPath: string): NavItem | undefined {
+  const [rawPath, rawQuery = ''] = currentPath.split('#')[0].split('?');
+  const path = rawPath.length > 1 ? rawPath.replace(/\/$/, '') : rawPath;
+  const query = new URLSearchParams(rawQuery);
+
+  let best: { item: NavItem; score: number } | undefined;
+  const offer = (item: NavItem, score: number) => {
+    if (!best || score > best.score) best = { item, score };
+  };
+
+  for (const item of items) {
+    const [hrefPath, hrefQuery] = item.href.split('?');
+    if (hrefPath === '/dashboard') {
+      if (path === '/dashboard') offer(item, hrefPath.length);
+    } else if (hrefQuery) {
+      const wanted = [...new URLSearchParams(hrefQuery)];
+      if (path === hrefPath && wanted.every(([k, v]) => query.get(k) === v)) offer(item, hrefPath.length + 0.5);
+      else if (path.startsWith(`${hrefPath}/`)) offer(item, hrefPath.length);
+    } else if (underPath(path, hrefPath)) {
+      offer(item, hrefPath.length);
+    }
+    for (const extra of item.extraActivePaths ?? []) {
+      if (underPath(path, extra)) offer(item, extra.length);
+    }
+  }
+  return best?.item;
+}
 
 /** What the sidebar and ⌘K know about the viewer when they gate the nav. */
 export interface NavVisibilityContext {
@@ -517,6 +674,8 @@ export function isNavItemVisible(item: NavItem, ctx: NavVisibilityContext): bool
   if (item.adminOnly && !ctx.isAdmin) return false;
   if (item.requiredPermission && !ctx.hasPermission(item.requiredPermission)) return false;
   if (item.requiredAnyPermission && !item.requiredAnyPermission.some((p) => ctx.hasPermission(p))) return false;
+  if (item.requiredAnyOf && !item.requiredAnyOf.some((g) =>
+    ctx.hasPermission(g.permission) && (!g.requiresBillingEnabled || !!ctx.billingEnabled))) return false;
   // Governance boundary: hidden (not locked) outside the system org.
   if (item.systemOrgOnly && !ctx.isSystemOrg) return false;
   if (item.requiresBillingEnabled && !ctx.billingEnabled) return false;

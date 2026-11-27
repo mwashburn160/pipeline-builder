@@ -4,6 +4,7 @@ import { ChevronsUpDown, Building2, Check, Users, ShieldCheck } from 'lucide-rea
 import { useAuth } from '@/hooks/useAuth';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { pageGateRefuses } from '@/lib/page-access';
+import { useBillingEnabledState } from '@/hooks/useBillingEnabled';
 import { isSystemAdmin, isOrgAdmin, hasPermission } from '@/lib/auth-helpers';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -82,6 +83,8 @@ interface OrgSwitcherProps {
  */
 export function OrgSwitcher({ className = '', collapsed = false, variant = 'sidebar' }: OrgSwitcherProps = {}) {
   const { user, organizations, switchOrganization } = useAuth();
+  // The page gate of Usage & billing counts its billing tab only while billing is on.
+  const billingEnabled = useBillingEnabledState();
   // The active org's hierarchy state comes from the ONE shared source rather
   // than being re-derived from `activeOrg.parentOrgId` here — the switcher is
   // the org-context anchor, so it must read the same signal every other
@@ -142,7 +145,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
    *
    * THE FAILURE THIS REMOVES. Permissions are per-organization, and the switch
    * used to re-render the SAME path. Switch into an org whose Role lacks
-   * `billing:read` while standing on /dashboard/billing and the page the person
+   * `billing:read` while standing on the Billing tab and the page the person
    * was already reading turns into `<AccessDenied>` — a refusal produced by
    * their own working click, with no hint that the click is what did it.
    *
@@ -166,6 +169,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
       isSuperAdmin: isSystemAdmin(user),
       isOrgAdmin: isOrgAdmin(user),
       hasPermission: (permission) => hasPermission(user, permission),
+      billingEnabled,
     });
     if (refused) {
       toast.info(`Switched to ${pending.orgName}. This page isn't available there, so you're on the dashboard.`);

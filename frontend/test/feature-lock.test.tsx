@@ -67,7 +67,7 @@ describe('<FeatureLock>', () => {
     expect(screen.getByText(/Advanced Reporting isn't included in your current plan/i)).toBeInTheDocument();
     expect(screen.getByTestId('feature-lock-advanced_reporting')).toHaveTextContent(/DORA metrics/i);
     expect(screen.getByRole('link', { name: /billing/i }))
-      .toHaveAttribute('href', '/dashboard/billing?highlight=advanced_reporting');
+      .toHaveAttribute('href', '/dashboard/usage?tab=billing&highlight=advanced_reporting');
   });
 
   it('sends a TIER-only feature to Plans and names the plan, not to a nonexistent add-on', () => {
@@ -77,7 +77,7 @@ describe('<FeatureLock>', () => {
     const lock = screen.getByTestId('feature-lock-sso');
     expect(lock).toHaveTextContent(/included from the Team plan and isn't sold separately/i);
     const link = screen.getByRole('link', { name: /Compare plans/i });
-    expect(link).toHaveAttribute('href', '/dashboard/billing?tab=plans');
+    expect(link).toHaveAttribute('href', '/dashboard/usage?tab=billing&section=plans');
     expect(link.getAttribute('href')).not.toContain('highlight');
     expect(lock).not.toHaveTextContent(/add it to your plan/i);
   });
@@ -130,7 +130,7 @@ describe('<FeatureLockedAction>', () => {
     expect(link).toHaveTextContent('Bulk import');
     // Bulk Operations comes with Pro and is not sold as a pack, so the CTA is
     // the Plans tab rather than a `?highlight=` that matches no card.
-    expect(link).toHaveAttribute('href', '/dashboard/billing?tab=plans');
+    expect(link).toHaveAttribute('href', '/dashboard/usage?tab=billing&section=plans');
     expect(link).toHaveAttribute('title', expect.stringContaining('Bulk Operations'));
   });
 

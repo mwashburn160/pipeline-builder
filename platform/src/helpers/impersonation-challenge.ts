@@ -22,7 +22,7 @@ const logger = createLogger('impersonation-challenge');
  * Where a person acts on a request. Without this the challenge is plain text with
  * nothing to click — the recipient learns someone wants in and has no way to answer.
  */
-export const ACCESS_REQUESTS_PATH = '/dashboard/access-requests';
+export const ACCESS_REQUESTS_PATH = '/dashboard/inbox?tab=access-requests';
 
 
 /**

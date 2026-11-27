@@ -9,7 +9,7 @@
  * "Organization Admin: Viewing and managing {resource}" and "Viewing private
  * {resource} for your organization". Both inferred CAPABILITY from the coarse
  * role label — the one field that grants nothing, since permissions come only
- * from the Roles assigned to a person. On `/dashboard/roles`, whose gate is
+ * from the Roles assigned to a person. On `/dashboard/members?tab=roles`, whose gate is
  * `roles:manage` and not the admin label, a non-admin holding that permission
  * was told they were merely "viewing private roles". The member message was
  * wrong about the data too: the visibility ladder shows a member private,

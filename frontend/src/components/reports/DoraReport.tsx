@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/Button';
 import { formatDurationSeconds } from '@/lib/format';
 
 /** Billing deep-link that rings the DORA-History pack on the add-ons grid. */
-const RETENTION_PACK_HIGHLIGHT = '/dashboard/billing?highlight=dora_history_pack';
+const RETENTION_PACK_HIGHLIGHT = '/dashboard/usage?tab=billing&highlight=dora_history_pack';
 
 interface DoraReportProps {
   loading: boolean;

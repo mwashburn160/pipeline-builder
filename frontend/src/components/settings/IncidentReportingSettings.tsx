@@ -52,8 +52,8 @@ const INCIDENT_TAB_IDS: readonly IncidentTab[] = INCIDENT_TABS.map((t) => t.id);
  * pack is the ONLY way to raise the billing-owned retention horizon: the
  * Retention Pack widens standard events, the DORA-History pack widens DORA.
  */
-const EVENT_RETENTION_PACK_HIGHLIGHT = '/dashboard/billing?highlight=retention_pack';
-const DORA_HISTORY_PACK_HIGHLIGHT = '/dashboard/billing?highlight=dora_history_pack';
+const EVENT_RETENTION_PACK_HIGHLIGHT = '/dashboard/usage?tab=billing&highlight=retention_pack';
+const DORA_HISTORY_PACK_HIGHLIGHT = '/dashboard/usage?tab=billing&highlight=dora_history_pack';
 
 /** Incidents per page in the recent-incidents list. */
 const INCIDENT_PAGE_SIZE = 25;

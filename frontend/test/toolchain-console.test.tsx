@@ -22,7 +22,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { useState, type ReactNode } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { mockAuthGuard, pageToast } from './helpers/pageMocks';
+import { mockAuthGuard, mockRouter, pageToast } from './helpers/pageMocks';
 import ToolchainConsolePage from '../pages/dashboard/toolchain';
 import { ToolchainManagedNote, PluginLifecycleModal } from '../src/components/plugin/PluginLifecycleModal';
 import { ApiError } from '../src/lib/api/errors';
@@ -155,6 +155,7 @@ function asOperator(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRouter();
   asOperator();
   fns.listToolchainReleases.mockImplementation(() => ok({ platformDefault: '1.4.2', releases: RELEASES }));
   fns.getToolchainDefaultPreview.mockImplementation(() => ok(preview()));
@@ -268,6 +269,34 @@ describe('Toolchain console: Toolchain fixes', () => {
     await renderConsole();
     expect(screen.getByTestId('toolchain-fixes')).toHaveTextContent('plugins:write');
     expect(fns.listToolchainFixes).not.toHaveBeenCalled();
+  });
+});
+
+describe('Toolchain console: tabs', () => {
+  it('has four tabs, with Canary, Adoption and Affected under Rollout', async () => {
+    await renderConsole();
+    const tabs = within(screen.getByRole('tablist', { name: 'Toolchain sections' })).getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Releases', 'Rollout', 'History', 'Cleanup']);
+    expect(screen.queryByRole('tab', { name: 'Canary' })).toBeNull();
+    tab('Rollout');
+    expect(screen.getByRole('tab', { name: 'Canary' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Adoption' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Affected' })).toBeInTheDocument();
+    await screen.findByTestId('toolchain-canary');
+  });
+
+  it('?tab=rollout&section=adoption opens Rollout, on Adoption', async () => {
+    mockRouter({ query: { tab: 'rollout', section: 'adoption' } });
+    render(<ToolchainConsolePage />);
+    expect(await screen.findByTestId('toolchain-adoption')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Rollout' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Adoption' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('an unknown ?tab= opens Releases', async () => {
+    mockRouter({ query: { tab: 'adoption' } });
+    render(<ToolchainConsolePage />);
+    expect(await screen.findByRole('tab', { name: 'Releases' })).toHaveAttribute('aria-selected', 'true');
   });
 });
 
@@ -415,7 +444,7 @@ describe('Toolchain console: Set as default', () => {
 describe('Toolchain console: Canary', () => {
   async function openCanary() {
     await renderConsole();
-    tab('Canary');
+    tab('Rollout');
     return screen.findByTestId('toolchain-canary');
   }
 
@@ -535,6 +564,7 @@ describe('Toolchain console: Yank, Adoption, Affected, History, Cleanup', () => 
 
   it('adoption shows counts by resolvedVia and per org, and exports CSV', async () => {
     await renderConsole();
+    tab('Rollout');
     tab('Adoption');
     const via = await screen.findByTestId('toolchain-adoption-via');
     expect(within(via).getByText('Canary').nextSibling).toHaveTextContent('9');
@@ -550,6 +580,7 @@ describe('Toolchain console: Yank, Adoption, Affected, History, Cleanup', () => 
 
   it('affected lists stranded pipelines; "Notify affected owners" confirms, then notifies', async () => {
     await renderConsole();
+    tab('Rollout');
     tab('Affected');
     await screen.findByTestId('toolchain-affected');
     expect(fns.getToolchainAffected).toHaveBeenCalledWith('1.5.0', expect.anything());

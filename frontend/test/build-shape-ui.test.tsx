@@ -136,7 +136,7 @@ describe('BuildCostHint', () => {
     render(<BuildCostHint quota={{ summary: summary({ used: 4_500, remaining: 0 }), tier: 'pro' }} />);
     const hint = screen.getByTestId('build-cost-hint');
     expect(hint).toHaveTextContent('No CPU credits left this month');
-    expect(within(hint).getByRole('link', { name: /credits pack/i })).toHaveAttribute('href', '/dashboard/billing');
+    expect(within(hint).getByRole('link', { name: /credits pack/i })).toHaveAttribute('href', '/dashboard/usage?tab=billing');
     expect(hint).toHaveTextContent('wait for the window to reset');
   });
 

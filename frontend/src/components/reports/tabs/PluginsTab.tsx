@@ -31,8 +31,8 @@ interface PluginsTabProps {
  * carries its own consolidated empty state with a next-step hint.
  */
 export function PluginsTab({ filters, onStatus }: PluginsTabProps) {
-  // Sub-tab in the URL too, so `?tab=pipelines&sub=performance` reopens the
-  // exact view (the top-level tab was already linkable; this half wasn't).
+  // Sub-tab in the URL too, so `?tab=overview&section=plugins&sub=runs` reopens
+  // the exact view.
   const [subTab, setSubTab] = useUrlTab<PluginSubTab>('sub', PLUGIN_TABS.map((t) => t.id), 'overview');
   const data = usePluginsData(subTab, filters);
   const { loading, error, refetch } = data;

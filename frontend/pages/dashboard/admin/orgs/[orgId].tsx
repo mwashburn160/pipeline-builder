@@ -318,7 +318,7 @@ function OrgDetail({ orgId }: { orgId: string }) {
                     <Gauge className="w-5 h-5 text-fg-muted" />
                     <h3 className="text-base font-semibold text-fg">Quotas</h3>
                   </div>
-                  <Link href="/dashboard/quotas" className="action-link text-sm">Manage</Link>
+                  <Link href="/dashboard/usage?tab=quotas" className="action-link text-sm">Manage</Link>
                 </div>
                 {quotasQ.error ? (
                   <RetryError message="Quota usage unavailable — the quota service didn't respond" onRetry={quotasQ.refetch} />

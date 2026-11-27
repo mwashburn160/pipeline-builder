@@ -32,6 +32,10 @@ jest.mock('../src/hooks/useAuth', () => require('./helpers/pageMocks').authModul
     refreshUser: jest.fn<AnyFn>(),
   })));
 
+// The billing service's state, for the Usage & billing page's billing tab.
+let billingEnabled: boolean | undefined = true;
+jest.mock('../src/hooks/useBillingEnabled', () => ({ __esModule: true, useBillingEnabledState: () => billingEnabled }));
+
 import { useAuthGuard } from '../src/hooks/useAuthGuard';
 
 function guardAt(path: string, viewer: Partial<User>) {
@@ -61,15 +65,28 @@ describe('useAuthGuard() derives each declared page gate', () => {
     // Refused for the most specific requirement declared.
     const expectedKind = gate.systemAdminOnly ? 'systemAdmin' : gate.adminOnly ? 'admin' : 'permission';
     expect(bare.accessDenied).toEqual(expect.objectContaining({ kind: expectedKind, pathname: route }));
-    if (expectedKind === 'permission') expect(bare.accessDenied?.permission).toBe(gate.permission);
+    // A merged page's "any of its tabs" gate names every permission that would admit.
+    if (expectedKind === 'permission') expect(bare.accessDenied?.permission).toBe(gate.permission ?? gate.anyOf?.map((g) => g.permission).join(' or '));
 
     // …and admitted by a viewer who meets exactly that declaration.
     const qualified: Partial<User> = gate.systemAdminOnly
       ? { id: 'u2', isSuperAdmin: true }
-      : { id: 'u2', role: gate.adminOnly ? 'admin' : 'member', permissions: gate.permission ? [gate.permission] : [] };
+      : { id: 'u2', role: gate.adminOnly ? 'admin' : 'member', permissions: gate.permission ? [gate.permission] : gate.anyOf ? [gate.anyOf[0].permission] : [] };
     const admitted = guardAt(route, qualified);
     expect(admitted.accessDenied).toBeNull();
     expect(admitted.isReady).toBe(true);
+  });
+
+  it('admits a billing-only viewer to Usage & billing only while billing is on', () => {
+    const billingOnly: Partial<User> = { id: 'u3', role: 'member', permissions: ['billing:read'] };
+    billingEnabled = true;
+    expect(guardAt('/dashboard/usage', billingOnly).accessDenied).toBeNull();
+    billingEnabled = undefined;
+    expect(guardAt('/dashboard/usage', billingOnly).accessDenied).toBeNull();
+    billingEnabled = false;
+    expect(guardAt('/dashboard/usage', billingOnly).accessDenied).toEqual(expect.objectContaining({ kind: 'permission', permission: 'quotas:read or billing:read' }));
+    expect(guardAt('/dashboard/usage', { id: 'u4', role: 'member', permissions: ['quotas:read'] }).accessDenied).toBeNull();
+    billingEnabled = true;
   });
 
   it('treats an undeclared route as open rather than blacking it out', () => {

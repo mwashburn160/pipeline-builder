@@ -47,7 +47,7 @@ export function RemediationCapCard() {
       ) : (
         <RemediationOffNotice className="mt-3" />
       )}
-      <Link href="/dashboard/plugins?tab=remediations" className="action-link mt-3 inline-block text-xs">
+      <Link href="/dashboard/plugins?tab=security&section=remediations" className="action-link mt-3 inline-block text-xs">
         View remediations →
       </Link>
     </Card>

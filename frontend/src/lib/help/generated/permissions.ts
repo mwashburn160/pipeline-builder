@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 3b97349388671b7fa28077bb56d5132261931b58d925ca713404c3b2a043bb36
+// SOURCE-SHA256: 10c7ae6e875791847121812c6ad0a067088538035907f58810ad4f2e788873dc
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1272,7 +1272,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Seeing and ending sessions. Every signed-in user has an Access requests page (/dashboard/access-requests, under Home in the sidebar). It lists live sessions on your own account, sessions you opened, and — for an organization admin — sessions on your organization's members, each with an End session button. Ending a session takes effect immediately after one plain confirmation — never a step-up, so stopping access is never harder than granting it — because it can't be undone: to look again the operator must ask, and be approved, again. Each list on the page is paged (GET /api/admin/impersonate/requests?view=…&limit=&offset=, newest first, returning pagination.total)."
+          "content": "Seeing and ending sessions. Every signed-in user has an Access requests tab on the Inbox (/dashboard/inbox?tab=access-requests, under Home in the sidebar). It lists live sessions on your own account, sessions you opened, and — for an organization admin — sessions on your organization's members, each with an End session button. Ending a session takes effect immediately after one plain confirmation — never a step-up, so stopping access is never harder than granting it — because it can't be undone: to look again the operator must ask, and be approved, again. Each list on the page is paged (GET /api/admin/impersonate/requests?view=…&limit=&offset=, newest first, returning pagination.total)."
         },
         {
           "type": "text",

@@ -22,6 +22,7 @@
  * `FeatureLock`). Mixing the two would replace an honest upsell with a dead end.
  */
 import { NAV_SECTIONS, type NavItem } from './nav';
+import { TABBED_PAGES, findTab } from './tabbed-pages';
 import type { Permission } from '@pipeline-builder/api-core/permissions';
 
 /** What a dashboard route requires of the viewer before it renders anything. */
@@ -32,6 +33,12 @@ export interface PageGate {
   adminOnly?: boolean;
   /** System admin required. */
   systemAdminOnly?: boolean;
+  /** At least ONE of these (superadmins bypass the permission). A tabbed page
+   *  whose tabs are each gated opens for a viewer who passes any tab's gate, and shows only those tabs (`tabbed-pages.ts`). A
+   *  `requiresBillingEnabled` entry counts only while the billing service is
+   *  on, so a billing-only viewer is refused on an install without billing
+   *  instead of landing on an empty page. */
+  anyOf?: readonly { permission: Permission; requiresBillingEnabled?: boolean }[];
 }
 
 /** Shared frozen "any authenticated user" gate, so callers can compare by shape. */
@@ -111,6 +118,21 @@ const EXTRA_PAGE_GATES: Record<string, PageGate> = {
 };
 
 /**
+ * Pages made of tabs (`tabbed-pages.ts`): open to anyone who may see one tab.
+ * Derived from the tab table rather than the nav, because no single nav item
+ * can say "any of these" as a page gate, and the gates belong to the tabs.
+ * A tabbed page with an ungated tab is open.
+ */
+const TABBED_PAGE_GATES: Record<string, PageGate> = Object.fromEntries(
+  Object.entries(TABBED_PAGES).map(([path, tabs]) => {
+    if (tabs.some((t) => !t.permission)) return [path, OPEN];
+    return [path, {
+      anyOf: tabs.map((t) => ({ permission: t.permission!, ...(t.requiresBillingEnabled ? { requiresBillingEnabled: true } : {}) })),
+    }];
+  }),
+);
+
+/**
  * The gate for a dashboard route, by Next.js `router.pathname`.
  *
  * Returns {@link OPEN} (no requirements beyond being signed in) for a pathname
@@ -121,12 +143,25 @@ const EXTRA_PAGE_GATES: Record<string, PageGate> = {
 export function resolvePageGate(pathname: string): PageGate {
   // Tolerant of a caller passing a full `asPath` with its query/fragment.
   const path = pagePathOf(pathname);
-  return NAV_GATES[path] ?? EXTRA_PAGE_GATES[path] ?? OPEN;
+  return TABBED_PAGE_GATES[path] ?? NAV_GATES[path] ?? EXTRA_PAGE_GATES[path] ?? OPEN;
+}
+
+/**
+ * The gate of the VIEW an href names: for a tab of a tabbed page
+ * (`/dashboard/members?tab=roles`) that tab's own requirement, otherwise the
+ * page's. This is what a link to one tab needs of the person following it.
+ */
+export function resolveViewGate(href: string): PageGate {
+  const path = pagePathOf(href);
+  const tabId = new URLSearchParams(href.split('#')[0].split('?')[1] ?? '').get('tab') ?? undefined;
+  const tab = findTab(path, tabId);
+  if (!tab) return resolvePageGate(path);
+  return tab.permission ? { permission: tab.permission } : OPEN;
 }
 
 /** True when a gate asks for nothing beyond authentication. */
 export function isOpenGate(gate: PageGate): boolean {
-  return !gate.permission && !gate.adminOnly && !gate.systemAdminOnly;
+  return !gate.permission && !gate.adminOnly && !gate.systemAdminOnly && !gate.anyOf?.length;
 }
 
 /**
@@ -147,16 +182,26 @@ export function isOpenGate(gate: PageGate): boolean {
  */
 export function pageGateRefuses(
   pathname: string,
-  viewer: { isSuperAdmin: boolean; isOrgAdmin: boolean; hasPermission: (permission: Permission) => boolean },
+  viewer: {
+    isSuperAdmin: boolean;
+    isOrgAdmin: boolean;
+    hasPermission: (permission: Permission) => boolean;
+    /** The billing service's state; `undefined` (still probing) counts as on. */
+    billingEnabled?: boolean;
+  },
 ): 'systemAdmin' | 'admin' | 'permission' | null {
   const gate = resolvePageGate(pathname);
   if (gate.systemAdminOnly && !viewer.isSuperAdmin) return 'systemAdmin';
   if (gate.adminOnly && !(viewer.isOrgAdmin || viewer.isSuperAdmin)) return 'admin';
   if (gate.permission && !viewer.hasPermission(gate.permission)) return 'permission';
+  if (gate.anyOf?.length && !gate.anyOf.some((g) => viewer.hasPermission(g.permission)
+    && (!g.requiresBillingEnabled || viewer.billingEnabled !== false))) return 'permission';
   return null;
 }
 
 /** Every declared pathname (nav-derived + explicit) — used by the coverage test. */
 export function declaredPagePaths(): string[] {
-  return [...new Set([...Object.keys(NAV_GATES), ...Object.keys(EXTRA_PAGE_GATES)])].sort();
+  return [...new Set([
+    ...Object.keys(NAV_GATES), ...Object.keys(EXTRA_PAGE_GATES), ...Object.keys(TABBED_PAGE_GATES),
+  ])].sort();
 }

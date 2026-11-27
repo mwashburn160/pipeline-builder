@@ -56,7 +56,7 @@ export function SecurityUpsell() {
             Track open vulnerabilities by severity, known-exploited findings, time to fix, expiring risk
             acceptances, and the compliance verdict trend. {meta.description}.
           </p>
-          <LinkButton href="/dashboard/billing?highlight=advanced_reporting" size="sm" className="mt-1">
+          <LinkButton href="/dashboard/usage?tab=billing&highlight=advanced_reporting" size="sm" className="mt-1">
             Unlock Advanced Reporting
           </LinkButton>
         </div>

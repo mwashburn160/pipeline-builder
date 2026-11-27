@@ -31,7 +31,7 @@ describe('remediation builds in the failed-builds table', () => {
   it('labels it, marks it credit-free, links to the remediation and filters to it', () => {
     render(<FailedJobsTable jobs={JOBS} pagination={PAGE} onPageChange={() => {}} title="failed jobs" />);
     const link = screen.getByRole('link', { name: 'Remediation' });
-    expect(link.getAttribute('href')).toBe('/dashboard/plugins?tab=remediations&remediation=rem-1');
+    expect(link.getAttribute('href')).toBe('/dashboard/plugins?tab=security&section=remediations&remediation=rem-1');
     expect(screen.getByText('No build credits')).toBeInTheDocument();
     expect(screen.getByText('rust')).toBeInTheDocument();
 

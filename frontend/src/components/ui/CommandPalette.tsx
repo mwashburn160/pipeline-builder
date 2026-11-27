@@ -94,8 +94,10 @@ export function CommandPalette({
     // Navigation commands are derived from the SAME NAV_SECTIONS the sidebar
     // uses (with the same role/feature gating), so ⌘K always reaches exactly
     // the pages the sidebar shows — no separate hand-maintained list to drift.
-    // The section label doubles as a search keyword (e.g. "platform" surfaces
-    // every admin page) so users can find a page by area, not just name.
+    // The section label (and a Platform sub-group's name) doubles as a search
+    // keyword (e.g. "platform" surfaces every admin page, "commerce" the billing
+    // ones) so users can find a page by area, not just name. The avatar and
+    // Help menu entries are sections too, so ⌘K reaches them as well.
     const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: Permission) => hasPermission(user, p), billingEnabled, isFeatureEnabled, isSystemOrg: isSystemOrgActive(user) };
     const navItems: CommandItem[] = NAV_SECTIONS.flatMap((section) =>
       section.items
@@ -113,7 +115,7 @@ export function CommandPalette({
             label: locked ? `Go to ${item.title} (not on your plan)` : `Go to ${item.title}`,
             icon: item.icon,
             section: 'Navigation',
-            keywords: `${section.label.toLowerCase()}${item.keywords ? ` ${item.keywords}` : ''}${locked ? ' locked upgrade plan' : ''}`,
+            keywords: `${section.label.toLowerCase()}${item.group ? ` ${item.group.toLowerCase()}` : ''}${item.keywords ? ` ${item.keywords}` : ''}${locked ? ' locked upgrade plan' : ''}`,
             locked,
             action: () => navigate(item.href),
           };

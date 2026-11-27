@@ -20,7 +20,7 @@ import { formatDateTime } from '@/lib/format';
 
 /** The plugins page's advisory search, pre-filled with one advisory id. */
 export function advisorySearchHref(advisoryId: string): string {
-  return `/dashboard/plugins?tab=vulnerabilities&advisory=${encodeURIComponent(advisoryId)}`;
+  return `/dashboard/plugins?tab=security&section=vulnerabilities&advisory=${encodeURIComponent(advisoryId)}`;
 }
 
 /** `12%` — EPSS is a 0–1 probability of exploitation in the next 30 days. */

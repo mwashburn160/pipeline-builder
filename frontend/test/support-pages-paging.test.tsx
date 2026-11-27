@@ -99,7 +99,7 @@ describe('support page — case rows', () => {
   it('"Open conversation" deep-links through the `?message=` key the Messages page reads', async () => {
     render(<SupportPage />);
     await screen.findByText('#1');
-    expect(screen.getByRole('link', { name: 'Open conversation' })).toHaveAttribute('href', '/dashboard/messages?message=t1');
+    expect(screen.getByRole('link', { name: 'Open conversation' })).toHaveAttribute('href', '/dashboard/inbox?tab=messages&message=t1');
   });
 
   it('shows a loading line, not "No support cases yet", while the first page is in flight', async () => {

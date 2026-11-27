@@ -210,8 +210,8 @@ describe('Notifications page', () => {
     expect(rows.map((r) => r.textContent?.slice(0, 3))).toEqual(['N36', 'N37', 'N38', 'N39', 'N40', 'N41']);
     const hrefs = rows.map((r) => within(r).getByRole('link').getAttribute('href'));
     expect(hrefs).toEqual([
-      '/dashboard/plugins?tab=remediations', '/dashboard/plugins?tab=remediations', '/dashboard/pipelines',
-      '/dashboard/plugins?tab=remediations', '/dashboard/publisher', '/dashboard/plugins',
+      '/dashboard/plugins?tab=security&section=remediations', '/dashboard/plugins?tab=security&section=remediations', '/dashboard/pipelines',
+      '/dashboard/plugins?tab=security&section=remediations', '/dashboard/publisher', '/dashboard/plugins',
     ]);
   });
 

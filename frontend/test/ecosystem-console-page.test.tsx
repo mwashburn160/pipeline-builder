@@ -12,9 +12,9 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import EcosystemConsolePage from '../pages/dashboard/admin/ecosystem';
-import { mockAuthGuard, pageToast } from './helpers/pageMocks';
+import { mockAuthGuard, mockRouter, pageToast } from './helpers/pageMocks';
 import { SYSTEM_ORG_ID } from '../src/lib/constants';
 import { clearQueryCache } from '../src/lib/query-cache';
 
@@ -75,6 +75,7 @@ const systemUser = { id: 'u1', organizationId: SYSTEM_ORG_ID };
 
 beforeEach(() => {
   clearQueryCache();
+  mockRouter();
   aal = 2;
   mockAuthGuard({ user: { ...systemUser, permissions: ['plugins:moderate'] } });
   getOrganizationRoles.mockReset().mockResolvedValue(rolesResponse());
@@ -93,7 +94,7 @@ beforeEach(() => {
 });
 
 const openManagers = async () => {
-  fireEvent.click(await screen.findByRole('tab', { name: /ecosystem managers/i }));
+  fireEvent.click(await screen.findByRole('tab', { name: /^managers$/i }));
 };
 
 describe('Ecosystem console — governance boundary', () => {
@@ -126,7 +127,7 @@ describe('Ecosystem console — governance boundary', () => {
     // …and offers only the tabs that permission can read (the rest are
     // plugins:moderate and would answer 403).
     expect(screen.getByRole('tab', { name: /publisher verification/i })).toBeInTheDocument();
-    for (const name of [/^listings$/i, /^advisories$/i, /review moderation/i, /auto-approval rules/i, /reserved names/i]) {
+    for (const name of [/^listings$/i, /^security$/i, /auto-approval rules/i]) {
       expect(screen.queryByRole('tab', { name })).not.toBeInTheDocument();
     }
   });
@@ -135,12 +136,50 @@ describe('Ecosystem console — governance boundary', () => {
     render(<EcosystemConsolePage />);
     fireEvent.click(await screen.findByRole('tab', { name: /publisher verification/i }));
     expect(await screen.findByText(/no pending applications/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: /^listings$/i }));
-    expect(await screen.findByText(/no listings match/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: /auto-approval rules/i }));
     expect(await screen.findByText(/every request waits for a human decision/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /^listings$/i }));
+    expect(await screen.findByText(/no listings match/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: /reserved names/i }));
     expect(await screen.findByTestId('reserved-trivy')).toBeInTheDocument();
+  });
+});
+
+describe('Ecosystem console — tabs', () => {
+  const topTabs = async () => within(await screen.findByRole('tablist', { name: 'Ecosystem sections' }))
+    .getAllByRole('tab').map((t) => t.textContent);
+
+  it('groups the eleven panels into five tabs', async () => {
+    render(<EcosystemConsolePage />);
+    expect(await topTabs()).toEqual(['Publishing', 'Listings', 'Security', 'Storage', 'Managers']);
+    expect(screen.getByRole('tab', { name: 'Publish queue' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Storage' }));
+    expect(screen.getByRole('tab', { name: 'Kept setup images' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Retention' })).toBeInTheDocument();
+  });
+
+  it('publishers:verify alone sees only the tabs and sub-tabs it can read', async () => {
+    mockAuthGuard({ user: { ...systemUser, permissions: ['publishers:verify'] } });
+    render(<EcosystemConsolePage />);
+    expect(await topTabs()).toEqual(['Publishing', 'Storage', 'Managers']);
+    expect(screen.getByRole('tab', { name: 'Publisher verification' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Auto-approval rules' })).toBeNull();
+    // Retention is Storage's only visible panel, so no sub-tab row.
+    fireEvent.click(screen.getByRole('tab', { name: 'Storage' }));
+    expect(screen.queryByRole('tab', { name: 'Retention' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Kept setup images' })).toBeNull();
+  });
+
+  it.each([
+    ['storage', 'retention', 'Storage', 'Retention'],
+    ['listings', 'reserved', 'Listings', 'Reserved names'],
+    ['security', 'vulnerabilities', 'Security', 'Vulnerabilities'],
+    ['publishing', 'rules', 'Publishing', 'Auto-approval rules'],
+  ])('?tab=%s&section=%s opens %s, on %s', async (tabKey, section, top, sub) => {
+    mockRouter({ query: { tab: tabKey, section } });
+    render(<EcosystemConsolePage />);
+    expect(await screen.findByRole('tab', { name: top })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: sub })).toHaveAttribute('aria-selected', 'true');
   });
 });
 
@@ -237,7 +276,6 @@ describe('Ecosystem console — Ecosystem Managers', () => {
   it('renders a roster for each of the two ecosystem Roles', async () => {
     render(<EcosystemConsolePage />);
     await openManagers();
-    // The tab label says "Ecosystem Managers" too, hence the heading role.
     expect(await screen.findByRole('heading', { name: /ecosystem managers/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /publisher verifiers/i })).toBeInTheDocument();
     // The verifier roster says why one name is not enough: awarding Verified and

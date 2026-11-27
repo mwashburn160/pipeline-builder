@@ -33,8 +33,8 @@ const PAGES: PageCase[] = [
   { name: 'dashboard home', path: '/dashboard', signedIn: true, ready: (p) => p.getByText('Generate a pipeline from Git') },
   { name: 'pipelines', path: '/dashboard/pipelines', signedIn: true, ready: (p) => p.getByRole('button', { name: 'Create pipeline' }).first() },
   { name: 'templates', path: '/dashboard/templates', signedIn: true, ready: (p) => p.getByRole('heading').first() },
-  { name: 'billing', path: '/dashboard/billing', signedIn: true, ready: (p) => p.getByRole('heading').first() },
-  { name: 'settings', path: '/dashboard/settings', signedIn: true, ready: (p) => p.getByRole('heading').first() },
+  { name: 'billing', path: '/dashboard/usage?tab=billing', signedIn: true, ready: (p) => p.getByRole('heading').first() },
+  { name: 'settings', path: '/dashboard/settings?tab=profile', signedIn: true, ready: (p) => p.getByRole('heading').first() },
 ];
 
 /** `page name` → axe rule ids with serious/critical findings recorded on 2026-11-17. */

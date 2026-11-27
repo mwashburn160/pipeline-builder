@@ -41,7 +41,7 @@ describe('plugin remediation copy', () => {
     expect(packageTypeLabel(null)).toBe('Unknown');
     expect(packageTypeLabel('conan')).toBe('conan');
     expect(shortLayer('sha256:0123456789abcdef0123')).toBe('sha256:0123456789ab');
-    expect(remediationHref('r 1')).toBe('/dashboard/plugins?tab=remediations&remediation=r%201');
+    expect(remediationHref('r 1')).toBe('/dashboard/plugins?tab=security&section=remediations&remediation=r%201');
   });
 
   it('catalogs every pipeline upgrade state once, and shows an unknown one as sent, in no section', () => {

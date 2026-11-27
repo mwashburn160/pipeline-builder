@@ -9,7 +9,7 @@ import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage } from '@/components/ui/Loading';
 import { SearchInput } from '@/components/ui/SearchInput';
-import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TabbedLayout as DashboardLayout } from '@/components/ui/TabbedPage';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
@@ -38,7 +38,7 @@ import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 import api from '@/lib/api';
 import { hasPermission } from '@/lib/auth-helpers';
 
-export default function InvitationsPage() {
+export default function InvitationsTab() {
   const uid = useId();
   // The read gate (`invitations:manage`) comes from the nav entry via page-access.
   const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, isReadOnly, can } = useAuthGuard();
@@ -500,7 +500,7 @@ export default function InvitationsPage() {
             <Callout variant="warning" icon={Mail} className="mb-3">
               All {seatUsage.limit} account {seatUsage.limit === 1 ? 'seat is' : 'seats are'} in use (members and pending invitations).
               {' '}Remove a member or revoke a pending invitation{seatRemedyText ? <>, or{' '}
-                <Link href="/dashboard/billing" className="action-link font-medium underline">{seatRemedyText}</Link></> : ''}
+                <Link href="/dashboard/usage?tab=billing" className="action-link font-medium underline">{seatRemedyText}</Link></> : ''}
               {' '}to invite more.
             </Callout>
           )}

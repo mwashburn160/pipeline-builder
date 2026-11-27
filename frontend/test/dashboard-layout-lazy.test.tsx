@@ -118,7 +118,19 @@ describe('Ask entry point', () => {
     // sold as an add-on, so the lock — seen only by an org overridden off — opens
     // the Plans tab: `?highlight=ai_generation` would match no card on the add-on
     // grid and quietly highlight nothing.
-    expect(locked).toHaveAttribute('href', '/dashboard/billing?tab=plans');
+    expect(locked).toHaveAttribute('href', '/dashboard/usage?tab=billing&section=plans');
     expect(locked).toHaveAccessibleName(/Ask — requires .*It comes with the Developer plan\. Open billing to compare plans/);
+  });
+});
+
+describe('top bar', () => {
+  it('carries the Help menu, the avatar menu, and a bell that opens the Inbox messages tab', () => {
+    render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
+    expect(screen.getByRole('link', { name: 'Messages' })).toHaveAttribute('href', '/dashboard/inbox?tab=messages');
+    fireEvent.click(screen.getByRole('button', { name: 'Help and resources' }));
+    expect(screen.getByRole('menuitem', { name: 'API catalog' })).toHaveAttribute('href', '/dashboard/api-catalog');
+    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }));
+    expect(screen.getByRole('menuitem', { name: 'Profile' })).toHaveAttribute('href', '/dashboard/settings?tab=profile');
+    expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
   });
 });

@@ -41,6 +41,7 @@ import { rememberReturnPath } from '@/lib/return-to';
 import { useAuth } from './useAuth';
 import { isSystemAdmin, isOrgAdmin, hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 import { resolvePageGate } from '@/lib/page-access';
+import { useBillingEnabledState } from './useBillingEnabled';
 import { isEnrolmentPendingSession, ENROLMENT_PATHNAME, ENROLMENT_HREF } from '@/lib/enrolment-session';
 
 /** Options for configuring the auth guard's requirements. */
@@ -90,7 +91,14 @@ export function useAuthGuard(options?: AuthGuardOptions) {
   const allowOnboarding = options?.allowOnboarding ?? false;
   const needsOnboarding = !!user?.needsOnboarding;
   const requirePermission = options?.requirePermission ?? gate.permission;
-  const hasRequiredPermission = !requirePermission || hasPermission(user, requirePermission);
+  // A tabbed page's "any of its tabs' gates" (see `page-access.ts`); a billing
+  // tab counts only while the billing service is on (still probing counts as
+  // on). An explicit `requirePermission` replaces the route's gate, this included.
+  const billingEnabled = useBillingEnabledState();
+  const requireAnyOf = options?.requirePermission ? undefined : gate.anyOf;
+  const hasRequiredPermission = (!requirePermission || hasPermission(user, requirePermission))
+    && (!requireAnyOf?.length || requireAnyOf.some((g) => hasPermission(user, g.permission)
+      && (!g.requiresBillingEnabled || billingEnabled !== false)));
 
   /**
    * Fine-grained permission check for the active org (RBAC UI gating).
@@ -158,7 +166,7 @@ export function useAuthGuard(options?: AuthGuardOptions) {
       : requireAdmin && !isAdmin
         ? { kind: 'admin', pathname: router.pathname }
         : !hasRequiredPermission
-          ? { kind: 'permission', permission: requirePermission, pathname: router.pathname }
+          ? { kind: 'permission', permission: requirePermission ?? requireAnyOf?.map((g) => g.permission).join(' or '), pathname: router.pathname }
           : null;
 
   const isReady = isSettled && accessDenied === null;

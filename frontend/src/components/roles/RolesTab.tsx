@@ -10,7 +10,7 @@ import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFormState } from '@/hooks/useFormState';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
-import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TabbedLayout as DashboardLayout } from '@/components/ui/TabbedPage';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Callout } from '@/components/ui/Callout';
@@ -55,7 +55,7 @@ function summarizePermissions(perms: string[]): { category: string; count: numbe
   return ordered.map((category) => ({ category, count: counts.get(category)! }));
 }
 
-export default function RolesPage() {
+export default function RolesTab() {
   const uid = useId();
   // The read gate (`roles:manage`) comes from the nav entry via page-access.
   const { accessDenied, user, isReady, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();

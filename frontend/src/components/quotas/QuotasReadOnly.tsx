@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
-import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TabbedLayout as DashboardLayout } from '@/components/ui/TabbedPage';
 import { Card } from '@/components/ui/Card';
 import { RetryError } from '@/components/ui/RetryError';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -135,7 +135,7 @@ export function QuotasReadOnly({
             </ul>
             {!activeOrgIsTeam && canManageBilling && (
               <p className="mt-3 text-sm text-warning-strong">
-                <Link href="/dashboard/billing" className="action-link font-medium">Upgrade your plan</Link>{' '}
+                <Link href="/dashboard/usage?tab=billing" className="action-link font-medium">Upgrade your plan</Link>{' '}
                 to raise these limits before you hit them.
               </p>
             )}
@@ -234,7 +234,7 @@ export function QuotasReadOnly({
           // The viewer can act on billing: point them at the upgrade path, not a sysadmin.
           <p className="text-sm text-fg-muted text-center mt-6">
             Need more capacity?{' '}
-            <Link href="/dashboard/billing" className="action-link font-medium">Upgrade your plan</Link>{' '}
+            <Link href="/dashboard/usage?tab=billing" className="action-link font-medium">Upgrade your plan</Link>{' '}
             to raise these limits.
           </p>
         ) : (

@@ -208,5 +208,5 @@ export function remainingReasonLabel(reason: RemediationRemainingReason | string
 
 /** The plugins page deep link that opens a remediation (the Remediations tab, scrolled to the row). */
 export function remediationHref(remediationId: string): string {
-  return `/dashboard/plugins?tab=remediations&remediation=${encodeURIComponent(remediationId)}`;
+  return `/dashboard/plugins?tab=security&section=remediations&remediation=${encodeURIComponent(remediationId)}`;
 }

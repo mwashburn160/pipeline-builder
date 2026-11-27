@@ -683,6 +683,13 @@
     @apply text-2xs font-semibold uppercase tracking-[0.08em] px-4 mb-1 mt-5;
   }
 
+  /* A sub-group heading inside a section (Platform → Tenants, Catalog, …):
+     quieter than the section label and indented under it. */
+  .sidebar-subgroup-label {
+    color: var(--pb-text-subtle);
+    @apply text-2xs font-medium px-4 pl-6 mb-0.5 mt-2;
+  }
+
   /* ---- Inline text actions ----
      Brand token, not a raw blue/`dark:` pair — the old `text-blue-600
      dark:text-blue-400` was the last place a link colour was decided outside

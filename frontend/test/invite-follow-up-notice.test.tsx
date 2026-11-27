@@ -42,7 +42,7 @@ describe('InviteFollowUpNotice', () => {
 
   it('always names the two follow-ups the invitation cannot carry', async () => {
     render(<InviteFollowUpNotice orgId="org-1" role="member" hasTeams rolesChosen={0} />);
-    expect(screen.getByRole('link', { name: /roles/i })).toHaveAttribute('href', '/dashboard/roles');
+    expect(screen.getByRole('link', { name: /roles/i })).toHaveAttribute('href', '/dashboard/members?tab=roles');
     expect(screen.getByText(/needs an existing account/i)).toBeInTheDocument();
     await waitFor(() => expect(getMfaPolicy).toHaveBeenCalled());
   });

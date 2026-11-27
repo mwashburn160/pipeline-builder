@@ -68,7 +68,7 @@ export function FlakyStages({ stages, trend, trendEnabled }: FlakyStagesProps) {
         {!trendEnabled ? (
           <p className="text-xs text-fg-subtle">
             The flake rate per period is part of Advanced Reporting.{' '}
-            <Link href="/dashboard/billing?highlight=advanced_reporting" className="action-link">Unlock it</Link>
+            <Link href="/dashboard/usage?tab=billing&highlight=advanced_reporting" className="action-link">Unlock it</Link>
           </p>
         ) : trend.length === 0 ? <ReportEmpty text="No stage runs in this window" /> : (
           <>

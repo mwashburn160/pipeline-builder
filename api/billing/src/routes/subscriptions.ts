@@ -226,11 +226,13 @@ export function createSubscriptionRoutes(): Router {
 
     const origin = (req.headers.origin as string | undefined) || config.frontendUrl;
     if (!origin) return sendError(res, 400, 'Cannot determine a return URL for checkout (no Origin header or configured frontend URL)', ErrorCode.VALIDATION_ERROR);
-    const base = `${origin.replace(/\/$/, '')}/dashboard/billing`;
+    // The Billing tab of Usage & billing; it already carries a query, so the
+    // Checkout outcome is appended with `&` (the tab reads and clears `checkout`).
+    const base = `${origin.replace(/\/$/, '')}/dashboard/usage?tab=billing`;
     const url = await provider.createCheckoutSession(customerId, planId, interval, {
       orgId,
-      successUrl: `${base}?checkout=success`,
-      cancelUrl: `${base}?checkout=cancelled`,
+      successUrl: `${base}&checkout=success`,
+      cancelUrl: `${base}&checkout=cancelled`,
       ...(pre.referralCode ? { referralCode: pre.referralCode } : {}),
     });
     logger.info('Created checkout session', { orgId, planId, interval });

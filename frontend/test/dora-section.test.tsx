@@ -99,7 +99,8 @@ beforeEach(() => {
 /** DORA now lives on its own feature-gated top tab (not the pipelines/overview
  *  view). Click it to mount the DORA panel + trigger its fetches. */
 const goToDora = async () => {
-  fireEvent.click(await screen.findByRole('button', { name: /^dora$/i }));
+  fireEvent.click(await screen.findByRole('tab', { name: /^delivery$/i }));
+  fireEvent.click(screen.getByRole('tab', { name: /^dora$/i }));
   // The tab fires five parallel reads and only the metrics one is visible in
   // most assertions below. Wait for the page to go idle (Refresh re-enables)
   // before asserting, so no read lands after the test body has finished.
@@ -245,7 +246,7 @@ describe('ReportsPage — DORA section', () => {
 
     render(<ReportsPage />);
     // The tab exists when entitled; DORA doesn't fetch until it's opened.
-    expect(await screen.findByRole('button', { name: /^dora$/i })).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: /^delivery$/i })).toBeInTheDocument();
     expect(getDora).not.toHaveBeenCalled();
 
     await goToDora();

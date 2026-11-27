@@ -20,7 +20,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
-import InvitationsPage from '../pages/dashboard/invitations';
+import InvitationsPage from '../src/components/invitations/InvitationsTab';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());

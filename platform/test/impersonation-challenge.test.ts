@@ -122,5 +122,6 @@ describe('sendImpersonationChallenge', () => {
     expect(content).toContain('15 minutes'); // for how long
     expect(content).toMatch(/view-only/i); // what they cannot do
     expect(content).toMatch(/end the session/i); // that it can be stopped
+    expect(content).toContain('/dashboard/inbox?tab=access-requests'); // where to answer it
   });
 });

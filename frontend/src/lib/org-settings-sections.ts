@@ -15,6 +15,7 @@ export const ORG_SETTINGS_SECTIONS = [
   { id: 'pipelines', label: 'Pipelines', description: 'Where pipelines run, the toolchain they build with, and how vulnerable plugins are handled.' },
   { id: 'ai', label: 'AI', description: 'Whether AI features are on, and the provider keys they use.' },
   { id: 'data', label: 'Data', description: 'Take a copy of what the platform holds for this organization.' },
+  { id: 'integrations', label: 'Integrations', description: 'Single sign-on and incident reporting.' },
 ] as const;
 
 export type OrgSettingsSectionId = (typeof ORG_SETTINGS_SECTIONS)[number]['id'];

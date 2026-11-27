@@ -285,7 +285,7 @@ export function InsightsUpsell() {
             production, where build time went, which plugins are behind and how widely pipelines are adopted &mdash;
             the same analysis your stakeholder reports carry, for any window. {meta.description}.
           </p>
-          <LinkButton href="/dashboard/billing?highlight=advanced_reporting" size="sm" className="mt-1">
+          <LinkButton href="/dashboard/usage?tab=billing&highlight=advanced_reporting" size="sm" className="mt-1">
             Unlock Advanced Reporting
           </LinkButton>
         </div>

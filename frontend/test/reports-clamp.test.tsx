@@ -105,7 +105,8 @@ describe('ReportsPage — per-tab date-range clamp', () => {
 
   it('allows a 180d window on the DORA tab (its cap is 180) without a clamp note', async () => {
     render(<ReportsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^dora$/i }));
+    fireEvent.click(await screen.findByRole('tab', { name: /^delivery$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^dora$/i }));
     await waitFor(() => expect(getDora).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: 'Last 180d' }));
@@ -124,7 +125,8 @@ describe('ReportsPage — consolidated empty state per tab', () => {
     getDora.mockResolvedValue(null);
 
     render(<ReportsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^dora$/i }));
+    fireEvent.click(await screen.findByRole('tab', { name: /^delivery$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^dora$/i }));
 
     // Single empty state with the DORA setup hint...
     expect(await screen.findByRole('heading', { name: /No deploy data yet/i })).toBeInTheDocument();
@@ -166,17 +168,18 @@ describe('ReportsPage — effective retention (GET /reports/retention)', () => {
     expect(await screen.findByText(/Showing the last 120 days/i)).toBeInTheDocument();
     const links = screen.getAllByRole('link', { name: /extend retention/i });
     expect(links.length).toBeGreaterThan(0);
-    for (const l of links) expect(l).toHaveAttribute('href', '/dashboard/billing?highlight=retention_pack');
+    for (const l of links) expect(l).toHaveAttribute('href', '/dashboard/usage?tab=billing&highlight=retention_pack');
   });
 
   it('links the DORA tab past its horizon to the DORA-History pack', async () => {
     render(<ReportsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^dora$/i }));
+    fireEvent.click(await screen.findByRole('tab', { name: /^delivery$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^dora$/i }));
     await waitFor(() => expect(getDora).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: 'Last 365d' }));
     expect(await screen.findByText(/maximum for DORA reports/i)).toBeInTheDocument();
     for (const l of screen.getAllByRole('link', { name: /extend retention/i })) {
-      expect(l).toHaveAttribute('href', '/dashboard/billing?highlight=dora_history_pack');
+      expect(l).toHaveAttribute('href', '/dashboard/usage?tab=billing&highlight=dora_history_pack');
     }
   });
 

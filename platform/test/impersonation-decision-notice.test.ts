@@ -42,7 +42,7 @@ describe('notifyRequesterOfDecision', () => {
     expect(msg.recipientUserId).toBe('op');
     expect(msg.content).toMatch(/org-admin approved/);
     expect(msg.content).toMatch(/within 1 hour/);
-    expect(msg.content).toContain('/dashboard/access-requests');
+    expect(msg.content).toContain('/dashboard/inbox?tab=access-requests');
   });
 
   it('tells the requester when access was denied', async () => {

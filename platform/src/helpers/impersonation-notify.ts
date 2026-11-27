@@ -120,7 +120,7 @@ export async function notifyOrgOfBreakglass(input: {
         : '')
       + `This operator has used emergency access ${input.recentCount + 1} time(s) in the last 30 days. `
       + 'The session is view-only, and appears in this organization\'s audit log. '
-      + 'An organization admin can end it at any time: /dashboard/access-requests';
+      + 'An organization admin can end it at any time: /dashboard/inbox?tab=access-requests';
 
     const outcomes = await Promise.all(admins.map((a) =>
       sendInAppNotificationConfirmed({
@@ -174,7 +174,7 @@ export async function notifyRequesterOfDecision(input: {
       ? (input.breakglass ? 'Emergency access approved' : 'Access request approved')
       : (input.breakglass ? 'Emergency access denied' : 'Access request denied');
     const content = input.approved
-      ? `${who(decider)} approved ${what} ${account}. Open it from /dashboard/access-requests `
+      ? `${who(decider)} approved ${what} ${account}. Open it from /dashboard/inbox?tab=access-requests `
         + `within ${describeDuration(IMPERSONATION_REQUEST_TTL_MS)}, or the approval lapses.`
       : `${who(decider)} denied ${what} ${account}.`;
 

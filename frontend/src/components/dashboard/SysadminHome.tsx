@@ -207,7 +207,7 @@ export function SysadminHome() {
               <Link href="/dashboard/organizations" className="action-link">Organizations</Link>
               <Link href="/dashboard/users" className="action-link">All users</Link>
               <Link href="/dashboard/audit" className="action-link">Audit log</Link>
-              <Link href="/dashboard/quotas" className="action-link">Quotas</Link>
+              <Link href="/dashboard/usage?tab=quotas" className="action-link">Quotas</Link>
               <Link href="/dashboard/registry" className="action-link">Image registry</Link>
               <Link href="/dashboard/triage" className="action-link">Build triage</Link>
               <Link href="/dashboard/observability/alert-destinations?all=1" className="action-link">Alert destinations</Link>

@@ -120,10 +120,10 @@ describe('feature-gate upsell routing', () => {
   });
 
   it('routes a tier-only flag to Plans and a purchasable one to its add-on card', () => {
-    expect(featureUpsellHref('sso')).toBe('/dashboard/billing?tab=plans');
-    expect(featureUpsellHref('bulk_operations')).toBe('/dashboard/billing?tab=plans');
-    expect(featureUpsellHref('advanced_reporting')).toBe('/dashboard/billing?highlight=advanced_reporting');
-    expect(featureUpsellHref('compliance_advanced')).toBe('/dashboard/billing?highlight=compliance_advanced');
+    expect(featureUpsellHref('sso')).toBe('/dashboard/usage?tab=billing&section=plans');
+    expect(featureUpsellHref('bulk_operations')).toBe('/dashboard/usage?tab=billing&section=plans');
+    expect(featureUpsellHref('advanced_reporting')).toBe('/dashboard/usage?tab=billing&highlight=advanced_reporting');
+    expect(featureUpsellHref('compliance_advanced')).toBe('/dashboard/usage?tab=billing&highlight=compliance_advanced');
   });
 
   it('never offers to "add" a feature that cannot be added', () => {

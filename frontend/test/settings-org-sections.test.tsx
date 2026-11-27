@@ -170,6 +170,32 @@ describe('Settings → Organization sections', () => {
     expect(replace).toHaveBeenLastCalledWith({ query: { tab: 'profile' }, hash: '' }, undefined, { shallow: true });
   });
 
+  it('links SSO and incident reporting from an Integrations section, each behind its page gate', () => {
+    // SSO rides `org_idp:write`; incident reporting is org-admin.
+    as(['org_idp:write']);
+    query = { tab: 'organization', section: 'integrations' };
+    render(<SettingsPage />);
+    expect(sectionNames()).toEqual(['AI', 'Integrations']);
+    expect(screen.getByRole('link', { name: /single sign-on/i })).toHaveAttribute('href', '/dashboard/settings/sso');
+    expect(screen.queryByRole('link', { name: /incident reporting/i })).not.toBeInTheDocument();
+    cleanup();
+
+    mockAuthGuard({
+      user: { id: 'u1', organizationId: 'org-1', organizationName: 'Acme', username: 'u', email: 'u@acme.com', isEmailVerified: true, permissions: [] },
+      can: () => false,
+      isAdmin: true,
+    });
+    render(<SettingsPage />);
+    expect(screen.getByRole('link', { name: /incident reporting/i })).toHaveAttribute('href', '/dashboard/settings/incident-reporting');
+    expect(screen.queryByRole('link', { name: /single sign-on/i })).not.toBeInTheDocument();
+    cleanup();
+
+    // Neither: no Integrations section at all.
+    as(['pipelines:read']);
+    render(<SettingsPage />);
+    expect(sectionNames()).not.toContain('Integrations');
+  });
+
   it('gives each section a one-line description', () => {
     as(ADMIN);
     query = { tab: 'organization', section: 'security' };

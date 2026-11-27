@@ -357,7 +357,7 @@ Before it selects, the pass re-resolves every pipeline that declares the plugin,
 
 ### The dry run
 
-`GET /api/plugins/retention/plan` answers what a pass would do now, and changes nothing. It is a system-org route that needs `plugins:moderate` and a second factor (aal2), so call it as a member holding the **Ecosystem Manager** role. It lists the retirable versions, the rule that keeps each kept version, the orgs a retirement would notify, the versions deferred by the per-pass limit, and the bytes it would free. The same report is the **Retention** tab of the Ecosystem console (`/dashboard/admin/ecosystem?tab=retention`). **Read it before enabling the pass**, and again after any large catalog change.
+`GET /api/plugins/retention/plan` answers what a pass would do now, and changes nothing. It is a system-org route that needs `plugins:moderate` and a second factor (aal2), so call it as a member holding the **Ecosystem Manager** role. It lists the retirable versions, the rule that keeps each kept version, the orgs a retirement would notify, the versions deferred by the per-pass limit, and the bytes it would free. The same report is the **Retention** section of the Ecosystem console's **Storage** tab (`/dashboard/admin/ecosystem?tab=storage&section=retention`). **Read it before enabling the pass**, and again after any large catalog change.
 
 ### Enabling it
 

@@ -71,7 +71,7 @@ export function CalendarUpsell() {
             See deployments per day and environment, commits per deploy, and every production deploy with its
             outcome. {meta.description}.
           </p>
-          <LinkButton href="/dashboard/billing?highlight=advanced_reporting" size="sm" className="mt-1">
+          <LinkButton href="/dashboard/usage?tab=billing&highlight=advanced_reporting" size="sm" className="mt-1">
             Unlock Advanced Reporting
           </LinkButton>
         </div>

@@ -130,7 +130,7 @@ describe('a destructive step-up action is ONE dialog', () => {
     expect(teams).not.toContain('<ConfirmDialog');
     expect(teams).toMatch(/details=\{[\s\S]*Recently deleted teams/);
 
-    const members = readFileSync(resolve(FRONTEND_DIR, 'pages/dashboard/members.tsx'), 'utf8');
+    const members = readFileSync(resolve(FRONTEND_DIR, 'src/components/members/MembersTab.tsx'), 'utf8');
     expect(members).toMatch(/details=\{[\s\S]*demoted to admin/);
   });
 });

@@ -8,7 +8,7 @@ import { buildSizeLabel, buildSizeMultiplier, type BuildSize } from '@pipeline-b
 import type { OwnQuota } from '@/hooks/useOwnQuota';
 
 /** Where an org out of build compute goes: plans and the CPU Credits Pack. */
-const BILLING_HREF = '/dashboard/billing';
+const BILLING_HREF = '/dashboard/usage?tab=billing';
 
 /**
  * The deployment's assumed vCPU per build — mirrors `PLUGIN_BUILDKIT_MILLI_VCPU`

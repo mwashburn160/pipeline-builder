@@ -144,7 +144,7 @@ export function OrgAdminHome({ organizationId }: Props) {
             {isChildOrg || hasChildOrgs ? (
               <span className="text-xs text-fg-muted">{POOLING_TITLE}</span>
             ) : null}
-            <Link href="/dashboard/quotas" className="action-link text-xs">Manage →</Link>
+            <Link href="/dashboard/usage?tab=quotas" className="action-link text-xs">Manage →</Link>
           </div>
         </div>
         {loading && !quotas && <LoadingSpinner size="sm" />}
@@ -210,7 +210,7 @@ export function OrgAdminHome({ organizationId }: Props) {
                 {pendingInvites ?? '—'}
               </div>
               {!!pendingInvites && (
-                <Link href="/dashboard/invitations" className="action-link text-xs inline-flex items-center gap-1 mt-1">
+                <Link href="/dashboard/members?tab=invitations" className="action-link text-xs inline-flex items-center gap-1 mt-1">
                   Review <ArrowRight className="w-3 h-3" />
                 </Link>
               )}
@@ -291,10 +291,10 @@ export function OrgAdminHome({ organizationId }: Props) {
             {isChildOrg ? (
               <span className="text-xs text-fg-muted">
                 Managed at {parentOrgName ?? 'the parent organization'} ·{' '}
-                <Link href="/dashboard/billing" className="action-link">View plan →</Link>
+                <Link href="/dashboard/usage?tab=billing" className="action-link">View plan →</Link>
               </span>
             ) : (
-              <Link href="/dashboard/billing" className="action-link text-xs">Manage plan →</Link>
+              <Link href="/dashboard/usage?tab=billing" className="action-link text-xs">Manage plan →</Link>
             )}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
@@ -328,11 +328,11 @@ export function OrgAdminHome({ organizationId }: Props) {
           Common tasks
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-          <Link href="/dashboard/invitations" className="action-link">Invite members</Link>
+          <Link href="/dashboard/members?tab=invitations" className="action-link">Invite members</Link>
           <Link href="/dashboard/members" className="action-link">Manage roles</Link>
-          <Link href="/dashboard/quotas" className="action-link">Quotas</Link>
+          <Link href="/dashboard/usage?tab=quotas" className="action-link">Quotas</Link>
           {billingEnabled && (
-            <Link href="/dashboard/billing" className="action-link">Billing</Link>
+            <Link href="/dashboard/usage?tab=billing" className="action-link">Billing</Link>
           )}
           <Link href="/dashboard/compliance" className="action-link">Compliance</Link>
           <Link href="/dashboard/observability/alert-destinations" className="action-link">Alert channels</Link>

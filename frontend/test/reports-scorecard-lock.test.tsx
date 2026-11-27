@@ -6,13 +6,13 @@
  * gate). It used to be served on `pipelines:read`, and the tab locked without
  * it; a custom role with `reports:read` but no pipeline read must now open it.
  * The tab still locks, in place and with the reason, for a viewer without
- * `reports:read` (a bookmarked `?tab=scorecard` must never render a blank tab
+ * `reports:read` (a link to `?tab=quality&section=scorecard` must never render a blank tab
  * under a refresh control that spins for ever).
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
@@ -20,7 +20,7 @@ jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,
   useFeatures: () => ({ isEnabled: () => true, features: [], isLoaded: true, supportAlias: 'support@pipeline-builder' }),
 }));
-jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: { tab: 'scorecard' }, pathname: '/dashboard/reports', replace: jest.fn<AnyFn>() })));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: { tab: 'quality', section: 'scorecard' }, pathname: '/dashboard/reports', replace: jest.fn<AnyFn>() })));
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/hooks/useOrgHierarchy', () => require('./helpers/pageMocks').orgHierarchyModule());
 jest.mock('@/components/reports/tabs/ScorecardTab', () => ({ __esModule: true, ScorecardTab: () => <div>scorecard-body</div>, default: () => <div>scorecard-body</div> }));
@@ -36,7 +36,8 @@ describe('Reports — Scorecard gate', () => {
     mockAuthGuard({ can: (p: string) => p !== 'pipelines:read' });
     render(<ReportsPage />);
     expect(await screen.findByText('scorecard-body')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^scorecard$/i })).toBeEnabled();
+    expect(screen.getByRole('tab', { name: /^quality$/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /^scorecard$/i })).toBeEnabled();
     expect(screen.queryByText('The Scorecard needs report read access')).not.toBeInTheDocument();
   });
 
@@ -44,9 +45,9 @@ describe('Reports — Scorecard gate', () => {
     mockAuthGuard({ can: (p: string) => p !== 'reports:read' });
     render(<ReportsPage />);
     expect(await screen.findByText('The Scorecard needs report read access')).toBeInTheDocument();
-    const tab = screen.getByRole('button', { name: /^scorecard$/i });
+    const tab = screen.getByRole('tab', { name: /^scorecard$/i });
     expect(tab).toBeDisabled();
-    expect(tab).toHaveAttribute('title', 'Requires the reports:read permission');
+    expect(within(tab).getByTitle('Requires the reports:read permission')).toBeInTheDocument();
     expect(screen.queryByText('scorecard-body')).not.toBeInTheDocument();
   });
 });

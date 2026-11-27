@@ -31,7 +31,7 @@ const ORG_PICKER_LIMIT = 200;
 // ---------------------------------------------------------------------------
 
 /** Quota management page. Shows per-org usage and limits; system admins can edit tiers, limits, and org metadata. */
-export default function QuotasPage() {
+export default function QuotasTab() {
   // Viewing quotas requires `quotas:read` (declared once, in page-access.ts via
   // the nav entry; superadmins bypass). Members hold it in their base bundle.
   // Mutation controls below stay sysadmin-only.

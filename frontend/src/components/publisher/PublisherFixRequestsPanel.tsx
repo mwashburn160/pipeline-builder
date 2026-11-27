@@ -27,7 +27,7 @@ export function PublisherFixRequestsPanel() {
         new-version request.
       </p>
       <p className="mt-2 text-sm">
-        <Link href="/dashboard/messages" className="text-brand underline">Open your notices</Link>
+        <Link href="/dashboard/inbox?tab=messages" className="text-brand underline">Open your notices</Link>
       </p>
     </SectionCard>
   );

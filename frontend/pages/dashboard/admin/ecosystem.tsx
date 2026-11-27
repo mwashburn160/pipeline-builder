@@ -19,11 +19,11 @@
 import { Store } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useSessionAssurance } from '@/hooks/useSessionAssurance';
-import { useUrlTab } from '@/hooks/useUrlTab';
+import { useGroupedUrlTab } from '@/hooks/useGroupedUrlTab';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { TabBar, tabPanelProps } from '@/components/ui/TabBar';
+import { GroupedTabs, type GroupedTabItem } from '@/components/ui/GroupedTabs';
 import { EcosystemMfaPrompt } from '@/components/ecosystem/EcosystemMfaPrompt';
 import { EcosystemManagersPanel } from '@/components/ecosystem/EcosystemManagersPanel';
 import { PublishQueuePanel } from '@/components/ecosystem/PublishQueuePanel';
@@ -38,58 +38,72 @@ import { KeptSetupImagesPanel } from '@/components/ecosystem/KeptSetupImagesPane
 import { RetentionPanel } from '@/components/ecosystem/RetentionPanel';
 import { canSeeEcosystemConsole } from '@/lib/ecosystem-access';
 import { hasPermission } from '@/lib/auth-helpers';
+import { ECOSYSTEM_TABS, type EcosystemSection, type EcosystemTab } from '@/lib/page-tabs/ecosystem';
+
+type Permission = Parameters<typeof hasPermission>[1];
 
 /**
- * Each tab with the permissions its reads need (ANY of them) — the same gates
+ * Each panel with the permissions its reads need (ANY of them) — the same gates
  * the console routes apply (`requireSystemOrgPermission`), so a
- * `publishers:verify`-only manager doesn't see tabs that would 403.
+ * `publishers:verify`-only manager doesn't see panels that would 403. A tab
+ * shows when any of its panels does.
  */
-const TABS = [
-  { id: 'queue', label: 'Publish queue', requires: ['plugins:moderate', 'publishers:verify'] },
-  { id: 'publishers', label: 'Publisher verification', requires: ['plugins:moderate', 'publishers:verify'] },
-  { id: 'listings', label: 'Listings', requires: ['plugins:moderate'] },
-  { id: 'advisories', label: 'Advisories', requires: ['plugins:moderate'] },
-  { id: 'vulnerabilities', label: 'Vulnerabilities', requires: ['plugins:moderate'] },
-  { id: 'kept-images', label: 'Kept setup images', requires: ['plugins:moderate'] },
+const PANELS: Record<EcosystemSection | 'managers', { label: string; requires: readonly Permission[] }> = {
+  queue: { label: 'Publish queue', requires: ['plugins:moderate', 'publishers:verify'] },
+  publishers: { label: 'Publisher verification', requires: ['plugins:moderate', 'publishers:verify'] },
+  rules: { label: 'Auto-approval rules', requires: ['plugins:moderate'] },
+  listings: { label: 'Listing states', requires: ['plugins:moderate'] },
+  reviews: { label: 'Review moderation', requires: ['plugins:moderate'] },
+  reserved: { label: 'Reserved names', requires: ['plugins:moderate'] },
+  advisories: { label: 'Advisories', requires: ['plugins:moderate'] },
+  vulnerabilities: { label: 'Vulnerabilities', requires: ['plugins:moderate'] },
+  'kept-images': { label: 'Kept setup images', requires: ['plugins:moderate'] },
   // Its reads need plugins:moderate, but it is shown to every console viewer:
   // the panel renders a locked state without the permission, so a
   // publishers:verify-only manager sees that it exists and what it needs.
-  { id: 'retention', label: 'Retention', requires: ['plugins:moderate', 'publishers:verify'] },
-  { id: 'reviews', label: 'Review moderation', requires: ['plugins:moderate'] },
-  { id: 'rules', label: 'Auto-approval rules', requires: ['plugins:moderate'] },
-  { id: 'reserved', label: 'Reserved names', requires: ['plugins:moderate'] },
-  { id: 'managers', label: 'Ecosystem Managers', requires: ['plugins:moderate', 'publishers:verify'] },
-] as const;
-type TabId = (typeof TABS)[number]['id'];
-const TAB_IDS = TABS.map((t) => t.id);
+  retention: { label: 'Retention', requires: ['plugins:moderate', 'publishers:verify'] },
+  managers: { label: 'Managers', requires: ['plugins:moderate', 'publishers:verify'] },
+};
+
+/** Top-level tabs, in order (their panels are `ECOSYSTEM_TABS.groups`). */
+const TAB_LABELS: Record<EcosystemTab, string> = {
+  publishing: 'Publishing',
+  listings: 'Listings',
+  security: 'Security',
+  storage: 'Storage',
+  managers: 'Managers',
+};
 const TAB_PREFIX = 'ecosystem';
 
 export default function EcosystemConsolePage() {
   const { isReady, user, isSuperAdmin, isReadOnly, can } = useAuthGuard();
   const aal = useSessionAssurance(user);
-  // In the URL, so a moderation console tab can be linked, bookmarked and
-  // survive a refresh — the queue is a place people send each other to. `valid`
-  // is EVERY tab id, not just the visible ones: visibility depends on held
-  // permissions, and narrowing `valid` by viewer would make a shared link
-  // silently fall back to the default for anyone with a different Role, which is
-  // indistinguishable from a broken link. The permission filter below still
-  // decides what actually renders.
-  const [tab, setTab] = useUrlTab<TabId>('tab', TAB_IDS, 'queue');
-
-  if (!isReady || !user) return <LoadingPage />;
-
   // VISIBILITY uses the held permissions, not `can()`: the ecosystem
   // permissions are write-class, so `can()` is false during a read-only
   // impersonation — which should still SEE the console (writes stay disabled).
-  // The same held-permission reading the tab filter uses, handed to the panels
-  // for their READ affordances (`can` is false for these during a read-only
+  const holds = (p: Permission) => !!user && hasPermission(user, p);
+  const shows = (panel: EcosystemSection | 'managers') => isSuperAdmin || PANELS[panel].requires.some((p) => holds(p));
+  const visibleSections = (t: EcosystemTab) => ECOSYSTEM_TABS.groups[t].filter(shows);
+  const visibleTabs = (Object.keys(TAB_LABELS) as EcosystemTab[])
+    .filter((t) => (t === 'managers' ? shows('managers') : visibleSections(t).length > 0));
+  // In the URL, so a moderation console tab can be linked, bookmarked and
+  // survive a refresh — the queue is a place people send each other to. A link
+  // naming a tab the viewer can't see lands on the first one they can.
+  const { tab, section, select } = useGroupedUrlTab(ECOSYSTEM_TABS, { tabs: visibleTabs, sections: visibleSections });
+
+  if (!isReady || !user) return <LoadingPage />;
+
+  // The held-permission reading the tabs use, handed to the panels for their
+  // READ affordances (`can` is false for these during a read-only
   // impersonation, which may still GET).
-  const holds = (p: Parameters<typeof hasPermission>[1]) => hasPermission(user, p);
   const allowed = canSeeEcosystemConsole(user, holds);
-  // Same rule for the tabs: HELD permissions, so a read-only session still sees
-  // what it may read.
-  const visibleTabs = TABS.filter((t) => isSuperAdmin || t.requires.some((p) => holds(p)));
-  const activeTab: TabId = visibleTabs.some((t) => t.id === tab) ? tab : (visibleTabs[0]?.id ?? 'queue');
+  const items: GroupedTabItem<EcosystemTab, EcosystemSection>[] = visibleTabs.map((t) => ({
+    id: t,
+    label: TAB_LABELS[t],
+    name: TAB_LABELS[t],
+    sections: visibleSections(t).map((id) => ({ id, label: PANELS[id].label })),
+  }));
+  const panel = section ?? tab;
 
   return (
     <DashboardLayout title="Ecosystem" subtitle="Plugin ecosystem governance for the system organization">
@@ -104,29 +118,19 @@ export default function EcosystemConsolePage() {
       ) : aal < 2 ? (
         <EcosystemMfaPrompt user={user} />
       ) : (
-        <>
-          <TabBar
-            items={visibleTabs.map(({ id, label }) => ({ id, label }))}
-            activeId={activeTab}
-            onSelect={(id) => setTab(id as TabId)}
-            idPrefix={TAB_PREFIX}
-            ariaLabel="Ecosystem sections"
-            className="mb-4"
-          />
-          <div {...tabPanelProps(TAB_PREFIX, activeTab)}>
-            {activeTab === 'queue' && <PublishQueuePanel can={can} holds={holds} />}
-            {activeTab === 'publishers' && <PublisherVerificationPanel can={can} holds={holds} />}
-            {activeTab === 'listings' && <ListingStatePanel can={can} />}
-            {activeTab === 'advisories' && <AdvisoriesPanel can={can} />}
-            {activeTab === 'vulnerabilities' && <FleetVulnerabilityPanel />}
-            {activeTab === 'kept-images' && <KeptSetupImagesPanel can={can} />}
-            {activeTab === 'retention' && <RetentionPanel holds={holds} can={can} readOnly={isReadOnly} />}
-            {activeTab === 'reviews' && <ReviewModerationPanel can={can} />}
-            {activeTab === 'rules' && <AutoApprovalRulesPanel can={can} currentUserId={user.id} />}
-            {activeTab === 'reserved' && <ReservedNamesPanel can={can} />}
-            {activeTab === 'managers' && <EcosystemManagersPanel isSuperAdmin={isSuperAdmin} canWrite={!isReadOnly} />}
-          </div>
-        </>
+        <GroupedTabs items={items} tab={tab} section={section} onSelect={select} idPrefix={TAB_PREFIX} ariaLabel="Ecosystem sections">
+          {panel === 'queue' && <PublishQueuePanel can={can} holds={holds} />}
+          {panel === 'publishers' && <PublisherVerificationPanel can={can} holds={holds} />}
+          {panel === 'rules' && <AutoApprovalRulesPanel can={can} currentUserId={user.id} />}
+          {panel === 'listings' && <ListingStatePanel can={can} />}
+          {panel === 'reviews' && <ReviewModerationPanel can={can} />}
+          {panel === 'reserved' && <ReservedNamesPanel can={can} />}
+          {panel === 'advisories' && <AdvisoriesPanel can={can} />}
+          {panel === 'vulnerabilities' && <FleetVulnerabilityPanel />}
+          {panel === 'kept-images' && <KeptSetupImagesPanel can={can} />}
+          {panel === 'retention' && <RetentionPanel holds={holds} can={can} readOnly={isReadOnly} />}
+          {panel === 'managers' && <EcosystemManagersPanel isSuperAdmin={isSuperAdmin} canWrite={!isReadOnly} />}
+        </GroupedTabs>
       )}
     </DashboardLayout>
   );

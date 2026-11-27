@@ -35,6 +35,10 @@ import { buildListSummary } from '@/lib/list-summary';
 import { visitedPluginsKey } from '@/lib/onboarding';
 import { useFavorites } from '@/lib/favorites';
 import { useUrlTab } from '@/hooks/useUrlTab';
+import { useGroupedUrlTab } from '@/hooks/useGroupedUrlTab';
+import { GroupedTabs, type GroupedTabItem } from '@/components/ui/GroupedTabs';
+import { PLUGINS_TABS, resolvePluginsTab, type PluginsSection, type PluginsTab } from '@/lib/page-tabs/plugins';
+import { settleTabLocation, SECTION_KEY } from '@/lib/page-tabs/grouped';
 import { CatalogTab } from '@/components/plugin-installs/CatalogTab';
 import { InstallsTab } from '@/components/plugin-installs/InstallsTab';
 import { ApprovalsTab } from '@/components/plugin-installs/ApprovalsTab';
@@ -60,9 +64,13 @@ const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedP
 /** `fields` for the list request — every rendered column, never the build spec. */
 const LIST_FIELDS = PLUGIN_LIST_FIELDS.join(',');
 
-/** Page tabs (`?tab=`): the org's own plugins, then the ecosystem side. */
-const PAGE_TABS = ['mine', 'catalog', 'installs', 'approvals', 'policy', 'vulnerabilities', 'remediations', 'failed'] as const;
-type PageTab = typeof PAGE_TABS[number];
+/** Sub-tabs of Security, in order. Approvals is an approver's surface (`plugin_installs:manage`). */
+const SECURITY_SECTIONS: readonly { id: PluginsSection; label: string }[] = [
+  { id: 'vulnerabilities', label: 'Vulnerability search' },
+  { id: 'remediations', label: 'Remediations' },
+  { id: 'policy', label: 'Policy' },
+  { id: 'approvals', label: 'Approvals' },
+];
 
 // ─── Page ───────────────────────────────────────────────
 
@@ -91,17 +99,19 @@ export default function PluginsPage() {
   const canInstall = can('plugins:install');
   const canManageInstalls = can('plugin_installs:manage');
   const router = useRouter();
-  const [urlTab, setTab] = useUrlTab<PageTab>('tab', PAGE_TABS, 'mine');
+  // Tabs (`?tab=`, Security's sub-tab in `?section=`), per PLUGINS_TABS.
   // Approvals is an approver's surface; a hand-edited URL can't open it.
-  // Failed builds: the queue routes need plugins:write (and scope a tenant to its own org's jobs).
-  const tab: PageTab = (urlTab === 'approvals' && !canManageInstalls) || (urlTab === 'failed' && !canWrite) ? 'mine' : urlTab;
-  // `useUrlTab` adopts `?tab=` in an effect, so the first render still says
-  // "mine". The own-plugin list (and its URL write-back, which replaces the
-  // whole query) must not start until the URL agrees, or it drops `?tab=`.
-  const queryTab = typeof router.query.tab === 'string' ? router.query.tab : undefined;
+  // Builds: the queue routes need plugins:write (and scope a tenant to its own org's jobs).
+  const tabVisibility = {
+    tabs: (Object.keys(PLUGINS_TABS.groups) as PluginsTab[]).filter((t) => t !== 'builds' || canWrite),
+    sections: (t: PluginsTab) => PLUGINS_TABS.groups[t].filter((sec) => sec !== 'approvals' || canManageInstalls),
+  };
+  const { tab, section, select: selectTab } = useGroupedUrlTab(PLUGINS_TABS, tabVisibility);
+  // The own-plugin list's URL write-back replaces the whole query, so it must
+  // not start unless the URL itself names My plugins — or it drops `?tab=`.
+  const firstOf = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const mineActive = tab === 'mine'
-    && (!queryTab || queryTab === 'mine' || !(PAGE_TABS as readonly string[]).includes(queryTab)
-      || (queryTab === 'approvals' && !canManageInstalls) || (queryTab === 'failed' && !canWrite));
+    && settleTabLocation(PLUGINS_TABS, resolvePluginsTab(firstOf(router.query.tab), firstOf(router.query[SECTION_KEY])), tabVisibility).tab === 'mine';
   // Batch activate/deactivate/delete is a tier-gated feature: the backend
   // attaches `requireFeature('bulk_operations')` to the bulk routes, so without
   // the flag every bulk action 403s. The backend ALSO gates bulk delete/update
@@ -468,7 +478,7 @@ export default function PluginsPage() {
     ? pluginPagePath(viewListing.publisherHandle, viewListing.name)
     : undefined;
   const viewPublishHref = canPublish && viewOwn && !viewListing && viewPlugin.visibility === 'public'
-    ? `/dashboard/publisher?tab=publish&pluginId=${encodeURIComponent(viewPlugin.id)}`
+    ? `/dashboard/publisher?tab=requests&section=publish&pluginId=${encodeURIComponent(viewPlugin.id)}`
     : undefined;
 
   const emptyDescription = canWrite
@@ -505,24 +515,20 @@ export default function PluginsPage() {
           onDone={() => { const { tidyKeep: _k, ...query } = router.query; void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true }); }}
         />
 
-        <TabBar
-          className="mb-4"
+        <GroupedTabs
           ariaLabel="Plugin sections"
           idPrefix="plugins"
           items={[
-            { id: 'mine', label: 'My plugins' },
-            { id: 'catalog', label: 'Catalog' },
-            { id: 'installs', label: 'Installs' },
-            ...(canManageInstalls ? [{ id: 'approvals', label: 'Approvals' }] : []),
-            { id: 'policy', label: 'Policy' },
-            { id: 'vulnerabilities', label: 'Vulnerability search' },
-            { id: 'remediations', label: 'Remediations' },
-            ...(canWrite ? [{ id: 'failed', label: 'Failed builds' }] : []),
-          ]}
-          activeId={tab}
-          onSelect={(id) => setTab(id as PageTab)}
-        />
-
+            { id: 'mine', label: 'My plugins', name: 'My plugins' },
+            { id: 'catalog', label: 'Catalog', name: 'Catalog' },
+            { id: 'installs', label: 'Installs', name: 'Installs' },
+            { id: 'security', label: 'Security', name: 'Security', sections: SECURITY_SECTIONS.filter((x) => x.id !== 'approvals' || canManageInstalls) },
+            ...(canWrite ? [{ id: 'builds' as const, label: 'Builds', name: 'Builds' }] : []),
+          ] satisfies GroupedTabItem<PluginsTab, PluginsSection>[]}
+          tab={tab}
+          section={section}
+          onSelect={selectTab}
+        >
         {tab === 'catalog' && (
           <CatalogTab
             canInstall={canInstall}
@@ -531,10 +537,10 @@ export default function PluginsPage() {
           />
         )}
         {tab === 'installs' && <InstallsTab canInstall={canInstall} usage={pluginUsage} />}
-        {tab === 'approvals' && canManageInstalls && <ApprovalsTab />}
-        {tab === 'policy' && <PolicyTab canManage={canManageInstalls} />}
-        {tab === 'vulnerabilities' && <AdvisorySearchPanel />}
-        {tab === 'remediations' && (
+        {section === 'approvals' && canManageInstalls && <ApprovalsTab />}
+        {section === 'policy' && <PolicyTab canManage={canManageInstalls} />}
+        {section === 'vulnerabilities' && <AdvisorySearchPanel />}
+        {section === 'remediations' && (
           <RemediationsPanel
             canWrite={canWrite}
             isSystemOrg={isSystemOrgActive(user)}
@@ -542,7 +548,7 @@ export default function PluginsPage() {
             onOpenPlugin={openPluginById}
           />
         )}
-        {tab === 'failed' && canWrite && (
+        {tab === 'builds' && canWrite && (
           <OrgFailedBuildsPanel seesEveryOrg={isSystemOrgActive(user) && can('plugin_queue:manage')} />
         )}
 
@@ -697,6 +703,7 @@ export default function PluginsPage() {
         )}
         </>
         )}
+        </GroupedTabs>
       </div>
 
       {createInitialTab && (

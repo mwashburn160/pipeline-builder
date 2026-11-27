@@ -43,10 +43,10 @@ beforeEach(() => { mockEnabled = new Set(); mockSuperAdmin = false; mockLoaded =
 describe('ComplianceContentSets', () => {
   it('shows an upsell for BOTH sets when the org holds neither, routing Advanced to Standard first', () => {
     render(<ComplianceContentSets />);
-    expect(hrefOf(/unlock standard compliance/i)).toBe('/dashboard/billing?highlight=compliance_standard');
+    expect(hrefOf(/unlock standard compliance/i)).toBe('/dashboard/usage?tab=billing&highlight=compliance_standard');
     // Advanced without Standard is billing-rejected, so its CTA points at
     // Standard (not compliance_advanced) while Standard is unheld.
-    expect(hrefOf(/unlock advanced compliance/i)).toBe('/dashboard/billing?highlight=compliance_standard');
+    expect(hrefOf(/unlock advanced compliance/i)).toBe('/dashboard/usage?tab=billing&highlight=compliance_standard');
     // …and the dependency note is shown.
     expect(screen.getByText(/requires the standard compliance library/i)).toBeInTheDocument();
     // Neither is marked as included.
@@ -61,7 +61,7 @@ describe('ComplianceContentSets', () => {
     expect(screen.queryByRole('link', { name: /unlock standard compliance/i })).not.toBeInTheDocument();
     // Standard held → Advanced can be bought alone: CTA targets Advanced and the
     // "requires Standard" note is gone.
-    expect(hrefOf(/unlock advanced compliance/i)).toBe('/dashboard/billing?highlight=compliance_advanced');
+    expect(hrefOf(/unlock advanced compliance/i)).toBe('/dashboard/usage?tab=billing&highlight=compliance_advanced');
     expect(screen.queryByText(/requires the standard compliance library/i)).not.toBeInTheDocument();
   });
 

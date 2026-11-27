@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a53f0a166e4c86bcb3c70e7d9870b9c5a72552238a9cb3fc284d42353c229e8d
+// SOURCE-SHA256: bb16a641c2ec5afaecd695fbebbf1b01854f1585f39ea5f70209a2f959bc3af8
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -810,7 +810,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "GET /api/plugins/retention/plan answers what a pass would do now, and changes nothing. It is a system-org route that needs plugins:moderate and a second factor (aal2), so call it as a member holding the Ecosystem Manager role. It lists the retirable versions, the rule that keeps each kept version, the orgs a retirement would notify, the versions deferred by the per-pass limit, and the bytes it would free. The same report is the Retention tab of the Ecosystem console (/dashboard/admin/ecosystem?tab=retention). Read it before enabling the pass, and again after any large catalog change."
+          "content": "GET /api/plugins/retention/plan answers what a pass would do now, and changes nothing. It is a system-org route that needs plugins:moderate and a second factor (aal2), so call it as a member holding the Ecosystem Manager role. It lists the retirable versions, the rule that keeps each kept version, the orgs a retirement would notify, the versions deferred by the per-pass limit, and the bytes it would free. The same report is the Retention section of the Ecosystem console's Storage tab (/dashboard/admin/ecosystem?tab=storage&section=retention). Read it before enabling the pass, and again after any large catalog change."
         },
         {
           "type": "text",

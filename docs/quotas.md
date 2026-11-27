@@ -122,13 +122,13 @@ X-Quota-Reset: 2026-11-05T00:00:00.000Z
 
 { "success": false, "code": "QUOTA_EXCEEDED", "message": "…",
   "details": { "quotaType": "apiCalls", "limit": 25000, "used": 25000,
-               "resetAt": "2026-11-05T00:00:00.000Z", "upgradeUrl": "/dashboard/billing", "quota": { … } } }
+               "resetAt": "2026-11-05T00:00:00.000Z", "upgradeUrl": "/dashboard/usage?tab=billing", "quota": { … } } }
 ```
 
 `Retry-After` is the time to the period reset, not a back-off hint. A 429 **without** `code: QUOTA_EXCEEDED` is an ordinary rate limit.
 
 - **Dashboard:** a global notice on every page names the quota and links to the upgrade page, whichever service refused.
-- **CLI (`pipeline-manager`):** prints `API call quota reached (25,000/25,000); resets 2026-11-05. Upgrade: https://<platform>/dashboard/billing` and does not suggest retrying. A plain 429 keeps "rate limit exceeded — wait a moment". `synth`, `deploy`, `plugin verify` and `security-report upload` send `X-Pipeline-Id`, so the ledger attributes their calls to the pipeline.
+- **CLI (`pipeline-manager`):** prints `API call quota reached (25,000/25,000); resets 2026-11-05. Upgrade: https://<platform>/dashboard/usage?tab=billing` and does not suggest retrying. A plain 429 keeps "rate limit exceeded — wait a moment". `synth`, `deploy`, `plugin verify` and `security-report upload` send `X-Pipeline-Id`, so the ledger attributes their calls to the pipeline.
 
 ### CPU credits
 
@@ -262,7 +262,7 @@ Enforcement is in the registry, at the moment a token is issued:
 
 1. **Retire plugin versions you no longer need.** A version that any pipeline references cannot be removed — update the pipeline first. Deleting a version frees only the layers *unique to it*, which is why the prune surface shows the bytes each removal would actually recover rather than the version's apparent size.
 2. **Unlist or withdraw a publication** to stop paying for its public bytes.
-3. **Add a Storage Pack** at `/dashboard/billing`, which takes effect within a minute.
+3. **Add a Storage Pack** at `/dashboard/usage?tab=billing`, which takes effect within a minute.
 
 Cancelling a Storage Pack or downgrading a tier is **refused** when it would leave you over the cap — storage cannot shrink on its own, so the alternative is an account that works until its next push.
 

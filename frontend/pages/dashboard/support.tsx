@@ -107,7 +107,7 @@ export default function SupportPage() {
             <Callout variant="info">
               Security reports, billing disputes and account lockouts always reach us, with or without a
               support add-on — send those from{' '}
-              <Link href="/dashboard/messages" className="underline">Messages</Link>.
+              <Link href="/dashboard/inbox?tab=messages" className="underline">Messages</Link>.
             </Callout>
           </>
         ) : (
@@ -168,7 +168,7 @@ export default function SupportPage() {
                     </span>
                   )}
                   <Link
-                    href={`/dashboard/messages?message=${encodeURIComponent(c.threadId)}`}
+                    href={`/dashboard/inbox?tab=messages&message=${encodeURIComponent(c.threadId)}`}
                     className="ml-auto text-info underline"
                   >
                     Open conversation
@@ -224,7 +224,7 @@ function IncidentBalance({ balance, entitled }: { balance: number; entitled: boo
       </span>{' '}
       {entitled
         ? 'It is spent only when a case cannot be opened through your support contacts.'
-        : <>A support message sent from <Link href="/dashboard/messages" className="underline">Messages</Link> opens a case with one, without a support add-on.</>}
+        : <>A support message sent from <Link href="/dashboard/inbox?tab=messages" className="underline">Messages</Link> opens a case with one, without a support add-on.</>}
       {' '}A case opened with an incident has no stated response target.
     </Callout>
   );

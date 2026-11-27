@@ -24,11 +24,9 @@ interface Props {
  * The fleet-wide IdP / SSO roster: every org with an SSO config, which provider,
  * and whether it is on — with a jump to each org's own IdP editor.
  *
- * It used to be its own page at `/dashboard/admin/idp`, reached from an eighth
- * item in the Platform nav section. It is a **tab on All organizations** now, for
- * the reason its own page gave away: the first thing it rendered was a "Back to
- * organizations" link. A per-org attribute is a COLUMN of the org list, not a
- * separate destination, and the nav section is the most crowded in the app.
+ * A **tab on All organizations**: a per-org attribute is a COLUMN of the org
+ * list, not a separate destination, and the nav section is the most crowded in
+ * the app.
  *
  * Per-org CRUD stays on the org-detail page's IdP editor; this is the read-only
  * overview that answers "which orgs have SSO set up, and is it working".

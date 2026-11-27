@@ -381,14 +381,14 @@ describe('POST /portal (billing portal session)', () => {
   it('returns the portal URL, using the request Origin for the return URL', async () => {
     mockSubscriptionFindOne.mockResolvedValue(makeSubscription({ externalCustomerId: 'cus-1' }));
     await handler(mockReq({ headers: { origin: 'https://acme.example' } }), mockRes());
-    expect(mockCreatePortal).toHaveBeenCalledWith('cus-1', 'https://acme.example/dashboard/billing');
+    expect(mockCreatePortal).toHaveBeenCalledWith('cus-1', 'https://acme.example/dashboard/usage?tab=billing');
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { url: 'https://portal.example/session' });
   });
 
   it('falls back to the configured frontend URL when there is no Origin header', async () => {
     mockSubscriptionFindOne.mockResolvedValue(makeSubscription({ externalCustomerId: 'cus-1' }));
     await handler(mockReq({ headers: {} }), mockRes());
-    expect(mockCreatePortal).toHaveBeenCalledWith('cus-1', 'https://app.example/dashboard/billing');
+    expect(mockCreatePortal).toHaveBeenCalledWith('cus-1', 'https://app.example/dashboard/usage?tab=billing');
   });
 });
 

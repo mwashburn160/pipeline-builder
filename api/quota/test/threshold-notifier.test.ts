@@ -120,7 +120,7 @@ describe('notifyThresholds', () => {
     await notifyThresholds({ ...base, used: 80, amount: 1 });
     const [msg, target] = deliver.mock.calls[0] as [{ payload: Record<string, unknown> }, { value: string }];
     expect(target.value).toBe('https://hooks.example.com/q');
-    expect(msg.payload).toMatchObject({ event: 'quota.threshold', orgId: 'root', quotaType: 'apiCalls', threshold: 80, limit: 100, used: 80, upgradeUrl: '/dashboard/billing' });
+    expect(msg.payload).toMatchObject({ event: 'quota.threshold', orgId: 'root', quotaType: 'apiCalls', threshold: 80, limit: 100, used: 80, upgradeUrl: '/dashboard/usage?tab=billing' });
     expect(emitCounter).toHaveBeenCalledWith('quota_threshold_webhooks_total', { type: 'apiCalls', outcome: 'delivered' });
   });
 
@@ -165,7 +165,7 @@ describe('notice text + payload', () => {
   it('names the reset date and where to act', () => {
     const t = thresholdNoticeText({ ...base, used: 80, amount: 1 }, 80);
     expect(t.content).toContain('resets on 2026-11-05');
-    expect(t.content).toContain('/dashboard/billing');
+    expect(t.content).toContain('/dashboard/usage?tab=billing');
     expect(thresholdNoticeText({ ...base, used: 100, amount: 0, resetAt: undefined }, 100).content).toContain('the end of the period');
     expect(thresholdWebhookPayload({ ...base, used: 1, amount: 1, resetAt: undefined }, 80).resetAt).toBeNull();
   });
@@ -179,7 +179,7 @@ describe('threshold email', () => {
       quotaNotice: true,
       orgId: 'root',
       subject: 'API call quota at 80%',
-      text: expect.stringContaining('/dashboard/quotas'),
+      text: expect.stringContaining('/dashboard/usage?tab=quotas'),
     }, expect.objectContaining({ headers: { authorization: 'Bearer quota@root' } }));
     expect(emitCounter).toHaveBeenCalledWith('quota_threshold_emails_total', { type: 'apiCalls', threshold: '80', outcome: 'sent' });
   });

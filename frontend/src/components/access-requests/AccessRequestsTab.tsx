@@ -29,7 +29,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { usePagination } from '@/hooks/usePagination';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
-import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TabbedLayout as DashboardLayout } from '@/components/ui/TabbedPage';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -111,7 +111,7 @@ function ViewPager({ view }: { view: RequestView }) {
   );
 }
 
-export default function AccessRequestsPage() {
+export default function AccessRequestsTab() {
   /**
    * NO `impersonation:approve` GATE HERE, and that is correct — but only
    * because of something invisible from this file.

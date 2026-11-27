@@ -37,8 +37,8 @@ interface PipelinesTabProps {
  * hint (the per-panel empties only appear when the tab has some data).
  */
 export function PipelinesTab({ filters, onStatus }: PipelinesTabProps) {
-  // Sub-tab in the URL too, so `?tab=pipelines&sub=performance` reopens the
-  // exact view (the top-level tab was already linkable; this half wasn't).
+  // Sub-tab in the URL too, so `?tab=overview&section=pipelines&sub=performance`
+  // reopens the exact view.
   const [subTab, setSubTab] = useUrlTab<PipelineSubTab>('sub', PIPELINE_TABS.map((t) => t.id), 'overview');
   // The flake-rate trend is the Advanced Reporting half of the flaky-stage panel;
   // without the entitlement it is never requested (no pointless 403).

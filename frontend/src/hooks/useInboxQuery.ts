@@ -4,7 +4,7 @@
 /**
  * The inbox's tab, filters and search, mirrored into the URL.
  *
- * Every value lives in the query string (`?tab=…&read=…&from=…&q=…`) so a
+ * Every value lives in the query string (`?view=…&read=…&from=…&q=…`) so a
  * filtered inbox can be linked, survives a reload, and Back restores it. The
  * URL is the source of truth on load; after that the hook owns the state and
  * writes it back with a SHALLOW replace (no history entry per keystroke, no
@@ -50,9 +50,14 @@ export const DEFAULT_INBOX_QUERY: InboxQuery = {
   tab: 'all', read: '', priority: '', channel: '', from: '', org: '', removed: false, q: '',
 };
 
-/** Query-string key per field. Short, stable, and distinct from `message`. */
+/** The key the Messages view lives under: Messages is a tab of the Inbox page, which owns `?tab=`. */
+export const MESSAGE_VIEW_KEY = 'view';
+
+/** Query-string key per field. Short, stable, and distinct from `message`.
+ *  The view is `?view=`, not `?tab=`: Messages is a tab of the Inbox page,
+ *  which owns `?tab=`. */
 const KEYS: Record<keyof InboxQuery, string> = {
-  tab: 'tab', read: 'read', priority: 'priority', channel: 'channel', from: 'from', org: 'org', removed: 'removed', q: 'q',
+  tab: MESSAGE_VIEW_KEY, read: 'read', priority: 'priority', channel: 'channel', from: 'from', org: 'org', removed: 'removed', q: 'q',
 };
 
 const TABS: readonly MessageView[] = ['all', 'conversations', 'announcements'];

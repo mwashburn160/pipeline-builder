@@ -43,7 +43,7 @@ interface Props {
 /**
  * Create / edit a custom Role: name, description, and the permission picker.
  *
- * Extracted from `pages/dashboard/roles.tsx`, where it was 82 lines of inline
+ * Extracted from the Roles page (now `src/components/roles/RolesTab.tsx`), where it was 82 lines of inline
  * JSX at the bottom of a 570-line page — below the list, the handlers and the
  * delete modal, so the page's shape was hidden by its biggest leaf. The page
  * still owns the form state; this renders it.

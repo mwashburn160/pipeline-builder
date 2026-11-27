@@ -84,7 +84,7 @@ export function ContactSupportCard({ canMessage }: ContactSupportCardProps) {
       </h2>
       <p className="mt-2 text-xs text-fg-muted">
         {canMessage
-          ? <>Send the <span className="font-medium">{aliasLocalPart(supportAlias)}</span> desk a message. Replies arrive in <Link href="/dashboard/messages" className="action-link">Messages</Link>.</>
+          ? <>Send the <span className="font-medium">{aliasLocalPart(supportAlias)}</span> desk a message. Replies arrive in <Link href="/dashboard/inbox?tab=messages" className="action-link">Messages</Link>.</>
           : <>Your account can&apos;t send messages. Ask an administrator of your organization to grant <code className="text-2xs">messages:read</code>, or to contact support for you.</>}
       </p>
       {canMessage && (
@@ -94,7 +94,7 @@ export function ContactSupportCard({ canMessage }: ContactSupportCardProps) {
       )}
       {sent && (
         <p className="mt-2 text-xs text-success" data-testid="help-support-sent">
-          Message sent — the reply arrives in <Link href="/dashboard/messages" className="action-link">Messages</Link>.
+          Message sent — the reply arrives in <Link href="/dashboard/inbox?tab=messages" className="action-link">Messages</Link>.
         </p>
       )}
 

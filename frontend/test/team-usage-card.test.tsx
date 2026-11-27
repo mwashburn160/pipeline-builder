@@ -37,7 +37,7 @@ describe('TeamUsageCard', () => {
     render(<TeamUsageCard />);
     // The shared lock (not hand-written price copy), linking to the billing add-on.
     expect(await screen.findByTestId('feature-lock-team_usage_analytics')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /see it in billing/i })).toHaveAttribute('href', '/dashboard/billing?highlight=team_usage_analytics');
+    expect(screen.getByRole('link', { name: /see it in billing/i })).toHaveAttribute('href', '/dashboard/usage?tab=billing&highlight=team_usage_analytics');
     expect(getTeamUsage).not.toHaveBeenCalled();
   });
 

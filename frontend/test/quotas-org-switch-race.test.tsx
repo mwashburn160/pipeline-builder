@@ -11,7 +11,7 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
-import QuotasPage from '../pages/dashboard/quotas';
+import QuotasPage from '../src/components/quotas/QuotasTab';
 import api from '@/lib/api';
 
 const authGuard = {

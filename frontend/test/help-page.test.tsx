@@ -145,6 +145,13 @@ describe('Help page — what\'s new', () => {
   });
 });
 
+describe('what\'s new links', () => {
+  it('point at canonical tab keys, not the pre-regroup ones', () => {
+    expect(WHATS_NEW.find((e) => e.title.startsWith('Plugin runs report'))?.href).toBe('/dashboard/reports?tab=overview&section=plugins&sub=runs');
+    for (const e of WHATS_NEW) expect(e.href).not.toMatch(/reports\?tab=plugins|plugins\?tab=(remediations|vulnerabilities)|ecosystem\?tab=retention/);
+  });
+});
+
 describe('Help page — URL sync', () => {
   it('keeps a `?q=` deep link instead of stripping it on load', async () => {
     mockRouter.query = { q: 'compliance' };

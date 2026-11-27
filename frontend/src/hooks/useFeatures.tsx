@@ -18,7 +18,7 @@ interface FeaturesContextType {
    *  Surfaced here (rather than each consumer re-deriving it from `useAuth`)
    *  so an entitlement verdict is one hook call — see `useFeatureGate`. */
   isSuperAdmin: boolean;
-  /** The viewer can actually OPEN `/dashboard/billing` — they hold `billing:read`
+  /** The viewer can actually OPEN `/dashboard/usage?tab=billing` — they hold `billing:read`
    *  AND the billing service runs in this deployment. Surfaced next to the
    *  entitlement verdict for the same reason `isSuperAdmin` is: a lock has to
    *  decide between the billing deep link and "ask an owner" in one hook call,

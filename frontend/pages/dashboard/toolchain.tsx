@@ -4,7 +4,8 @@
 /**
  * The system org's Toolchain console (docs/permissions.md, `toolchain:operate`): the managed toolchain releases (the `pipeline-bootstrap`
  * build image and the `cdk-synth` step, one release), their canary, adoption,
- * stranded pipelines, the platform-default history and cleanup.
+ * stranded pipelines, the platform-default history and cleanup. The three
+ * per-release views (canary, adoption, affected) share the Rollout tab.
  *
  * The Releases tab also carries the "Toolchain fixes" card (nightly toolchain
  * fixes: propose-only release candidates), whose own gate is the system org
@@ -23,13 +24,13 @@ import { useState } from 'react';
 import { Wrench } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
-import { useUrlTab } from '@/hooks/useUrlTab';
+import { useGroupedUrlTab } from '@/hooks/useGroupedUrlTab';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { RetryError } from '@/components/ui/RetryError';
-import { TabBar, tabPanelProps } from '@/components/ui/TabBar';
+import { GroupedTabs, type GroupedTabItem } from '@/components/ui/GroupedTabs';
 import { ReleaseSelect } from '@/components/toolchain/ReleaseSelect';
 import { ToolchainAdoptionPanel } from '@/components/toolchain/ToolchainAdoptionPanel';
 import { ToolchainAffectedPanel } from '@/components/toolchain/ToolchainAffectedPanel';
@@ -42,24 +43,30 @@ import { isSystemOrgActive } from '@/lib/ecosystem-access';
 import api from '@/lib/api';
 import { hasPermission } from '@/lib/auth-helpers';
 import { formatError } from '@/lib/constants';
+import { TOOLCHAIN_TABS, type ToolchainSection, type ToolchainTab } from '@/lib/page-tabs/toolchain';
 
-const TABS = [
-  { id: 'releases', label: 'Releases' },
-  { id: 'canary', label: 'Canary' },
-  { id: 'adoption', label: 'Adoption' },
-  { id: 'affected', label: 'Affected' },
-  { id: 'history', label: 'History' },
-  { id: 'cleanup', label: 'Cleanup' },
-] as const;
-type TabId = (typeof TABS)[number]['id'];
-const TAB_IDS = TABS.map((t) => t.id);
+/** Rollout holds the three views of ONE release (they share the release picker). */
+const TABS: readonly GroupedTabItem<ToolchainTab, ToolchainSection>[] = [
+  { id: 'releases', label: 'Releases', name: 'Releases' },
+  {
+    id: 'rollout',
+    label: 'Rollout',
+    name: 'Rollout',
+    sections: [
+      { id: 'canary', label: 'Canary' },
+      { id: 'adoption', label: 'Adoption' },
+      { id: 'affected', label: 'Affected' },
+    ],
+  },
+  { id: 'history', label: 'History', name: 'History' },
+  { id: 'cleanup', label: 'Cleanup', name: 'Cleanup' },
+];
 const TAB_PREFIX = 'toolchain';
-/** Tabs that look at one release (and show the release picker). */
-const PER_RELEASE: readonly TabId[] = ['canary', 'adoption', 'affected'];
 
 export default function ToolchainConsolePage() {
   const { accessDenied, user, isReady, isReadOnly, can } = useAuthGuard();
-  const [tab, setTab] = useUrlTab<TabId>('tab', TAB_IDS, 'releases');
+  // `?tab=` and, for Rollout, `?section=` (TOOLCHAIN_TABS).
+  const { tab, section, select } = useGroupedUrlTab(TOOLCHAIN_TABS);
   const [picked, setPicked] = useState<string | null>(null);
 
   const allowed = isReady && isSystemOrgActive(user);
@@ -83,7 +90,7 @@ export default function ToolchainConsolePage() {
   const selected = picked ?? view?.releases.find((r) => r.status === 'canary')?.releaseVersion ?? view?.releases[0]?.releaseVersion ?? null;
   const selectedRelease = view?.releases.find((r) => r.releaseVersion === selected) ?? null;
 
-  const openCanary = (v: string) => { setPicked(v); setTab('canary'); };
+  const openCanary = (v: string) => { setPicked(v); select('rollout', 'canary'); };
 
   return (
     <DashboardLayout title="Toolchain" subtitle="Managed pipeline toolchain releases, canary and the platform default">
@@ -98,17 +105,9 @@ export default function ToolchainConsolePage() {
           ? <RetryError message={formatError(releases.error, 'Could not load toolchain releases')} onRetry={releases.refetch} />
           : <div className="flex items-center gap-2 py-6 text-sm text-fg-muted"><LoadingSpinner size="sm" /> Loading…</div>
       ) : (
-        <>
-          <TabBar
-            items={TABS.map(({ id, label }) => ({ id, label }))}
-            activeId={tab}
-            onSelect={(id) => setTab(id as TabId)}
-            idPrefix={TAB_PREFIX}
-            ariaLabel="Toolchain sections"
-            className="mb-4"
-          />
-          <div {...tabPanelProps(TAB_PREFIX, tab)} className="space-y-4">
-            {PER_RELEASE.includes(tab) && view.releases.length > 0 && selected && (
+        <GroupedTabs items={TABS} tab={tab} section={section} onSelect={select} idPrefix={TAB_PREFIX} ariaLabel="Toolchain sections">
+          <div className="space-y-4">
+            {tab === 'rollout' && view.releases.length > 0 && selected && (
               <ReleaseSelect releases={view.releases} value={selected} onChange={setPicked} />
             )}
             {tab === 'releases' && (
@@ -117,16 +116,16 @@ export default function ToolchainConsolePage() {
             {tab === 'releases' && (
               <ToolchainReleasesPanel view={view} canWrite={canWrite} onChanged={releases.refetch} onOpenCanary={openCanary} />
             )}
-            {PER_RELEASE.includes(tab) && !selectedRelease && <p className="text-sm text-fg-muted">No toolchain releases yet.</p>}
-            {tab === 'canary' && selectedRelease && (
+            {tab === 'rollout' && !selectedRelease && <p className="text-sm text-fg-muted">No toolchain releases yet.</p>}
+            {section === 'canary' && selectedRelease && (
               <ToolchainCanaryPanel key={selectedRelease.releaseVersion} release={selectedRelease} canWrite={canWrite} onChanged={releases.refetch} />
             )}
-            {tab === 'adoption' && selectedRelease && <ToolchainAdoptionPanel releaseVersion={selectedRelease.releaseVersion} />}
-            {tab === 'affected' && selectedRelease && <ToolchainAffectedPanel releaseVersion={selectedRelease.releaseVersion} canWrite={canWrite} />}
+            {section === 'adoption' && selectedRelease && <ToolchainAdoptionPanel releaseVersion={selectedRelease.releaseVersion} />}
+            {section === 'affected' && selectedRelease && <ToolchainAffectedPanel releaseVersion={selectedRelease.releaseVersion} canWrite={canWrite} />}
             {tab === 'history' && <ToolchainHistoryPanel platformDefault={view.platformDefault} canWrite={canWrite} onChanged={releases.refetch} />}
             {tab === 'cleanup' && <ToolchainCleanupPanel canWrite={canWrite} onChanged={releases.refetch} />}
           </div>
-        </>
+        </GroupedTabs>
       )}
     </DashboardLayout>
   );

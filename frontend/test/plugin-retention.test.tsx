@@ -269,8 +269,9 @@ describe('RetentionPanel', () => {
 });
 
 describe('Retention nav entry', () => {
-  it('is a system-org palette entry gated on plugins:moderate', () => {
-    const item = NAV_SECTIONS.flatMap((s) => s.items).find((i) => i.href === '/dashboard/admin/ecosystem?tab=retention');
-    expect(item).toMatchObject({ requiredPermission: 'plugins:moderate', systemOrgOnly: true, paletteOnly: true });
+  it('is a system-org Platform → Catalog row gated on plugins:moderate', () => {
+    const item = NAV_SECTIONS.flatMap((s) => s.items).find((i) => i.href === '/dashboard/admin/ecosystem?tab=storage&section=retention');
+    expect(item).toMatchObject({ requiredPermission: 'plugins:moderate', systemOrgOnly: true, group: 'Catalog' });
+    expect(item?.paletteOnly).toBeUndefined();
   });
 });

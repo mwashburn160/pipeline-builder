@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugins dashboard: My plugins / Catalog / Installs / Approvals / Policy
- * tabs, Approvals only for `plugin_installs:manage`, and the shadowing flag on
- * an own plugin whose name shadows an Official listing.
+ * Plugins dashboard: My plugins / Catalog / Installs / Security / Builds tabs
+ * (Security holding Vulnerability search, Remediations, Policy and Approvals),
+ * Approvals only for `plugin_installs:manage`, Builds only for `plugins:write`,
+ * `?tab=` / `?section=` deep links, and the shadowing flag on an
+ * own plugin whose name shadows an Official listing.
  */
 import { it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import { POLICY } from './helpers/pluginInstallFixtures';
 
@@ -72,10 +74,26 @@ it('flags an own plugin that shadows an Official listing', async () => {
   expect(await screen.findByTestId('shadowing-notice')).toBeInTheDocument();
 });
 
+it('has five tabs, with Security holding four sub-tabs', async () => {
+  mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => ['plugins:read', 'plugins:write', 'plugin_installs:manage'].includes(p) });
+  render(<PluginsPage />);
+  const bar = screen.getByRole('tablist', { name: 'Plugin sections' });
+  expect(within(bar).getAllByRole('tab').map((t) => t.textContent)).toEqual(['My plugins', 'Catalog', 'Installs', 'Security', 'Builds']);
+  expect(screen.queryByRole('tab', { name: 'Policy' })).toBeNull();
+  fireEvent.click(screen.getByRole('tab', { name: 'Security' }));
+  const subs = within(screen.getByRole('tablist', { name: 'Security sections' })).getAllByRole('tab');
+  expect(subs.map((t) => t.textContent)).toEqual(['Vulnerability search', 'Remediations', 'Policy', 'Approvals']);
+  expect(mockRouter.replace).toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ tab: 'security' }) }), undefined, { shallow: true });
+  fireEvent.click(screen.getByRole('tab', { name: 'Policy' }));
+  expect(mockRouter.replace).toHaveBeenLastCalledWith(expect.objectContaining({ query: expect.objectContaining({ tab: 'security', section: 'policy' }) }), undefined, { shallow: true });
+  expect(await screen.findByTestId('policy-tab')).toBeInTheDocument();
+});
+
 it('shows Approvals only with plugin_installs:manage, and switches tabs through the URL', async () => {
   mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => p === 'plugins:read' });
+  mockRouter.query = { tab: 'security', section: 'policy' };
   const { unmount } = render(<PluginsPage />);
-  expect(screen.getByRole('tab', { name: 'Catalog' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Policy' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.queryByRole('tab', { name: 'Approvals' })).toBeNull();
   fireEvent.click(screen.getByRole('tab', { name: 'Catalog' }));
   expect(mockRouter.replace).toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ tab: 'catalog' }) }), undefined, { shallow: true });
@@ -83,8 +101,10 @@ it('shows Approvals only with plugin_installs:manage, and switches tabs through 
   api.listPlugins.mockClear();
 
   mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => ['plugins:read', 'plugin_installs:manage'].includes(p) });
-  mockRouter.query = { tab: 'policy' };
+  mockRouter.query = { tab: 'security', section: 'policy' };
   render(<PluginsPage />);
+  expect(screen.getByRole('tab', { name: 'Security' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('tab', { name: 'Policy' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tab', { name: 'Approvals' })).toBeInTheDocument();
   expect(await screen.findByTestId('policy-tab')).toBeInTheDocument();
   // The own-plugin list isn't fetched while another tab is open.
@@ -92,11 +112,20 @@ it('shows Approvals only with plugin_installs:manage, and switches tabs through 
   expect(api.listPlugins).not.toHaveBeenCalled();
 });
 
-it('shows Failed builds only with plugins:write, and a hand-edited ?tab=failed without it lands on My plugins', async () => {
+it('?section=approvals without plugin_installs:manage opens the first Security sub-tab, not Approvals', () => {
   mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => p === 'plugins:read' });
-  mockRouter.query = { tab: 'failed' };
+  mockRouter.query = { tab: 'security', section: 'approvals' };
+  render(<PluginsPage />);
+  expect(screen.getByRole('tab', { name: 'Security' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('tab', { name: 'Vulnerability search' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.queryByTestId('approvals-tab')).toBeNull();
+});
+
+it('shows Builds only with plugins:write, and ?tab=builds without it lands on My plugins', async () => {
+  mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => p === 'plugins:read' });
+  mockRouter.query = { tab: 'builds' };
   const { unmount } = render(<PluginsPage />);
-  expect(screen.queryByRole('tab', { name: 'Failed builds' })).toBeNull();
+  expect(screen.queryByRole('tab', { name: 'Builds' })).toBeNull();
   expect(screen.queryByTestId('org-failed-builds')).toBeNull();
   await waitFor(() => expect(api.listPlugins).toHaveBeenCalled());
   expect(api.getQueueFailed).not.toHaveBeenCalled();
@@ -104,7 +133,7 @@ it('shows Failed builds only with plugins:write, and a hand-edited ?tab=failed w
 
   mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => ['plugins:read', 'plugins:write'].includes(p) });
   render(<PluginsPage />);
-  expect(screen.getByRole('tab', { name: 'Failed builds' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Builds' })).toHaveAttribute('aria-selected', 'true');
   expect(await screen.findByTestId('org-failed-builds')).toHaveTextContent("your organization's");
   await waitFor(() => expect(api.getQueueFailed).toHaveBeenCalled());
   expect(api.getQueueDlq).toHaveBeenCalled();
@@ -142,7 +171,7 @@ it('a version not yet listed offers "Publish to ecosystem"', async () => {
   render(<PluginsPage />);
   const rows = await screen.findAllByRole('button', { name: 'acr-push' });
   fireEvent.click(rows[1]);
-  expect(await screen.findByRole('link', { name: /Publish to ecosystem/ })).toHaveAttribute('href', '/dashboard/publisher?tab=publish&pluginId=a2');
+  expect(await screen.findByRole('link', { name: /Publish to ecosystem/ })).toHaveAttribute('href', '/dashboard/publisher?tab=requests&section=publish&pluginId=a2');
   expect(screen.queryByRole('link', { name: /View public page/ })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: /close/i }));
   fireEvent.click(rows[0]);

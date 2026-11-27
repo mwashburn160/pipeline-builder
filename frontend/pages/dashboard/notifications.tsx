@@ -38,10 +38,10 @@ type EcosystemPrefKey = keyof NotificationPrefs['ecosystem'];
  * and each lands where its follow-up happens.
  */
 export const REMEDIATION_NOTICES: { code: string; label: string; href: string; where: string }[] = [
-  { code: 'N36', label: 'A fixed version was published, or is awaiting approval', href: '/dashboard/plugins?tab=remediations', where: 'Remediations' },
-  { code: 'N37', label: 'A rollout of a fix finished or paused', href: '/dashboard/plugins?tab=remediations', where: 'Remediations' },
+  { code: 'N36', label: 'A fixed version was published, or is awaiting approval', href: '/dashboard/plugins?tab=security&section=remediations', where: 'Remediations' },
+  { code: 'N37', label: 'A rollout of a fix finished or paused', href: '/dashboard/plugins?tab=security&section=remediations', where: 'Remediations' },
   { code: 'N38', label: 'A pipeline was moved back after a failed run', href: '/dashboard/pipelines', where: 'Pipelines' },
-  { code: 'N39', label: 'Findings remediation could not fix were sent to the plugin owner', href: '/dashboard/plugins?tab=remediations', where: 'Remediations' },
+  { code: 'N39', label: 'Findings remediation could not fix were sent to the plugin owner', href: '/dashboard/plugins?tab=security&section=remediations', where: 'Remediations' },
   { code: 'N40', label: 'A fix request was sent to a listed plugin\'s publisher (installers are told)', href: '/dashboard/publisher', where: 'Publisher' },
   { code: 'N41', label: 'Unused plugin versions will be deactivated by automatic tidying (Keep to stop it)', href: '/dashboard/plugins', where: 'Plugins' },
 ];

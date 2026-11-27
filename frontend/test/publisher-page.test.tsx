@@ -124,6 +124,32 @@ beforeEach(() => {
 
 const tab = (name: RegExp) => fireEvent.click(screen.getByRole('tab', { name }));
 
+describe('Publisher page — tabs', () => {
+  it('has four tabs, three of them holding sub-tabs', async () => {
+    render(<PublisherPage />);
+    const bar = await screen.findByRole('tablist', { name: 'Publisher sections' });
+    expect(within(bar).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Profile', 'Listings', 'Requests', 'Security']);
+    tab(/^listings$/i);
+    expect(screen.getByRole('tab', { name: 'Manage' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Insights' })).toBeInTheDocument();
+    tab(/^security$/i);
+    expect(screen.getByRole('tab', { name: 'Advisories' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Fix requests' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['requests', 'publish', 'Requests', 'New request'],
+    ['requests', 'requests', 'Requests', 'All requests'],
+    ['listings', 'insights', 'Listings', 'Insights'],
+    ['security', 'fixes', 'Security', 'Fix requests'],
+  ])('?tab=%s&section=%s opens %s, on %s', async (tabKey, section, top, sub) => {
+    routerQuery = { tab: tabKey, section };
+    render(<PublisherPage />);
+    expect(await screen.findByRole('tab', { name: top })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: sub })).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
 describe('Publisher page — profile states', () => {
   it('renders the access denial', async () => {
     mockAuthGuard({ accessDenied: { kind: 'permission', permission: 'plugins:read', pathname: '/dashboard/publisher' }, isReady: false });
@@ -279,7 +305,7 @@ describe('Publisher page — listings', () => {
 
 describe('Publisher page — publish and requests', () => {
   it('offers only the org’s own public plugin versions', async () => {
-    routerQuery = { tab: 'publish' };
+    routerQuery = { tab: 'requests', section: 'publish' };
     render(<PublisherPage />);
     const select = await screen.findByLabelText(/plugin version/i);
     await waitFor(() => expect(within(select).getByRole('option', { name: 'eslint v1.1.0' })).toBeInTheDocument());
@@ -288,7 +314,7 @@ describe('Publisher page — publish and requests', () => {
   });
 
   it('asks the server for the org\'s public versions by name, and says when the page is truncated', async () => {
-    routerQuery = { tab: 'publish' };
+    routerQuery = { tab: 'requests', section: 'publish' };
     api.listPlugins.mockResolvedValue({ success: true, data: {
       plugins: [{ id: 'p1', orgId: 'org-1', name: 'eslint', version: '1.1.0', visibility: 'public' }],
       pagination: { total: 120, limit: 50, offset: 0, hasMore: true },
@@ -303,14 +329,14 @@ describe('Publisher page — publish and requests', () => {
   });
 
   it('the Fix requests tab points at the notices fix requests arrive as (no stored list exists)', async () => {
-    routerQuery = { tab: 'fixes' };
+    routerQuery = { tab: 'security', section: 'fixes' };
     render(<PublisherPage />);
     expect(await screen.findByTestId('fix-requests-notice')).toHaveTextContent(/arrive as notices/);
-    expect(screen.getByRole('link', { name: /open your notices/i })).toHaveAttribute('href', '/dashboard/messages');
+    expect(screen.getByRole('link', { name: /open your notices/i })).toHaveAttribute('href', '/dashboard/inbox?tab=messages');
   });
 
   it('the Fix requests tab does not promise High findings (CVE fixes target Critical by default)', async () => {
-    routerQuery = { tab: 'fixes' };
+    routerQuery = { tab: 'security', section: 'fixes' };
     render(<PublisherPage />);
     await screen.findByTestId('fix-requests-notice');
     expect(screen.queryByText(/Fixable Critical and High findings/)).not.toBeInTheDocument();
@@ -319,7 +345,7 @@ describe('Publisher page — publish and requests', () => {
   });
 
   it('the Advisories tab asks for plugins:read rather than failing on it', async () => {
-    routerQuery = { tab: 'advisories' };
+    routerQuery = { tab: 'security', section: 'advisories' };
     mockAuthGuard({ can: (p) => p === 'publishers:manage' });
     render(<PublisherPage />);
     expect(await screen.findByText(/needs the plugins:read permission/i)).toBeInTheDocument();
@@ -327,14 +353,14 @@ describe('Publisher page — publish and requests', () => {
   });
 
   it('a deep link opens the draft for that plugin', async () => {
-    routerQuery = { tab: 'publish', pluginId: 'p1' };
+    routerQuery = { tab: 'requests', section: 'publish', pluginId: 'p1' };
     api.getPublishDraft.mockReturnValue(new Promise(() => {}));
     render(<PublisherPage />);
     await waitFor(() => expect(api.getPublishDraft).toHaveBeenCalledWith('p1', expect.anything()));
   });
 
   it('asks for the terms before the publish form', async () => {
-    routerQuery = { tab: 'publish' };
+    routerQuery = { tab: 'requests', section: 'publish' };
     api.getPublisher.mockResolvedValue({ success: true, data: ctx({ terms: { currentVersion: '2026-09', accepted: false } }) });
     render(<PublisherPage />);
     expect(await screen.findByText(/accept the current publisher terms on the profile tab/i)).toBeInTheDocument();
@@ -407,6 +433,7 @@ describe('Publisher page — insights', () => {
     } });
     render(<PublisherPage />);
     await screen.findByText('Acme Corp');
+    tab(/^listings$/i);
     tab(/insights/i);
     const row = (await screen.findByText('eslint')).closest('tr')!;
     expect(within(row).getByText('<5')).toBeInTheDocument();
@@ -430,6 +457,7 @@ describe('Publisher page — insights', () => {
     api.getPublisherInsights.mockResolvedValue({ success: true, data: { publisher: null, listings: [] } });
     render(<PublisherPage />);
     await screen.findByText('Acme Corp');
+    tab(/^listings$/i);
     tab(/insights/i);
     expect(await screen.findByText('No listings yet')).toBeInTheDocument();
   });

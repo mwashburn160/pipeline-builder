@@ -134,7 +134,7 @@ function resetDateLabel(resetAt: string | undefined): string | undefined {
 /**
  * The human sentence for a quota refusal: what ran out, when it comes back and
  * where to raise it — "API call quota reached (25000/25000); resets 2026-11-05.
- * Upgrade at /dashboard/billing." It says WHICH quota and gives a date, because
+ * Upgrade at /dashboard/usage?tab=billing." It says WHICH quota and gives a date, because
  * "contact your administrator" sent people hunting for a person when the answer
  * was a page.
  */

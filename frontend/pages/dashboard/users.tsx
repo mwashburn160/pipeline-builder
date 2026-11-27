@@ -481,7 +481,7 @@ export default function UsersPage() {
       <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
       {waitingNotice && (
         <InfoAlert
-          message={<>{waitingNotice} Once it&apos;s approved, open it from <Link href="/dashboard/access-requests" className="action-link">Access requests</Link>.</>}
+          message={<>{waitingNotice} Once it&apos;s approved, open it from <Link href="/dashboard/inbox?tab=access-requests" className="action-link">Access requests</Link>.</>}
           onDismiss={() => setWaitingNotice(null)}
         />
       )}

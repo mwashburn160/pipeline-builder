@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState } from 'react';
-import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TabbedLayout as DashboardLayout } from '@/components/ui/TabbedPage';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';

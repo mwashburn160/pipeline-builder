@@ -3,7 +3,7 @@
 
 /**
  * Tests QuotasReadOnly's point-of-friction → upgrade-path wiring. The footer
- * should route a billing-capable viewer to /dashboard/billing to raise limits,
+ * should route a billing-capable viewer to the billing tab to raise limits,
  * while a viewer who can't act on billing keeps the "contact a sysadmin" copy,
  * and a team defers to the parent org.
  */
@@ -22,7 +22,7 @@ describe('QuotasReadOnly — upgrade path', () => {
   it('shows an "Upgrade your plan" link to billing when the viewer can manage billing', () => {
     render(<QuotasReadOnly {...baseProps} canManageBilling={true} />);
     const link = screen.getByRole('link', { name: /upgrade your plan/i });
-    expect(link).toHaveAttribute('href', '/dashboard/billing');
+    expect(link).toHaveAttribute('href', '/dashboard/usage?tab=billing');
     expect(screen.queryByText(/contact a system administrator/i)).not.toBeInTheDocument();
   });
 

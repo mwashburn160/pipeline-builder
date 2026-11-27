@@ -481,7 +481,7 @@ describe('AddonGrid — unmet prerequisites', () => {
   it('points at the Plans tab when nothing on sale provides the prerequisite', () => {
     render(<AddonGrid {...baseProps} bundles={[historyPack]} />);
     const link = screen.getByRole('link', { name: /Upgrade your plan/ });
-    expect(link.getAttribute('href')).toContain('tab=plans');
+    expect(link.getAttribute('href')).toContain('tab=billing&section=plans');
   });
 
   it('keeps a HELD pack manageable even if its prerequisite is unmet (so it can be removed)', () => {

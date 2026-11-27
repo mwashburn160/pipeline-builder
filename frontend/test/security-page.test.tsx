@@ -315,8 +315,10 @@ describe('the nav says what is there', () => {
   it('names Security, instead of hiding factors behind "Profile"', () => {
     const security = items.find((i) => i.href === '/dashboard/security');
     expect(security?.title).toBe('Security');
-    // The settings entry covers profile AND organization, and says so.
-    expect(items.find((i) => i.href === '/dashboard/settings')?.title).toBe('Profile & organization');
+    // The settings page's two tabs are named for what they hold: Profile in the
+    // avatar menu, Org settings in the sidebar.
+    expect(items.find((i) => i.href === '/dashboard/settings?tab=profile')?.title).toBe('Profile');
+    expect(items.find((i) => i.href === '/dashboard/settings?tab=organization')?.title).toBe('Org settings');
   });
 
   it('is visible to an ordinary member — everyone has credentials', () => {

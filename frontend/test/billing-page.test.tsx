@@ -7,14 +7,14 @@
  *    page or drop an open dialog.
  *  - Reloading after a change refreshes in place — the page is not swapped for
  *    a full-screen spinner (which unmounts open dialogs and the tab bar).
- *  - `?highlight=<feature>` with no tab lands on the Add-ons tab.
+ *  - `?highlight=<feature>` with no section lands on the Add-ons section.
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { mockAuthGuard } from './helpers/pageMocks';
-import BillingPage from '../pages/dashboard/billing';
+import { mockAuthGuard, pageToast } from './helpers/pageMocks';
+import BillingPage from '../src/components/billing/BillingTab';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
@@ -22,7 +22,7 @@ jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastMod
 
 const mockRouter = {
   query: {} as Record<string, string>,
-  pathname: '/dashboard/billing',
+  pathname: '/dashboard/usage',
   isReady: true,
   replace: jest.fn<AnyFn>((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
   push: jest.fn<AnyFn>(),
@@ -117,7 +117,7 @@ describe('BillingPage', () => {
   });
 
   it('keeps an open dialog and does not reload when the profile refreshes unchanged', async () => {
-    mockRouter.query = { tab: 'plans' };
+    mockRouter.query = { tab: 'billing', section: 'plans' };
     const authGuard = mockAuthGuard({ isAdmin: true, user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
     const { rerender } = render(<BillingPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Choose Pro' }));
@@ -133,7 +133,7 @@ describe('BillingPage', () => {
   });
 
   it('reloads in place after a change instead of swapping in a full-page spinner', async () => {
-    mockRouter.query = { tab: 'plans' };
+    mockRouter.query = { tab: 'billing', section: 'plans' };
     render(<BillingPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Choose Pro' }));
 
@@ -182,8 +182,24 @@ describe('BillingPage', () => {
     await waitFor(() => expect(getBillingUsage).toHaveBeenCalledTimes(2));
   });
 
+  it('handles a Checkout return on the Usage & billing URL: toasts, polls, and clears only ?checkout=', async () => {
+    // What the billing service now builds: `/dashboard/usage?tab=billing&checkout=success`.
+    mockRouter.query = { tab: 'billing', checkout: 'success' };
+    render(<BillingPage />);
+    await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith('Checkout complete — activating your subscription…'));
+    expect(mockRouter.replace).toHaveBeenCalledWith({ query: { tab: 'billing' } }, undefined, { shallow: true });
+    await waitFor(() => expect(getSubscription.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it('handles a cancelled Checkout return on the Usage & billing URL', async () => {
+    mockRouter.query = { tab: 'billing', checkout: 'cancelled' };
+    render(<BillingPage />);
+    await waitFor(() => expect(pageToast.info).toHaveBeenCalledWith('Checkout cancelled — no changes were made.'));
+    expect(mockRouter.replace).toHaveBeenCalledWith({ query: { tab: 'billing' } }, undefined, { shallow: true });
+  });
+
   it('shows a retryable error when the add-on catalog fails to load', async () => {
-    mockRouter.query = { tab: 'addons' };
+    mockRouter.query = { tab: 'billing', section: 'addons' };
     getBundles.mockRejectedValueOnce(new Error('bundles down'));
     render(<BillingPage />);
     expect(await screen.findByText(/couldn't load the add-on catalog/i)).toBeInTheDocument();

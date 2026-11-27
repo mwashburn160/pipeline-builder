@@ -16,7 +16,7 @@ import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 import type { OrganizationMember } from '@/types';
-import MembersPage from '../pages/dashboard/members';
+import MembersPage from '../src/components/members/MembersTab';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());

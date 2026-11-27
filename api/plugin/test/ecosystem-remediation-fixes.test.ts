@@ -405,7 +405,7 @@ describe('remediation notices N36–N39', () => {
     expect(content.subject).toBe('Fix ready for approval: lint 1.4.3 clears 1 finding in lint@1.4.2');
     expect(content.text).toContain('drafted by the Ask agent');
     expect(content.text).toContain('- openssl 3.0.1 → 3.0.2 [rebuild]: CVE-1');
-    expect(content.text).toContain('https://pb.example.com/dashboard/plugins?tab=remediations&remediation=11111111-1111-4111-8111-111111111111');
+    expect(content.text).toContain('https://pb.example.com/dashboard/plugins?tab=security&section=remediations&remediation=11111111-1111-4111-8111-111111111111');
     expect(opts).toEqual({ deliverAfter: expect.any(Date), digestKey: `N36:${ORG}` });
 
     // The same stage again: nothing; once published: a second notice, published wording.

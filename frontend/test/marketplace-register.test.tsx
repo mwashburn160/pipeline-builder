@@ -158,7 +158,7 @@ describe('MarketplaceRegisterPage', () => {
     expect(readMarketplaceRef()).toEqual({ registrationRef: 'ref-1', planName: 'Pro' });
     fireEvent.click(screen.getByRole('button', { name: 'Link to Acme' }));
     await waitFor(() => expect(apiFn('claimMarketplaceRegistration')).toHaveBeenCalledWith('ref-1'));
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/dashboard/billing'));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/dashboard/usage?tab=billing'));
     expect(pageToast.success).toHaveBeenCalledWith('AWS Marketplace subscription linked');
     expect(readMarketplaceRef()).toBeNull();
   });

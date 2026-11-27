@@ -11,7 +11,7 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import RolesPage from '../pages/dashboard/roles';
+import RolesPage from '../src/components/roles/RolesTab';
 import { mockAuthGuard } from './helpers/pageMocks';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());

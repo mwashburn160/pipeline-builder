@@ -275,7 +275,7 @@ export function DoraUpsell() {
             Track deployment frequency, change failure rate, median time to restore and measured lead time,
             each rated against elite/high/medium/low performance bands. {meta.description}.
           </p>
-          <LinkButton href="/dashboard/billing?highlight=advanced_reporting" size="sm" className="mt-1">
+          <LinkButton href="/dashboard/usage?tab=billing&highlight=advanced_reporting" size="sm" className="mt-1">
             Unlock Advanced Reporting
           </LinkButton>
         </div>

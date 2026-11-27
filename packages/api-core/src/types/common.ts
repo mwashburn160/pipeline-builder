@@ -158,7 +158,7 @@ export const QUOTA_TYPE_LABELS: Readonly<Record<QuotaType, string>> = Object.fro
  * the API share an origin behind nginx, and a CLI / Lambda that renders a 429
  * prefixes it with the platform URL it already talks to.
  */
-export const QUOTA_UPGRADE_PATH = '/dashboard/billing';
+export const QUOTA_UPGRADE_PATH = '/dashboard/usage?tab=billing';
 
 /**
  * Type guard to check if a value is a valid QuotaType.

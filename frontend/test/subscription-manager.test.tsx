@@ -116,7 +116,7 @@ describe('SubscriptionManager catalog set-gating', () => {
     await openCatalog();
 
     const link = await screen.findByRole('link', { name: /requires standard/i });
-    expect(link).toHaveAttribute('href', '/dashboard/billing?highlight=compliance_standard');
+    expect(link).toHaveAttribute('href', '/dashboard/usage?tab=billing&highlight=compliance_standard');
     expect(screen.queryByRole('button', { name: /^subscribe$/i })).not.toBeInTheDocument();
   });
 

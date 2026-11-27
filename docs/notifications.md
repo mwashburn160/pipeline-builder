@@ -75,7 +75,7 @@ Two people configure this, and they configure different halves:
 | **Ops-team Slack** (platform-wide alerts) | operator only | `SLACK_CRITICAL_WEBHOOK_URL` / `SLACK_WARNING_WEBHOOK_URL` |
 | **Per-org Slack / HTTPS webhook / in-app / email** (alerts) | org admin | `ALERT_WEBHOOK_INSTANCE_TOKEN` wired on both sides |
 | **Per-org HTTPS webhook** (plugin security, compliance) | org admin | nothing platform-level — sent by the plugin / compliance service directly |
-| **In-app inbox** (`/dashboard/messages`) | nobody — always on | the message service (`MESSAGE_ENABLED`, defaults on) |
+| **In-app inbox** (`/dashboard/inbox?tab=messages`) | nobody — always on | the message service (`MESSAGE_ENABLED`, defaults on) |
 | **SNS email** (SES bounces/complaints) | operator, AWS targets only | `ALERT_EMAIL` |
 
 In-app is the source of truth for ecosystem notices; email is the courtesy copy.
@@ -312,7 +312,7 @@ Four channels:
 |---|---|---|
 | `slack` | Slack incoming-webhook URL | Rendered as a coloured attachment — red critical, yellow warning, plus a ✅ on resolve |
 | `webhook` | any HTTPS endpoint | Receives the Alertmanager payload unchanged |
-| `in-app` | none | Appends a row to the org's `/dashboard/messages` inbox, authored by the system org |
+| `in-app` | none | Appends a row to the org's inbox (`/dashboard/inbox?tab=messages`), authored by the system org |
 | `email` | an address | ops-center hands it to platform's relay (the alert-email leg) — **only works when `EMAIL_ENABLED=true`**. A retried webhook does not re-send an identical (alert, recipient) email inside the dedupe window |
 
 Each destination carries a `minSeverity` and an enabled flag. Targets are

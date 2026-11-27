@@ -35,9 +35,9 @@ Routes live under `pages/`. The main ones:
 | `/dashboard/reports`, `/dashboard/executions`, `/dashboard/logs` | Build reports, run health, logs |
 | `/dashboard/audit`, `/dashboard/compliance` | Audit trail and compliance policies/rules (admin) |
 | `/dashboard/observability/*` | Dashboards, alerts, alert destinations, audit activity |
-| `/dashboard/members`, `/dashboard/roles`, `/dashboard/invitations` | Org members, Roles, invitations (admin) |
-| `/dashboard/quotas`, `/dashboard/billing` | Quota management and billing |
-| `/dashboard/messages`, `/dashboard/notifications` | In-app messages and notification settings |
+| `/dashboard/members?tab=members\|teams\|roles\|invitations` | Org members, teams, Roles, invitations (admin) |
+| `/dashboard/usage?tab=quotas\|billing` | Quota management and billing (also the Stripe Checkout and billing portal return) |
+| `/dashboard/inbox?tab=notifications\|messages\|access-requests`, `/dashboard/notifications` | Action items, in-app messages and access requests; notification settings |
 | `/dashboard/registry`, `/dashboard/build-queue`, `/dashboard/triage` | OCI registry, plugin build queue, DLQ triage (sysadmin) |
 | `/dashboard/organizations`, `/dashboard/users` | All-orgs and all-users views (sysadmin) |
 | `/dashboard/admin/settings`, `/dashboard/admin/orgs/[orgId]` | Platform admin (sysadmin) |

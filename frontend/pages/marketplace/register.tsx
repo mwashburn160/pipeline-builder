@@ -127,7 +127,7 @@ export default function MarketplaceRegisterPage({ outcome }: Props) {
       if (!res.success) throw new Error(res.message || 'Could not link your subscription.');
       clearMarketplaceRef();
       toast.success('AWS Marketplace subscription linked');
-      void router.replace('/dashboard/billing');
+      void router.replace('/dashboard/usage?tab=billing');
     } catch (e) {
       setPhase('pending');
       setError(formatError(e));

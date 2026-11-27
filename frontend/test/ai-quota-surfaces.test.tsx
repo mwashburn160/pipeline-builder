@@ -100,13 +100,13 @@ describe('AIQuotaHint', () => {
   it('shows a prominent upgrade CTA once a trial is used up', () => {
     render(<AIQuotaHint quota={{ summary: summary({ limit: 20, used: 20, remaining: 0 }), tier: 'developer' }} keySource="platform" />);
     expect(screen.getByTestId('ai-quota-hint')).toHaveTextContent(/Your 20 trial AI calls are used up/);
-    expect(screen.getByRole('link', { name: /Upgrade your plan/ })).toHaveAttribute('href', '/dashboard/billing?tab=plans');
+    expect(screen.getByRole('link', { name: /Upgrade your plan/ })).toHaveAttribute('href', '/dashboard/usage?tab=billing&section=plans');
   });
 
   it('links a paid org at its limit to billing', () => {
     render(<AIQuotaHint quota={{ summary: summary({ used: 200, remaining: 0 }), tier: 'pro' }} keySource="platform" />);
     expect(screen.getByTestId('ai-quota-hint')).toHaveTextContent(/^No AI calls left/);
-    expect(screen.getByRole('link', { name: 'Upgrade for more' })).toHaveAttribute('href', '/dashboard/billing');
+    expect(screen.getByRole('link', { name: 'Upgrade for more' })).toHaveAttribute('href', '/dashboard/usage?tab=billing');
   });
 
   it('renders nothing for an unlimited or unreadable quota', () => {

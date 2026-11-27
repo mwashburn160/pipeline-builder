@@ -895,10 +895,10 @@ describe('StripeProvider', () => {
   describe('createBillingPortalSession', () => {
     it('creates a portal session for the customer and returns its URL', async () => {
       mockStripePortalCreate.mockResolvedValue({ url: 'https://billing.stripe.com/session/abc' });
-      const url = await provider.createBillingPortalSession('cus_1', 'https://app/dashboard/billing');
+      const url = await provider.createBillingPortalSession('cus_1', 'https://app/dashboard/usage?tab=billing');
       expect(mockStripePortalCreate).toHaveBeenCalledWith({
         customer: 'cus_1',
-        return_url: 'https://app/dashboard/billing',
+        return_url: 'https://app/dashboard/usage?tab=billing',
       });
       expect(url).toBe('https://billing.stripe.com/session/abc');
     });

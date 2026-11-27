@@ -28,6 +28,8 @@ describe('the daily remediation cap on the quotas page', () => {
     render(<RemediationCapCard />);
     expect(await screen.findByText('3 of 20')).toBeInTheDocument();
     expect(listPluginRemediations).toHaveBeenCalledWith({ limit: 1 }, expect.anything());
+    // Links to the Remediations sub-tab of Plugins → Security.
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/dashboard/plugins?tab=security&section=remediations');
   });
 
   it('says the cap is reached', async () => {

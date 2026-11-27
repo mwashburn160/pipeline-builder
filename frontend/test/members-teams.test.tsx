@@ -12,7 +12,7 @@ import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 import type { UserOrgMembership } from '@/types';
-import MembersPage from '../pages/dashboard/members';
+import MembersPage from '../src/components/members/MembersTab';
 import { ApiError, StepUpRequiredError } from '../src/lib/api/errors';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
@@ -85,13 +85,13 @@ beforeEach(() => {
 
 describe('Create Team gate', () => {
   it('shows Create Team to an org_settings:write holder', async () => {
-    render(<MembersPage />);
-    expect(await screen.findByRole('button', { name: /create team/i })).toBeEnabled();
+    render(<MembersPage view="teams" />);
+    expect((await screen.findAllByRole('button', { name: /create team/i }))[0]).toBeEnabled();
   });
 
   it('hides it from a members:manage-only admin — the route needs org_settings:write', async () => {
     asAdmin(['members:manage']);
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     await screen.findByRole('button', { name: 'Open Platform' });
     expect(screen.queryByRole('button', { name: /create team/i })).not.toBeInTheDocument();
   });
@@ -100,7 +100,7 @@ describe('Create Team gate', () => {
     // Not only a `title=` (invisible on touch, unread by screen readers, with no
     // way to act on it): the reason is text next to the control, tied to it by aria-describedby, and it links to Billing.
     mockOrganizations = [root({ tier: 'pro', childOrgCount: 0 })];
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     const btn = await screen.findByRole('button', { name: /create team/i });
     expect(btn).toBeDisabled();
     const reasonId = btn.getAttribute('aria-describedby');
@@ -108,7 +108,7 @@ describe('Create Team gate', () => {
     const reason = document.getElementById(reasonId!);
     expect(reason).toHaveTextContent(/Teams need a Team or Enterprise plan/i);
     expect(within(reason!).getByRole('link', { name: /upgrade this organization/i }))
-      .toHaveAttribute('href', '/dashboard/billing');
+      .toHaveAttribute('href', '/dashboard/usage?tab=billing');
   });
 
   it('tells a viewer who cannot open Billing to ask an owner, with no dead link', async () => {
@@ -120,7 +120,7 @@ describe('Create Team gate', () => {
       user: { id: 'me', organizationId: 'org-1', permissions: ['members:manage', 'org_settings:write'] },
       can: (p: string) => ['members:manage', 'org_settings:write'].includes(p),
     });
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     const btn = await screen.findByRole('button', { name: /create team/i });
     const reason = document.getElementById(btn.getAttribute('aria-describedby')!);
     expect(reason).toHaveTextContent(/Ask an owner to upgrade this organization/i);
@@ -130,8 +130,31 @@ describe('Create Team gate', () => {
   it('stays visible for a root org with no teams at all — that org needs it most', async () => {
     mockOrganizations = [root({ childOrgCount: 0 })];
     mockApi.getOrganizationTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [] } });
+    render(<MembersPage view="teams" />);
+    expect((await screen.findAllByRole('button', { name: /create team/i }))[0]).toBeEnabled();
+  });
+});
+
+describe('Teams tab with no teams', () => {
+  it('says so, and offers Create Team where the org can parent one', async () => {
+    mockOrganizations = [root({ childOrgCount: 0 })];
+    mockApi.getOrganizationTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [] } });
+    render(<MembersPage view="teams" />);
+    expect(await screen.findByText('No teams yet')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /create team/i }).length).toBeGreaterThan(0);
+  });
+
+  it('keeps the roster off the Teams tab and the teams off the Members tab', async () => {
+    mockOrganizations = [root({ childOrgCount: 0 })];
+    mockApi.getOrganizationTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [] } });
+    const { unmount } = render(<MembersPage view="teams" />);
+    await screen.findByText('No teams yet');
+    expect(screen.queryByRole('button', { name: /^add member$/i })).not.toBeInTheDocument();
+    unmount();
     render(<MembersPage />);
-    expect(await screen.findByRole('button', { name: /create team/i })).toBeEnabled();
+    expect(await screen.findAllByRole('button', { name: /^add member$/i })).not.toHaveLength(0);
+    expect(screen.queryByText('No teams yet')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /create team/i })).not.toBeInTheDocument();
   });
 });
 
@@ -144,7 +167,7 @@ describe('TeamsCard empty state', () => {
     mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({
       success: true, data: { teams: [{ orgId: 't9', orgName: 'Gone', deletedAt: '2026-09-01T00:00:00Z', purgeAfter: '2026-10-01T00:00:00Z' }] },
     });
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     expect(await screen.findByText(/No live teams\./i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^create a team$/i })).toBeEnabled();
   });
@@ -153,7 +176,7 @@ describe('TeamsCard empty state', () => {
 describe('Teams row actions', () => {
   it('Open switches into the team', async () => {
     switchOrganization.mockResolvedValue(undefined);
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Open Platform' }));
     await waitFor(() => expect(switchOrganization).toHaveBeenCalledWith('t1'));
     expect(pageToast.success).toHaveBeenCalledWith('Switched to Platform');
@@ -161,20 +184,20 @@ describe('Teams row actions', () => {
 
   it('Open failure is a toast naming the team, never silent', async () => {
     switchOrganization.mockRejectedValue(new Error('Forbidden'));
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Open Platform' }));
     await waitFor(() => expect(pageToast.error).toHaveBeenCalledWith(expect.stringMatching(/Couldn't open Platform: Forbidden/)));
   });
 
   it('Manage opens the settings drawer for THAT team', async () => {
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Data' }));
     expect(screen.getByTestId('team-drawer')).toHaveTextContent('t2');
   });
 
   it('Export downloads the team\'s JSON', async () => {
     mockApi.exportOrganization = jest.fn<AnyFn>().mockResolvedValue('{"org":1}');
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     fireEvent.click(await screen.findByRole('button', { name: 'More actions for Platform' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /export data/i }));
     // Step-up gated server-side: the export waits for the factor, then carries its token.
@@ -195,7 +218,7 @@ describe('Teams row actions', () => {
     mockApi.exportOrganization = jest.fn<AnyFn>()
       .mockRejectedValueOnce(refusal((self) => Promise.reject(self)))
       .mockRejectedValueOnce(refusal(() => Promise.reject(new Error('export store unavailable'))));
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     for (let i = 0; i < 2; i += 1) {
       fireEvent.click(await screen.findByRole('button', { name: 'More actions for Platform' }));
       fireEvent.click(screen.getByRole('menuitem', { name: /export data/i }));
@@ -211,7 +234,7 @@ describe('Teams row actions', () => {
 
   it('Delete opens ONE dialog that states the retention window and takes the factor', async () => {
     mockApi.deleteTeam = jest.fn<AnyFn>().mockResolvedValue({ success: true });
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     fireEvent.click(await screen.findByRole('button', { name: 'More actions for Platform' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /delete team/i }));
 
@@ -236,14 +259,14 @@ describe('Teams row actions', () => {
       user: { id: 'me', organizationId: 'org-1', permissions: ADMIN_PERMS },
       can: () => false,
     });
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Data' }));
     expect(screen.getByTestId('team-drawer')).toHaveTextContent('t2');
   });
 
   it('member-only admins get no lifecycle menu', async () => {
     asAdmin(['members:manage']);
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     await screen.findByRole('button', { name: 'Open Platform' });
     expect(screen.queryByRole('button', { name: 'More actions for Platform' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Manage Platform' })).not.toBeInTheDocument();
@@ -258,7 +281,7 @@ describe('Recently deleted teams', () => {
     mockOrganizations = [root({ childOrgCount: 0 })];
     mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [deleted] } });
     mockApi.restoreOrganization = jest.fn<AnyFn>().mockResolvedValue({ success: true });
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
 
     expect(await screen.findByText('Recently deleted teams')).toBeInTheDocument();
     expect(mockApi.listDeletedTeams).toHaveBeenCalledWith('org-1', expect.anything());
@@ -278,7 +301,7 @@ describe('Recently deleted teams: platform takedowns', () => {
   it('a team a platform operator deleted cannot be restored here, and says why', async () => {
     mockOrganizations = [root({ childOrgCount: 0 })];
     mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [{ ...base, deletedByPlatform: true, restorable: false }] } });
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     const restore = await screen.findByRole('button', { name: 'Restore Legacy' });
     expect(restore).toBeDisabled();
     expect(screen.getByText('Deleted by a platform operator — contact support to restore')).toBeInTheDocument();
@@ -287,7 +310,7 @@ describe('Recently deleted teams: platform takedowns', () => {
   it('a restorable team keeps Restore enabled', async () => {
     mockOrganizations = [root({ childOrgCount: 0 })];
     mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [{ ...base, deletedByPlatform: false, restorable: true }] } });
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     expect(await screen.findByRole('button', { name: 'Restore Legacy' })).toBeEnabled();
     expect(screen.queryByText(/Deleted by a platform operator/)).not.toBeInTheDocument();
   });
@@ -296,7 +319,7 @@ describe('Recently deleted teams: platform takedowns', () => {
     mockOrganizations = [root({ childOrgCount: 0 })];
     mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [{ ...base, deletedByPlatform: false, restorable: true }] } });
     mockApi.restoreOrganization = jest.fn<AnyFn>().mockRejectedValue(new ApiError('Forbidden', 403, 'ORG_RESTORE_PLATFORM_DELETED'));
-    render(<MembersPage />);
+    render(<MembersPage view="teams" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Restore Legacy' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
     await waitFor(() => expect(pageToast.error).toHaveBeenCalledWith('Legacy was deleted by a platform operator — contact support to restore it'));

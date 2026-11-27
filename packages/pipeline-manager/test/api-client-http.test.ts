@@ -157,11 +157,11 @@ describe('ApiClient', () => {
       success: false,
       code: 'QUOTA_EXCEEDED',
       message: 'API call quota exceeded',
-      details: { quotaType: 'apiCalls', limit: 100, used: 100, resetAt: '2026-11-05T00:00:00.000Z', upgradeUrl: '/dashboard/billing' },
+      details: { quotaType: 'apiCalls', limit: 100, used: 100, resetAt: '2026-11-05T00:00:00.000Z', upgradeUrl: '/dashboard/usage?tab=billing' },
     });
     await expect(new ApiClient(config()).get('/x')).rejects.toMatchObject({
       status: 429,
-      message: `API call quota reached (100/100); resets 2026-11-05. Upgrade: ${baseUrl}/dashboard/billing`,
+      message: `API call quota reached (100/100); resets 2026-11-05. Upgrade: ${baseUrl}/dashboard/usage?tab=billing`,
     });
     handler = (_req, _body, res) => json(res, 429, { message: 'Too many requests, please slow down' });
     await expect(new ApiClient(config()).get('/x')).rejects.toMatchObject({ status: 429, message: 'Too many requests, please slow down' });

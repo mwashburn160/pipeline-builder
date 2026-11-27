@@ -816,7 +816,7 @@ The user must be an active member of that organization, or the request is
 refused. Without `orgId`, the session is for the user's active organization.
 
 **Seeing and ending sessions.** Every signed-in user has an **Access requests**
-page (`/dashboard/access-requests`, under Home in the sidebar). It lists live
+tab on the Inbox (`/dashboard/inbox?tab=access-requests`, under Home in the sidebar). It lists live
 sessions on your own account, sessions you opened, and — for an organization
 admin — sessions on your organization's members, each with an **End session**
 button. Ending a session takes effect immediately after one plain confirmation —

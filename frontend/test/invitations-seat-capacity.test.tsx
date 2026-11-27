@@ -16,7 +16,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
-import InvitationsPage from '../pages/dashboard/invitations';
+import InvitationsPage from '../src/components/invitations/InvitationsTab';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
@@ -60,7 +60,7 @@ describe('invitation composer — at the seat cap', () => {
     const dialog = await openComposer();
 
     expect(await within(dialog).findByText(/all 1 account seat is in use/i)).toBeTruthy();
-    expect(within(dialog).getByRole('link', { name: /upgrade to team/i }).getAttribute('href')).toBe('/dashboard/billing');
+    expect(within(dialog).getByRole('link', { name: /upgrade to team/i }).getAttribute('href')).toBe('/dashboard/usage?tab=billing');
     expect(within(dialog).queryByText(/seat pack/i)).toBeNull();
     expect((within(dialog).getByRole('button', { name: /^send$/i }) as HTMLButtonElement).disabled).toBe(true);
     expect((within(dialog).getByRole('textbox', { name: /email/i }) as HTMLTextAreaElement).disabled).toBe(true);

@@ -119,7 +119,7 @@ export function TeamsUpsell() {
             Compare deployment frequency, change failure rate, lead time, time to restore and success rate
             across your organization&apos;s teams. {meta.description}.
           </p>
-          <LinkButton href="/dashboard/billing?highlight=advanced_reporting" size="sm" className="mt-1">
+          <LinkButton href="/dashboard/usage?tab=billing&highlight=advanced_reporting" size="sm" className="mt-1">
             Unlock Advanced Reporting
           </LinkButton>
         </div>

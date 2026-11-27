@@ -12,6 +12,7 @@ import { useAddonChange } from '@/components/billing/useAddonChange';
 import { useCheckoutReturn } from '@/components/billing/useCheckoutReturn';
 import type { BillingProvider } from '@/hooks/useBillingEnabled';
 import type { Plan, Bundle, BillingInterval, Subscription } from '@/types';
+import { BILLING_SECTION_KEY } from '@/lib/tabbed-pages';
 
 /** sessionStorage key carrying the "I came for this add-on" intent across the
  *  plan-selection detour (including the hosted-Checkout redirect). */
@@ -76,8 +77,8 @@ export function useBillingActions({
     try { id = id ?? sessionStorage.getItem(ADDON_INTENT_KEY); } catch { /* not fatal */ }
     if (!id) return;
     clearAddonIntent();
-    // useUrlTab follows the URL to the Add-ons tab.
-    void router.replace({ query: { ...router.query, tab: 'addons', highlight: id } }, undefined, { shallow: true });
+    // useUrlTab follows the URL to the Add-ons section.
+    void router.replace({ query: { ...router.query, [BILLING_SECTION_KEY]: 'addons', highlight: id } }, undefined, { shallow: true });
   };
 
   /** After any billing mutation: re-read everything it can have changed. The

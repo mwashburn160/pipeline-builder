@@ -52,7 +52,7 @@ export function FlowUpsell({ title, labels, children }: { title: string; labels:
           </span>
           <h4 className="text-base font-semibold text-fg">{meta.label} &mdash; {title.toLowerCase()}</h4>
           <p className="max-w-md text-sm text-fg-muted">{children} {meta.description}.</p>
-          <LinkButton href="/dashboard/billing?highlight=advanced_reporting" size="sm" className="mt-1">
+          <LinkButton href="/dashboard/usage?tab=billing&highlight=advanced_reporting" size="sm" className="mt-1">
             Unlock Advanced Reporting
           </LinkButton>
         </div>

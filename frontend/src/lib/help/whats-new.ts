@@ -48,7 +48,7 @@ export const WHATS_NEW: ReadonlyArray<WhatsNewEntry> = [
     when: 'This week',
     date: '2026-09-21',
     title: 'Plugin runs report: success rate and duration per plugin version',
-    href: '/dashboard/reports?tab=plugins&sub=runs',
+    href: '/dashboard/reports?tab=overview&section=plugins&sub=runs',
     hint: 'How each plugin behaves when your pipelines run it, not just when it builds.',
   },
   {

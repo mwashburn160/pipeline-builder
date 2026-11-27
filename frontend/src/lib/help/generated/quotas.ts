@@ -1,6 +1,6 @@
 // GENERATED FROM docs/quotas.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e3026fbbc3b67f3dbc55c1bdfbcd2ff258d9d92c8e00db4032f5895ce8f62402
+// SOURCE-SHA256: acbbcd16844ed98c6bc3fe4071d6b0ad071169fb9887b60944565596b9052c67
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -293,7 +293,7 @@ export const quotasTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "HTTP/1.1 429 Too Many Requests\nRetry-After: 172800\nX-Quota-Limit: 25000\nX-Quota-Used: 25000\nX-Quota-Remaining: 0\nX-Quota-Reset: 2026-11-05T00:00:00.000Z\n\n{ \"success\": false, \"code\": \"QUOTA_EXCEEDED\", \"message\": \"…\",\n  \"details\": { \"quotaType\": \"apiCalls\", \"limit\": 25000, \"used\": 25000,\n               \"resetAt\": \"2026-11-05T00:00:00.000Z\", \"upgradeUrl\": \"/dashboard/billing\", \"quota\": { … } } }",
+          "content": "HTTP/1.1 429 Too Many Requests\nRetry-After: 172800\nX-Quota-Limit: 25000\nX-Quota-Used: 25000\nX-Quota-Remaining: 0\nX-Quota-Reset: 2026-11-05T00:00:00.000Z\n\n{ \"success\": false, \"code\": \"QUOTA_EXCEEDED\", \"message\": \"…\",\n  \"details\": { \"quotaType\": \"apiCalls\", \"limit\": 25000, \"used\": 25000,\n               \"resetAt\": \"2026-11-05T00:00:00.000Z\", \"upgradeUrl\": \"/dashboard/usage?tab=billing\", \"quota\": { … } } }",
           "language": "http"
         },
         {
@@ -304,7 +304,7 @@ export const quotasTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Dashboard: a global notice on every page names the quota and links to the upgrade page, whichever service refused.",
-            "CLI (pipeline-manager): prints API call quota reached (25,000/25,000); resets 2026-11-05. Upgrade: https://<platform>/dashboard/billing and does not suggest retrying. A plain 429 keeps \"rate limit exceeded — wait a moment\". synth, deploy, plugin verify and security-report upload send X-Pipeline-Id, so the ledger attributes their calls to the pipeline."
+            "CLI (pipeline-manager): prints API call quota reached (25,000/25,000); resets 2026-11-05. Upgrade: https://<platform>/dashboard/usage?tab=billing and does not suggest retrying. A plain 429 keeps \"rate limit exceeded — wait a moment\". synth, deploy, plugin verify and security-report upload send X-Pipeline-Id, so the ledger attributes their calls to the pipeline."
           ]
         },
         {
@@ -557,7 +557,7 @@ export const quotasTopic: HelpTopic = {
           "items": [
             "Retire plugin versions you no longer need. A version that any pipeline references cannot be removed — update the pipeline first. Deleting a version frees only the layers unique to it, which is why the prune surface shows the bytes each removal would actually recover rather than the version's apparent size.",
             "Unlist or withdraw a publication to stop paying for its public bytes.",
-            "Add a Storage Pack at /dashboard/billing, which takes effect within a minute."
+            "Add a Storage Pack at /dashboard/usage?tab=billing, which takes effect within a minute."
           ]
         },
         {

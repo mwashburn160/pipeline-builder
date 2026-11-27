@@ -47,7 +47,7 @@ import { createElement, type ComponentType, type ReactElement } from 'react';
 import { render, screen, cleanup, act, fireEvent } from '@testing-library/react';
 import { mockAuthGuard, mockOrgHierarchy, type PageAuthGuard } from './helpers/pageMocks';
 import { REMEDIATION } from './helpers/remediationFixtures';
-import { resolvePageGate } from '../src/lib/page-access';
+import { resolveViewGate } from '../src/lib/page-access';
 import { FEATURE_GATES } from '../src/lib/feature-gates';
 import { ALL_FEATURE_FLAGS, type FeatureFlag } from '../src/lib/feature-flags';
 
@@ -696,7 +696,7 @@ const CONTROLS: Control[] = [
       renders: 'the real <Sidebar/>: a read gate IS the nav entry, and the nav link is the control.',
       mount: (ctx) => comp('../src/components/ui/Sidebar', 'Sidebar', {
         isSuperAdmin: false, isAdmin: false, user: ctx.user, unreadCount: 0,
-        currentPath: '/dashboard', isDark: false, onToggleDark: () => {}, onLogout: () => {},
+        currentPath: '/dashboard',
       })(),
       find: byRole('link', /^pipelines$/i),
     },
@@ -710,7 +710,7 @@ const CONTROLS: Control[] = [
       renders: 'the real <Sidebar/> (see "Pipeline list + detail reads").',
       mount: (ctx) => comp('../src/components/ui/Sidebar', 'Sidebar', {
         isSuperAdmin: false, isAdmin: false, user: ctx.user, unreadCount: 0,
-        currentPath: '/dashboard', isDark: false, onToggleDark: () => {}, onLogout: () => {},
+        currentPath: '/dashboard',
       })(),
       find: byRole('link', /^templates$/i),
     },
@@ -765,7 +765,7 @@ const CONTROLS: Control[] = [
     control: 'Retry / replay / dismiss the org\'s own failed plugin builds',
     file: 'pages/dashboard/plugins.tsx',
     gateFiles: ['src/components/plugin/OrgFailedBuildsPanel.tsx'],
-    // The "Failed builds" tab exists only for plugins:write — the gate of all
+    // The "Builds" tab (failed builds) exists only for plugins:write — the gate of all
     // four queue routes it drives. The server scopes a caller that is not a
     // system-org queue operator to its own org's jobs (another org's job is a
     // 404), so a tenant sees and retries only its own.
@@ -773,7 +773,7 @@ const CONTROLS: Control[] = [
     routes: ['plugin POST /plugins/queue/failed/:jobId/retry', 'plugin DELETE /plugins/queue/failed/:jobId', 'plugin POST /plugins/queue/dlq/:jobId/replay'],
     behaviour: {
       mount: page('../pages/dashboard/plugins'),
-      find: byRole('tab', /^failed builds$/i),
+      find: byRole('tab', /^builds$/i),
     },
   },
   {
@@ -789,7 +789,7 @@ const CONTROLS: Control[] = [
     behaviour: {
       mount: page('../pages/dashboard/plugins'),
       // The `remediation=` deep link (the notices' link) expands the row, so the card renders without a click.
-      router: { query: { tab: 'remediations', remediation: 'rem-1' }, pathname: '/dashboard/plugins' },
+      router: { query: { tab: 'security', section: 'remediations', remediation: 'rem-1' }, pathname: '/dashboard/plugins' },
       api: { listPluginRemediations: { remediations: [REMEDIATION], nextCursor: null, enabled: true, severities: ['critical', 'high'], usedToday: 1, maxPerDay: 20 } },
       find: button(/^approve and publish$/i),
     },
@@ -804,7 +804,7 @@ const CONTROLS: Control[] = [
     routes: ['plugin POST /plugins/remediations/:id/retry'],
     behaviour: {
       mount: page('../pages/dashboard/plugins'),
-      router: { query: { tab: 'remediations', remediation: 'rem-1' }, pathname: '/dashboard/plugins' },
+      router: { query: { tab: 'security', section: 'remediations', remediation: 'rem-1' }, pathname: '/dashboard/plugins' },
       api: { listPluginRemediations: { remediations: [{ ...REMEDIATION, stage: 'needs_owner' }], nextCursor: null, enabled: true, severities: ['critical', 'high'], usedToday: 1, maxPerDay: 20 } },
       find: button(/^retry remediation$/i),
     },
@@ -1006,7 +1006,7 @@ const CONTROLS: Control[] = [
     routes: ['plugin POST /plugins/installs/:id/approve', 'plugin POST /plugins/installs/:id/deny'],
     behaviour: {
       mount: page('../pages/dashboard/plugins'),
-      router: { query: { tab: 'approvals' }, pathname: '/dashboard/plugins' },
+      router: { query: { tab: 'security', section: 'approvals' }, pathname: '/dashboard/plugins' },
       api: {
         listPluginInstalls: { installs: [{
           id: 'i1', listingId: 'l1', publisherHandle: 'acme', publisherDisplayName: 'Acme', publisherTier: 'community', name: 'tf',
@@ -1056,7 +1056,7 @@ const CONTROLS: Control[] = [
     routes: ['plugin POST /plugins/installs/:id/change-requests/approve', 'plugin POST /plugins/installs/:id/change-requests/reject'],
     behaviour: {
       mount: page('../pages/dashboard/plugins'),
-      router: { query: { tab: 'approvals' }, pathname: '/dashboard/plugins' },
+      router: { query: { tab: 'security', section: 'approvals' }, pathname: '/dashboard/plugins' },
       api: {
         listPluginInstalls: { installs: [], policy: {} },
         listInstallChangeRequests: { changeRequests: [{
@@ -1076,7 +1076,7 @@ const CONTROLS: Control[] = [
     routes: ['plugin PUT /plugins/install-policy'],
     behaviour: {
       mount: page('../pages/dashboard/plugins'),
-      router: { query: { tab: 'policy' }, pathname: '/dashboard/plugins' },
+      router: { query: { tab: 'security', section: 'policy' }, pathname: '/dashboard/plugins' },
       api: {
         getInstallPolicy: {
           policy: { allowedTiers: ['official'], requireApprovalTiers: [], secretsAllowedTiers: [], blockOnAdvisory: 'critical', officialInstalls: 'implicit', blockedListings: [] },
@@ -1096,27 +1096,27 @@ const CONTROLS: Control[] = [
       renders: 'the real <Sidebar/> (see "Pipeline list + detail reads").',
       mount: (ctx) => comp('../src/components/ui/Sidebar', 'Sidebar', {
         isSuperAdmin: false, isAdmin: false, user: ctx.user, unreadCount: 0,
-        currentPath: '/dashboard', isDark: false, onToggleDark: () => {}, onLogout: () => {},
+        currentPath: '/dashboard',
       })(),
       find: byRole('link', /^plugins$/i),
     },
   },
   {
     control: 'Send / delete a message',
-    file: 'pages/dashboard/messages.tsx',
+    file: 'src/components/message/MessagesTab.tsx',
     permissions: ['messages:write'],
     routes: ['message POST /messages', 'message DELETE /messages/:id', 'message POST /messages/delete'],
     behaviour: {
       // Without `messages:write` the same button becomes "Contact Support" —
       // a different control that drives a different flow, so the composer's
       // accessible name is the thing that must disappear.
-      mount: page('../pages/dashboard/messages'),
+      mount: page('../src/components/message/MessagesTab'),
       find: byRole('button', /^new message$/i),
     },
   },
   {
     control: 'Contact support',
-    file: 'pages/dashboard/messages.tsx',
+    file: 'src/components/message/MessagesTab.tsx',
     gateFiles: ['src/components/message/ComposeModal.tsx'],
     // NOTHING inline gates this one, and saying otherwise would be a lie: the
     // composer is offered to everyone who can open the inbox. `messages:write`
@@ -1124,7 +1124,7 @@ const CONTROLS: Control[] = [
     // form — so the support route's floor is the page's own `messages:read`.
     permissions: [],
     pagePermissions: ['messages:read'],
-    page: '/dashboard/messages',
+    page: '/dashboard/inbox?tab=messages',
     // The attachment upload rides the SAME control and the same floor: it is the
     // attach button inside this composer, and the support-scoped upload route is
     // gated on `messages:read` for exactly the reason the send is — the person
@@ -1147,31 +1147,31 @@ const CONTROLS: Control[] = [
       // "Contact Support" for a reader. Both open the composer that drives this
       // route, so the control is the button under either name — and without
       // `messages:read` the page itself refuses and neither is rendered.
-      mount: page('../pages/dashboard/messages'),
+      mount: page('../src/components/message/MessagesTab'),
       find: byRole('button', /^(new message|contact support)$/i),
       gatedOn: 'messages:read',
     },
   },
   {
     control: 'Compose recipient list (account orgs + teams)',
-    file: 'pages/dashboard/messages.tsx',
+    file: 'src/components/message/MessagesTab.tsx',
     permissions: ['messages:write'],
     routes: ['message GET /messages/recipients/orgs'],
     behaviour: {
-      mount: page('../pages/dashboard/messages'),
+      mount: page('../src/components/message/MessagesTab'),
       find: byRole('button', /^new message$/i),
     },
   },
   {
     control: 'Edit your own message in a thread',
-    file: 'pages/dashboard/messages.tsx',
+    file: 'src/components/message/MessagesTab.tsx',
     gateFiles: ['src/components/message/ThreadView.tsx'],
     permissions: ['messages:write'],
     routes: ['message PATCH /messages/:id'],
     behaviour: {
       // Authorship alone used to decide this; the route checks `messages:write`
       // BEFORE it looks at authorship, so a read-only author saw a 404-on-save.
-      mount: page('../pages/dashboard/messages'),
+      mount: page('../src/components/message/MessagesTab'),
       api: { getMessages: MESSAGE_PAGE, getThread: { messages: [THREAD_MESSAGE] } },
       reveal: () => fireEvent.click(screen.getAllByRole('button', { name: /hi there/i })[0]),
       find: button(/^edit message$/i),
@@ -1179,12 +1179,12 @@ const CONTROLS: Control[] = [
   },
   {
     control: 'Reply in a message thread',
-    file: 'pages/dashboard/messages.tsx',
+    file: 'src/components/message/MessagesTab.tsx',
     gateFiles: ['src/components/message/ThreadView.tsx'],
     permissions: ['messages:write'],
     routes: ['message POST /messages/:id/reply'],
     behaviour: {
-      mount: page('../pages/dashboard/messages'),
+      mount: page('../src/components/message/MessagesTab'),
       api: { getMessages: MESSAGE_PAGE, getThread: { messages: [THREAD_MESSAGE] } },
       reveal: () => fireEvent.click(screen.getAllByRole('button', { name: /hi there/i })[0]),
       // Disabled rather than removed: the viewer is already reading the thread,
@@ -1205,7 +1205,7 @@ const CONTROLS: Control[] = [
     // a designated contact OF THIS ORG), which a UI gate could not express.
     permissions: [],
     pagePermissions: ['messages:read'],
-    page: '/dashboard/messages',
+    page: '/dashboard/inbox?tab=messages',
     routes: [
       'message PATCH /messages/support/:id/status',
       'message PATCH /messages/support/:id/transfer',
@@ -1214,7 +1214,7 @@ const CONTROLS: Control[] = [
       // The panel renders only for a thread that HAS a case, which is why the
       // case list is mocked here: correspondence from an unentitled org has none, and
       // those threads correctly show no panel at all.
-      mount: page('../pages/dashboard/messages'),
+      mount: page('../src/components/message/MessagesTab'),
       api: {
         getMessages: MESSAGE_PAGE,
         getThread: { messages: [THREAD_MESSAGE] },
@@ -1248,7 +1248,7 @@ const CONTROLS: Control[] = [
   },
   {
     control: 'Attach a file to a message or reply',
-    file: 'pages/dashboard/messages.tsx',
+    file: 'src/components/message/MessagesTab.tsx',
     gateFiles: ['src/components/message/ThreadView.tsx', 'src/components/message/ComposeModal.tsx'],
     permissions: ['messages:write'],
     routes: ['message POST /messages/attachments'],
@@ -1258,7 +1258,7 @@ const CONTROLS: Control[] = [
       // attach control — it just drives the support-scoped upload
       // (`messages:read`) rather than this one, so a reader can attach the build
       // log that explains their case. This route remains writer-only.
-      mount: page('../pages/dashboard/messages'),
+      mount: page('../src/components/message/MessagesTab'),
       api: { getMessages: MESSAGE_PAGE, getThread: { messages: [THREAD_MESSAGE] } },
       reveal: () => fireEvent.click(screen.getAllByRole('button', { name: /hi there/i })[0]),
       absence: 'disabled',
@@ -1271,21 +1271,24 @@ const CONTROLS: Control[] = [
     permissions: ['messages:read'],
     routes: ['message GET /messages', 'message GET /messages/:id'],
     behaviour: {
-      renders: 'the real <Sidebar/> (see "Pipeline list + detail reads").',
+      // Messages is a tab of Inbox now, which is open to every member; the
+      // sidebar row that rides `messages:read` is Support (locked off-plan,
+      // never hidden, so only the permission decides whether it renders).
+      renders: 'the real <Sidebar/> (see "Pipeline list + detail reads"): Support is the row gated on `messages:read`.',
       mount: (ctx) => comp('../src/components/ui/Sidebar', 'Sidebar', {
         isSuperAdmin: false, isAdmin: false, user: ctx.user, unreadCount: 0,
-        currentPath: '/dashboard', isDark: false, onToggleDark: () => {}, onLogout: () => {},
+        currentPath: '/dashboard',
       })(),
-      find: byRole('link', /^messages$/i),
+      find: byRole('link', /^support/i),
     },
   },
   {
     control: 'Review a compliance exemption',
-    file: 'pages/dashboard/inbox.tsx',
+    file: 'src/components/inbox/NotificationsTab.tsx',
     permissions: ['compliance:write'],
     routes: ['compliance PUT /compliance/exemptions/:id/review', 'compliance DELETE /compliance/exemptions/:id'],
     behaviour: {
-      mount: page('../pages/dashboard/inbox'),
+      mount: page('../src/components/inbox/NotificationsTab'),
       api: { getExemptions: { exemptions: [{ id: 'ex1', entityType: 'plugin', reason: 'legacy build' }] } },
       find: byText(/exemption request pending review/i),
     },
@@ -1360,14 +1363,14 @@ const CONTROLS: Control[] = [
       renders: 'the real <Sidebar/> (see "Pipeline list + detail reads").',
       mount: (ctx) => comp('../src/components/ui/Sidebar', 'Sidebar', {
         isSuperAdmin: false, isAdmin: false, user: ctx.user, unreadCount: 0,
-        currentPath: '/dashboard', isDark: false, onToggleDark: () => {}, onLogout: () => {},
+        currentPath: '/dashboard',
       })(),
       find: byRole('link', /^compliance$/i),
     },
   },
   {
     control: 'Change / cancel the subscription',
-    file: 'pages/dashboard/billing.tsx',
+    file: 'src/components/billing/BillingTab.tsx',
     gateFiles: ['src/components/billing/SubscriptionStatusCard.tsx'],
     permissions: ['billing:manage'],
     // Cancelling is step-up gated; the resume path is global (see the
@@ -1383,7 +1386,7 @@ const CONTROLS: Control[] = [
       'billing POST /billing/portal',
     ],
     behaviour: {
-      mount: page('../pages/dashboard/billing'),
+      mount: page('../src/components/billing/BillingTab'),
       api: {
         getSubscription: { subscription: { id: 'sub1', planId: 'pro', status: 'active', interval: 'month' } },
         getPlans: { plans: [] },
@@ -1394,7 +1397,7 @@ const CONTROLS: Control[] = [
   },
   {
     control: 'Redeem / remove a discount code',
-    file: 'pages/dashboard/billing.tsx',
+    file: 'src/components/billing/BillingTab.tsx',
     gateFiles: ['src/components/billing/DiscountRedeem.tsx'],
     permissions: ['billing:manage'],
     orgAdminAssurance: true,
@@ -1403,8 +1406,8 @@ const CONTROLS: Control[] = [
       'billing DELETE /billing/subscriptions/:id/discounts/:discountId',
     ],
     behaviour: {
-      mount: page('../pages/dashboard/billing'),
-      router: { query: { tab: 'addons' }, pathname: '/dashboard/billing' },
+      mount: page('../src/components/billing/BillingTab'),
+      router: { query: { tab: 'billing', section: 'addons' }, pathname: '/dashboard/usage' },
       api: {
         getSubscription: { subscription: { id: 'sub1', planId: 'pro', status: 'active', interval: 'month' } },
         getPlans: { plans: [] },
@@ -1418,10 +1421,10 @@ const CONTROLS: Control[] = [
   },
   {
     control: 'Add / remove a billing add-on',
-    // NOT pages/dashboard/quotas.tsx: that page only LINKS to billing. The
+    // NOT src/components/quotas/QuotasTab.tsx: that tab only LINKS to billing. The
     // add-on writes are driven by `useAddonChange` under the Billing page's
     // Add-ons tab (the render proves it — quotas.tsx never reaches them).
-    file: 'pages/dashboard/billing.tsx',
+    file: 'src/components/billing/BillingTab.tsx',
     gateFiles: ['src/components/billing/AddonGrid.tsx', 'src/components/billing/useAddonChange.ts'],
     permissions: ['billing:manage'],
     orgAdminAssurance: true,
@@ -1430,8 +1433,8 @@ const CONTROLS: Control[] = [
       'billing DELETE /billing/subscriptions/:id/addons/:bundleId',
     ],
     behaviour: {
-      mount: page('../pages/dashboard/billing'),
-      router: { query: { tab: 'addons' }, pathname: '/dashboard/billing' },
+      mount: page('../src/components/billing/BillingTab'),
+      router: { query: { tab: 'billing', section: 'addons' }, pathname: '/dashboard/usage' },
       api: {
         getSubscription: { subscription: { id: 'sub1', planId: 'pro', status: 'active', interval: 'month' } },
         getPlans: { plans: [] },
@@ -1507,7 +1510,7 @@ const CONTROLS: Control[] = [
   },
   {
     control: "Change a member's role / remove a member",
-    file: 'pages/dashboard/members.tsx',
+    file: 'src/components/members/MembersTab.tsx',
     permissions: ['members:manage'],
     orgAdminAssurance: true,
     routes: [
@@ -1517,11 +1520,11 @@ const CONTROLS: Control[] = [
       'platform PATCH /organization/:id/members/:userId/activate',
       'platform POST /organization/:id/members/bulk-add',
     ],
-    behaviour: { mount: page('../pages/dashboard/members'), find: button(/^add member$/i) },
+    behaviour: { mount: page('../src/components/members/MembersTab'), find: button(/^add member$/i) },
   },
   {
     control: 'Request a two-factor reset for a member (Members → Reset MFA…)',
-    file: 'pages/dashboard/members.tsx',
+    file: 'src/components/members/MembersTab.tsx',
     gateFiles: ['src/components/members/RequestMfaResetModal.tsx'],
     permissions: ['members:manage'],
     stepUp: true,
@@ -1530,7 +1533,7 @@ const CONTROLS: Control[] = [
     behaviour: {
       // `canResetMfa` is `members:manage` AND an admin role; the panel below the
       // roster only mounts for a holder, so the panel's heading is the control.
-      mount: page('../pages/dashboard/members'),
+      mount: page('../src/components/members/MembersTab'),
       guard: { isAdmin: true, isOrgAdminUser: true },
       api: { getOrganizationMembers: { members: [{ id: 'm1', userId: 'u2', username: 'bee', email: 'b@c.test', role: 'member', isActive: true }], pagination: { ...EMPTY_PAGE, total: 1 } } },
       find: byRole('button', /reset two-factor authentication for/i),
@@ -1538,7 +1541,7 @@ const CONTROLS: Control[] = [
   },
   {
     control: 'Approve / deny a pending two-factor reset (Members → Pending two-factor resets)',
-    file: 'pages/dashboard/members.tsx',
+    file: 'src/components/members/MembersTab.tsx',
     gateFiles: ['src/components/members/MfaResetPanel.tsx'],
     permissions: ['members:manage'],
     // Approval: step-up with a second factor on an MFA-grade session; denial
@@ -1551,7 +1554,7 @@ const CONTROLS: Control[] = [
       'platform POST /organization/:id/mfa-resets/:requestId/deny',
     ],
     behaviour: {
-      mount: page('../pages/dashboard/members'),
+      mount: page('../src/components/members/MembersTab'),
       guard: { isAdmin: true, isOrgAdminUser: true },
       api: { listMfaResets: { requests: [{ id: 'r1', userId: 'u2', userEmail: 'b@c.test', reason: 'lost phone', requestedBy: 'u3', requestedAt: '2026-09-01T00:00:00Z', status: 'pending' }] } },
       find: button(/^approve$/i),
@@ -1576,7 +1579,7 @@ const CONTROLS: Control[] = [
   },
   {
     control: 'Create / edit / delete a Role, and add / remove its members',
-    file: 'pages/dashboard/roles.tsx',
+    file: 'src/components/roles/RolesTab.tsx',
     // The same two member routes also drive the SYSTEM-ORG rosters —
     // `src/components/admin/SystemOrgRoleRoster.tsx`, rendered by the Platform
     // staffing panel (four job Roles) and the Ecosystem console (Ecosystem
@@ -1594,7 +1597,7 @@ const CONTROLS: Control[] = [
       'platform POST /organization/:id/roles/:roleId/members',
       'platform DELETE /organization/:id/roles/:roleId/members/:userId',
     ],
-    behaviour: { mount: page('../pages/dashboard/roles'), find: button(/^new role$/i) },
+    behaviour: { mount: page('../src/components/roles/RolesTab'), find: button(/^new role$/i) },
   },
   {
     control: 'Add / edit / delete an IdP group → role mapping',
@@ -1637,7 +1640,7 @@ const CONTROLS: Control[] = [
   },
   {
     control: 'Send / revoke an invitation',
-    file: 'pages/dashboard/invitations.tsx',
+    file: 'src/components/invitations/InvitationsTab.tsx',
     permissions: ['invitations:manage'],
     orgAdminAssurance: true,
     routes: [
@@ -1645,7 +1648,7 @@ const CONTROLS: Control[] = [
       'platform DELETE /invitation/:invitationId',
       'platform POST /invitation/:invitationId/resend',
     ],
-    behaviour: { mount: page('../pages/dashboard/invitations'), find: button(/^send invitations?$/i) },
+    behaviour: { mount: page('../src/components/invitations/InvitationsTab'), find: button(/^send invitations?$/i) },
   },
   {
     control: 'Edit organization identity / AI settings',
@@ -1829,9 +1832,11 @@ const CONTROLS: Control[] = [
       renders: 'the real <Sidebar/> (see "Pipeline list + detail reads").',
       mount: (ctx) => comp('../src/components/ui/Sidebar', 'Sidebar', {
         isSuperAdmin: false, isAdmin: false, user: ctx.user, unreadCount: 0,
-        currentPath: '/dashboard', isDark: false, onToggleDark: () => {}, onLogout: () => {},
+        currentPath: '/dashboard',
       })(),
-      find: byRole('link', /^quotas$/i),
+      // Quotas is a tab of Usage & billing, whose row shows for `quotas:read`
+      // (or `billing:read`, which this viewer does not hold).
+      find: byRole('link', /^usage & billing$/i),
     },
   },
   {
@@ -1847,7 +1852,7 @@ const CONTROLS: Control[] = [
       renders: 'the real <Sidebar/> (see "Pipeline list + detail reads").',
       mount: (ctx) => comp('../src/components/ui/Sidebar', 'Sidebar', {
         isSuperAdmin: false, isAdmin: false, user: ctx.user, unreadCount: 0,
-        currentPath: '/dashboard', isDark: false, onToggleDark: () => {}, onLogout: () => {},
+        currentPath: '/dashboard',
       })(),
       find: byRole('link', /^reports$/i),
     },
@@ -1865,7 +1870,7 @@ const CONTROLS: Control[] = [
       renders: 'the real <Sidebar/> (see "Pipeline list + detail reads"): `observability:read` is the Logs entry\'s gate.',
       mount: (ctx) => comp('../src/components/ui/Sidebar', 'Sidebar', {
         isSuperAdmin: false, isAdmin: false, user: ctx.user, unreadCount: 0,
-        currentPath: '/dashboard', isDark: false, onToggleDark: () => {}, onLogout: () => {},
+        currentPath: '/dashboard',
       })(),
       find: byRole('link', /^logs$/i),
     },
@@ -1873,18 +1878,18 @@ const CONTROLS: Control[] = [
   // ── Teams, managed from their parent (Members → Teams) ────────────────────
   {
     control: 'Create a team (Members → Create Team)',
-    file: 'pages/dashboard/members.tsx',
+    file: 'src/components/members/MembersTab.tsx',
     permissions: ['org_settings:write'],
     routes: ['platform POST /organization'],
     behaviour: {
-      mount: page('../pages/dashboard/members'),
+      mount: comp('../src/components/members/MembersTab', 'default', { view: 'teams' }),
       hierarchy: { childOrgCount: 1, activeOrg: { id: 'org-1', name: 'Acme', tier: 'team' } },
       find: button(/^create team$/i),
     },
   },
   {
     control: 'Export / delete a team, list and restore deleted teams (Members → Teams)',
-    file: 'pages/dashboard/members.tsx',
+    file: 'src/components/members/MembersTab.tsx',
     gateFiles: ['src/components/teams/TeamsCard.tsx'],
     permissions: ['org_settings:write'],
     // Every route here but the deleted-team list steps up: the export is a bulk
@@ -1897,7 +1902,7 @@ const CONTROLS: Control[] = [
       'platform POST /organization/:id/restore',
     ],
     behaviour: {
-      mount: page('../pages/dashboard/members'),
+      mount: comp('../src/components/members/MembersTab', 'default', { view: 'teams' }),
       hierarchy: { childOrgCount: 1, activeOrg: { id: 'org-1', name: 'Acme', tier: 'team' } },
       api: {
         // The live-team list additionally needs `members:manage`; the
@@ -2340,7 +2345,7 @@ const CONTROLS: Control[] = [
       // Mounted through the page: `enabled` is computed there from the
       // entitlement, so passing it as a prop would test nothing.
       mount: page('../pages/dashboard/reports'),
-      router: { query: { tab: 'dora' }, pathname: '/dashboard/reports' },
+      router: { query: { tab: 'delivery', section: 'dora' }, pathname: '/dashboard/reports' },
       gatedOn: 'feature',
       // The non-entitled teaser renders a blurred, aria-hidden copy of the
       // metric tiles, so match on body copy the teaser does not carry.
@@ -2360,7 +2365,7 @@ const CONTROLS: Control[] = [
     routes: ['reporting GET /reports/execution/flaky-stages/trend'],
     behaviour: {
       mount: page('../pages/dashboard/reports'),
-      router: { query: { tab: 'pipelines', sub: 'failures' }, pathname: '/dashboard/reports' },
+      router: { query: { tab: 'overview', section: 'pipelines', sub: 'failures' }, pathname: '/dashboard/reports' },
       gatedOn: 'feature',
       // Without the entitlement the panel shows an add-on note in its place, so
       // match on copy only the entitled chart's empty state carries.
@@ -2379,7 +2384,7 @@ const CONTROLS: Control[] = [
     behaviour: {
       // Mounted through the page: `enabled` is computed there from the entitlement.
       mount: page('../pages/dashboard/reports'),
-      router: { query: { tab: 'insights' }, pathname: '/dashboard/reports' },
+      router: { query: { tab: 'quality', section: 'insights' }, pathname: '/dashboard/reports' },
       api: { getInsights: raw({ window: {}, sections: [] }) },
       gatedOn: 'feature',
       // The entitled tab's methodology line; the locked teaser does not carry it.
@@ -2422,7 +2427,7 @@ const CONTROLS: Control[] = [
     behaviour: {
       // Mounted through the page: `enabled` and `canRollup` are computed there.
       mount: page('../pages/dashboard/reports'),
-      router: { query: { tab: 'teams' }, pathname: '/dashboard/reports' },
+      router: { query: { tab: 'overview', section: 'teams' }, pathname: '/dashboard/reports' },
       api: { getTeamBenchmark: raw({ hasTeams: true, window: { dora: { from: '2026-10-01', to: '2026-11-01' }, events: { from: '2026-10-01', to: '2026-11-01' }, tz: 'UTC', weekStart: 'monday' }, rows: [] }) },
       gatedOn: 'feature',
       // The entitled table's methodology line; the locked teaser does not carry it.
@@ -2440,7 +2445,7 @@ const CONTROLS: Control[] = [
     routes: ['reporting GET /reports/benchmark/teams'],
     behaviour: {
       mount: page('../pages/dashboard/reports'),
-      router: { query: { tab: 'teams' }, pathname: '/dashboard/reports' },
+      router: { query: { tab: 'overview', section: 'teams' }, pathname: '/dashboard/reports' },
       api: { getTeamBenchmark: raw({ hasTeams: true, window: { dora: { from: '2026-10-01', to: '2026-11-01' }, events: { from: '2026-10-01', to: '2026-11-01' }, tz: 'UTC', weekStart: 'monday' }, rows: [] }) },
       gatedOn: 'reports:rollup',
       find: byText(/each row is that team/i),
@@ -2481,7 +2486,7 @@ const CONTROLS: Control[] = [
     behaviour: {
       // Mounted through the page: `advancedEnabled` is computed there from the entitlement.
       mount: page('../pages/dashboard/reports'),
-      router: { query: { tab: 'flow' }, pathname: '/dashboard/reports' },
+      router: { query: { tab: 'delivery', section: 'flow' }, pathname: '/dashboard/reports' },
       api: { getQueueWaits: raw(null), getQueueWaitTrend: raw([]), getApprovalWaits: raw(null) },
       gatedOn: 'feature',
       // The entitled approvals panel's empty state; the locked teaser does not carry it.
@@ -2500,7 +2505,7 @@ const CONTROLS: Control[] = [
     behaviour: {
       renders: 'the Reports page, so the `hasPermission(user, …)` that computes `canMark` really runs.',
       mount: page('../pages/dashboard/reports'),
-      router: { query: { tab: 'dora' }, pathname: '/dashboard/reports' },
+      router: { query: { tab: 'delivery', section: 'dora' }, pathname: '/dashboard/reports' },
       api: {
         listPipelines: { pipelines: [{ id: 'p1', pipelineName: 'one', project: 'proj', organizationId: 'org-1' }], pagination: { ...EMPTY_PAGE, total: 1 } },
         listPipelineExecutions: { executions: [{ execution_id: 'e1', status: 'succeeded', started_at: '2026-09-02T00:00:00Z', ended_at: '2026-09-02T00:10:00Z', duration_ms: 600000, failing_stage: null, failing_action: null }] },
@@ -2547,7 +2552,9 @@ const CONTROLS: Control[] = [
     routes: ['pipeline GET /pipelines/scorecard', 'pipeline GET /pipelines/scorecard/history'],
     behaviour: {
       mount: page('../pages/dashboard/reports'),
-      find: button(/^scorecard$/i),
+      // Scorecard is a sub-tab of Quality.
+      router: { query: { tab: 'quality' }, pathname: '/dashboard/reports' },
+      find: byRole('tab', /^scorecard$/i),
       // The tab's gate is now the page's own (`reports:read`), so without it the
       // whole Reports page is refused and the tab is absent. The tab's own
       // locked-in-place state (a deep link landing on the reason) is pinned in
@@ -2584,7 +2591,7 @@ const CONTROLS: Control[] = [
     file: 'src/components/billing/TeamUsageCard.tsx',
     permissions: [],
     pagePermissions: ['billing:read'],
-    page: '/dashboard/billing',
+    page: '/dashboard/usage?tab=billing',
     features: ['team_usage_analytics'],
     routes: ['billing GET /billing/summary/usage-by-team'],
     behaviour: {
@@ -3132,11 +3139,11 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   },
   'quota GET /quotas/at-risk': {
     category: 'sysadmin-console',
-    why: 'getAtRiskQuotas in pages/dashboard/quotas.tsx — the fleet at-risk banner, shown when the viewer holds orgs:read.',
+    why: 'getAtRiskQuotas in src/components/quotas/QuotasTab.tsx — the fleet at-risk banner, shown when the viewer holds orgs:read.',
   },
   'quota GET /quotas/all': {
     category: 'sysadmin-console',
-    why: 'getAllOrgQuotas in src/lib/api/domains/admin.ts, called from pages/dashboard/quotas.tsx for the fleet sidebar.',
+    why: 'getAllOrgQuotas in src/lib/api/domains/admin.ts, called from src/components/quotas/QuotasTab.tsx for the fleet sidebar.',
   },
   ...group('reporting', ['GET /reports/execution/errors', 'GET /reports/plugins/build-failures'], {
     category: 'sysadmin-console',
@@ -3357,7 +3364,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ...group('billing', ['POST /billing/offers/:id/decline', 'POST /billing/offers/:id/dismiss'], {
     category: 'same-control',
     coveredBy: 'Change / cancel the subscription',
-    why: 'The "No thanks" / "Not now" buttons on src/components/billing/OfferCard.tsx (api.declineOffer / api.dismissOffer), rendered by pages/dashboard/billing.tsx and passed `canRespond={canChangePlan}` — the same `isAdmin || billing:manage` the subscription row proves on the same page. Without it the card still shows what was suggested but the two verbs are absent rather than rendered to 403. Audited billing.offer.declined / billing.offer.dismissed.',
+    why: 'The "No thanks" / "Not now" buttons on src/components/billing/OfferCard.tsx (api.declineOffer / api.dismissOffer), rendered by src/components/billing/BillingTab.tsx and passed `canRespond={canChangePlan}` — the same `isAdmin || billing:manage` the subscription row proves on the same page. Without it the card still shows what was suggested but the two verbs are absent rather than rendered to 403. Audited billing.offer.declined / billing.offer.dismissed.',
   }),
   ...group('billing', [
     'PUT /billing/admin/offers/exclusions/:orgId',
@@ -3379,7 +3386,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'quota PUT /quotas/:orgId/notice-settings': {
     category: 'same-control',
     coveredBy: 'Add / remove a billing add-on',
-    why: 'The switch + webhook Save in src/components/quotas/QuotaNoticeSettingsCard.tsx (api.updateQuotaNoticeSettings), rendered by QuotasReadOnly only when the viewer holds `billing:manage` on a ROOT org (`canManageNotices` from pages/dashboard/quotas.tsx) — the same permission the add-on row proves. The server also refuses a team (notices belong to the account). Audited quota.notice_settings.update.',
+    why: 'The switch + webhook Save in src/components/quotas/QuotaNoticeSettingsCard.tsx (api.updateQuotaNoticeSettings), rendered by QuotasReadOnly only when the viewer holds `billing:manage` on a ROOT org (`canManageNotices` from src/components/quotas/QuotasTab.tsx) — the same permission the add-on row proves. The server also refuses a team (notices belong to the account). Audited quota.notice_settings.update.',
   },
   ...group('image-registry', [
     'POST /internal/plugin-publications',
@@ -3497,7 +3504,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform POST /auth/device/approve': { category: 'own-account', why: 'CLI device-approval page; step-up only (the approval IS the authorization).' },
   ...group('platform', ['POST /admin/impersonate/requests/:id/decide', 'POST /admin/impersonate/requests/:id/revoke'], {
     category: 'own-account',
-    why: 'Approve / Deny / End session on pages/dashboard/access-requests.tsx — the SUBJECT consenting to (or ending) access to their own data. The page is deliberately ungated in nav.ts because the person being impersonated is usually not an admin; the server scopes the list to them.',
+    why: 'Approve / Deny / End session on src/components/access-requests/AccessRequestsTab.tsx (Inbox → Access requests) — the SUBJECT consenting to (or ending) access to their own data. The page is deliberately ungated in nav.ts because the person being impersonated is usually not an admin; the server scopes the list to them.',
   }),
 
   // ── Soft-delete restore / purge, covered by the global step-up resume ─────
@@ -3585,7 +3592,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'quota PUT /quotas/:orgId': { category: 'sysadmin-console', why: '"Save" in src/components/quotas/QuotasAdmin.tsx, rendered only when the viewer holds `quotas:manage` (the `canEditQuotas` prop). Note the PAGE gate is quotas:read — the control-level check is what matches the route.' },
   'quota POST /quotas/:orgId/reset': {
     category: 'sysadmin-console',
-    why: '"Reset usage counters" on pages/dashboard/quotas.tsx → QuotasAdmin.tsx (step-up dialog as the confirm + api.resetOrgQuota with its token); systemAdmin + step-up.',
+    why: '"Reset usage counters" on src/components/quotas/QuotasTab.tsx → QuotasAdmin.tsx (step-up dialog as the confirm + api.resetOrgQuota with its token); systemAdmin + step-up.',
   },
   'platform POST /users': { category: 'sysadmin-console', why: '"Add user" on pages/dashboard/users.tsx (systemAdminOnly). The route table lists members:manage, but createUserByAdmin (platform/src/controllers/user-admin.ts) refuses anyone who is not a system admin — the same gate as the page. With isSuperAdmin the route also demands aal2 + a second-factor step-up (conditionalGates on the table), so the page confirms that create in a requireStrongFactor StepUpModal (pinned in CONDITIONAL_STEP_UP_CONTROLS).' },
   'pipeline POST /pipelines/admin/orgs/:orgId/runner-signing-key/revoke': { category: 'sysadmin-console', why: '"Revoke key" per row on pages/dashboard/admin/runner-signing-keys.tsx (nav: systemOrgOnly + orgs:read), shown enabled only with `can(\'orgs:manage\')` — the route\'s requireSystemOrgPermission — and confirmed in a StepUpModal whose token it forwards.' },
@@ -4050,7 +4057,8 @@ describe('UI gates match the routes they call', () => {
     // real resolver, not a grep, so renaming the nav entry fails here.
     if (control.pagePermissions?.length) {
       if (!control.page) throw new Error(`${control.control}: pagePermissions needs a \`page\``);
-      const gate = resolvePageGate(control.page);
+      // A tab link (`/dashboard/inbox?tab=messages`) names that tab's gate.
+      const gate = resolveViewGate(control.page);
       for (const permission of control.pagePermissions) {
         // An admin-gated page grants every org-assignable permission, so an
         // `adminOnly` gate covers any of them.

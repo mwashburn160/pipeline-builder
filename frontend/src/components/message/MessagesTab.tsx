@@ -16,7 +16,7 @@ import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useDelete } from '@/hooks/useDelete';
 import { useMutation } from '@/hooks/useMutation';
-import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TabbedLayout as DashboardLayout } from '@/components/ui/TabbedPage';
 import { Card } from '@/components/ui/Card';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
@@ -82,7 +82,7 @@ function chunks(ids: string[]): string[][] {
 /** "1 message" / "3 messages". */
 const plural = (n: number, noun = 'message') => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
-/** Query-string key of the message deep link: `/dashboard/messages?message=<id>`. */
+/** Query-string key of the message deep link: `/dashboard/inbox?tab=messages&message=<id>`. */
 export const MESSAGE_QUERY_KEY = 'message';
 
 /** Placeholder shown in the thread panel when no conversation is selected. */
@@ -100,7 +100,7 @@ function EmptyChat() {
 }
 
 /** Message inbox page. Displays conversations in a split-panel layout with compose, thread view, and unread tracking. */
-export default function MessagesPage() {
+export default function MessagesTab() {
   const { accessDenied, user, isReady, isSuperAdmin, can, isReadOnly } = useAuthGuard();
   // `messages:write` unlocks full compose (address other orgs/teams directly)
   // vs. the support-only contact form. Broadcast-to-all-orgs announcements stay

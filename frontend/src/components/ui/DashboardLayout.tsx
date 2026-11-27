@@ -14,6 +14,8 @@ import { useSidebarState } from '@/hooks/useSidebarState';
 import { usePendingMarketplaceClaim } from '@/hooks/usePendingMarketplaceClaim';
 import { MotionFeatures } from './MotionFeatures';
 import { Sidebar } from './Sidebar';
+import { AvatarMenu } from './AvatarMenu';
+import { HelpMenu } from './HelpMenu';
 import { Breadcrumb, type BreadcrumbItem } from './Breadcrumb';
 import { CommandPalette } from './CommandPalette';
 import { OrgSwitcher } from './OrgSwitcher';
@@ -239,10 +241,9 @@ function DashboardShell({
     isAdmin,
     user,
     unreadCount,
-    currentPath: router.pathname,
-    isDark,
-    onToggleDark: toggle,
-    onLogout: logout,
+    // The URL as shown, query included: a row may name one tab of a page
+    // (Org settings is `/dashboard/settings?tab=organization`).
+    currentPath: router.asPath,
   };
 
   return (
@@ -351,10 +352,10 @@ function DashboardShell({
                   <Search className="w-5 h-5" />
                 </button>
                 {/* Notification bell — global unread-messages indicator. Mirrors
-                    the Messages sidebar badge but stays visible on every page
+                    the Inbox sidebar badge but stays visible on every page
                     (and when the sidebar is collapsed). */}
                 <Link
-                  href="/dashboard/messages"
+                  href="/dashboard/inbox?tab=messages"
                   aria-label={unreadCount > 0 ? `Messages — ${unreadCount} unread` : 'Messages'}
                   className="relative p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
                 >
@@ -385,6 +386,10 @@ function DashboardShell({
                 ) : (
                   <FeatureLockedAction flag="ai_generation" label="Ask" icon={Sparkles} iconOnly />
                 )}
+                {/* Help, the API catalog and the CLI downloads. */}
+                <HelpMenu />
+                {/* Profile, security, notification preferences, theme, sign out. */}
+                <AvatarMenu user={user} isDark={isDark} onToggleDark={toggle} onLogout={logout} />
               </div>
             </div>
           </header>

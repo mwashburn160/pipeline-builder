@@ -9,7 +9,7 @@ import { useQuery } from '@/hooks/useQuery';
 import { useFetch } from '@/hooks/useFetch';
 import { ALL_TIER_KEYS, getTierMeta, TIER_KEYS, type TierKey } from '@/lib/tiers';
 import { tierAvailabilityText } from '@/lib/addon-tiers';
-import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TabbedLayout as DashboardLayout } from '@/components/ui/TabbedPage';
 import { Card } from '@/components/ui/Card';
 import { FeatureDisabledCard } from '@/components/ui/FeatureDisabledCard';
 import { Button } from '@/components/ui/Button';
@@ -26,6 +26,7 @@ import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { formatDate } from '@/lib/format';
 import { useUrlTab } from '@/hooks/useUrlTab';
+import { BILLING_SECTION_KEY } from '@/lib/tabbed-pages';
 import { SubscriptionStatusCard } from '@/components/billing/SubscriptionStatusCard';
 import { UsageCard } from '@/components/billing/UsageCard';
 import { BillingDashboard } from '@/components/billing/BillingDashboard';
@@ -50,8 +51,9 @@ import { useBillingActions } from '@/components/billing/useBillingActions';
 // tier for any sold one is the largest downgrade the page can offer.
 const PLAN_RANK: readonly string[] = [...ALL_TIER_KEYS].sort((a, b) => getTierMeta(a).sort - getTierMeta(b).sort);
 
-// Billing page is organized into tabs (same bar as the Reports page). Each is
-// deep-linkable via `?tab=` so links/back-forward land on the right section.
+// Billing is organized into sections (same bar as the Reports page). Each is
+// deep-linkable via `?section=` (the Usage & billing page owns `?tab=`) so
+// links/back-forward land on the right one.
 const BILLING_TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'plans', label: 'Plans' },
@@ -76,7 +78,7 @@ function isPlanDowngrade(fromPlanId: string, toPlanId: string): boolean {
 // ---------------------------------------------------------------------------
 
 /** Billing and subscription management page. Displays current subscription status and plan selection with monthly/annual toggle. */
-export default function BillingPage() {
+export default function BillingTab() {
   const router = useRouter();
   // The page's `billing:read` gate comes from its nav entry (page-access.ts).
   const { accessDenied, user, isReady, isAdmin, isSuperAdmin, can, isReadOnly } = useAuthGuard();
@@ -149,16 +151,17 @@ export default function BillingPage() {
     if (subscription?.interval) setBillingInterval(subscription.interval);
   }, [subscription?.interval]);
 
-  // Active tab lives in `?tab=` (shareable, back/forward-friendly). Tab changes
-  // keep the rest of the query, so a `?highlight=` deep-link survives them.
-  const [activeTab, selectTab] = useUrlTab<BillingTab>('tab', BILLING_TAB_IDS, 'overview');
+  // Active section lives in `?section=` (shareable, back/forward-friendly).
+  // Changes keep the rest of the query, so a `?highlight=` deep-link survives them.
+  const [activeTab, selectTab] = useUrlTab<BillingTab>(BILLING_SECTION_KEY, BILLING_TAB_IDS, 'overview');
   const changeTab = (id: string) => selectTab(id as BillingTab);
-  // A `?highlight=<feature>` upsell link with no explicit tab targets an add-on,
+  // A `?highlight=<feature>` upsell link with no explicit section targets an add-on,
   // which lives on the Add-ons tab — land there. `selectTab` is stable
   // (useUrlTab returns an event callback), so it is an honest, inert dep.
+  const sectionParam = router.query[BILLING_SECTION_KEY];
   useEffect(() => {
-    if (router.isReady && !router.query.tab && router.query.highlight) selectTab('addons');
-  }, [router.isReady, router.query.tab, router.query.highlight, selectTab]);
+    if (router.isReady && !sectionParam && router.query.highlight) selectTab('addons');
+  }, [router.isReady, sectionParam, router.query.highlight, selectTab]);
 
   // Deep-link: `?highlight=<feature>` (e.g. from the Reports DORA upsell CTA)
   // emphasizes + scrolls to the add-on bundle that grants that feature.

@@ -59,6 +59,7 @@ describe('copy names the limit and the price, or refuses', () => {
   });
 
   it('points at ONE place to act, the same path every other surface uses', () => {
+    expect(OFFER_LANDING_PATH).toBe('/dashboard/usage?tab=quotas');
     expect(offerEmailText(facts())!.text).toContain(OFFER_LANDING_PATH);
   });
 

@@ -86,7 +86,7 @@ export default function VerifyEmailPage() {
                 <XCircle className="w-10 h-10 text-danger mx-auto mb-3" />
                 <p className="font-bold">Verification failed</p>
                 <p className="text-sm text-fg-muted mt-1">{message}</p>
-                <LinkButton href="/dashboard/settings" variant="secondary" fullWidth className="text-sm mt-4">
+                <LinkButton href="/dashboard/settings?tab=profile" variant="secondary" fullWidth className="text-sm mt-4">
                   Resend from settings
                 </LinkButton>
               </>

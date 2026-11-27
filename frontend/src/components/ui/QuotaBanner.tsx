@@ -31,19 +31,19 @@ const STYLES: Record<Exclude<QuotaPressureLevel, 'none'>, BannerStyle> = {
     container: 'bg-warning-bg border-warning-border text-warning-strong',
     Icon: Info,
     cta: 'View quotas',
-    href: '/dashboard/quotas',
+    href: '/dashboard/usage?tab=quotas',
   },
   warning: {
     container: 'bg-warning-bg border-warning-border text-warning-strong',
     Icon: AlertTriangle,
     cta: 'Upgrade tier',
-    href: '/dashboard/billing',
+    href: '/dashboard/usage?tab=billing',
   },
   critical: {
     container: 'bg-danger-bg border-danger-border text-danger-strong',
     Icon: AlertOctagon,
     cta: 'Upgrade tier',
-    href: '/dashboard/billing',
+    href: '/dashboard/usage?tab=billing',
   },
 };
 
@@ -190,7 +190,7 @@ export function QuotaExceededNotice({ className = '' }: { className?: string } =
           ? <span className="tabular-nums"> ({detail.used.toLocaleString()} / {detail.limit.toLocaleString()})</span>
           : null}
       </span>
-      <Link href="/dashboard/quotas" className="font-medium underline underline-offset-2 hover:no-underline">
+      <Link href="/dashboard/usage?tab=quotas" className="font-medium underline underline-offset-2 hover:no-underline">
         What used it
       </Link>
       <Link href={upgradeHref} className="font-medium underline underline-offset-2 hover:no-underline">

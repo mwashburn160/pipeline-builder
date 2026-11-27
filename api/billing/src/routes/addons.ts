@@ -412,11 +412,11 @@ export function createAddonRoutes(): Router {
       return sendError(res, 501, 'The configured billing provider has no hosted payment portal', ErrorCode.NOT_IMPLEMENTED);
     }
 
-    // Land the user back on the billing page. Prefer the request Origin (works
+    // Land the user back on the Billing tab of Usage & billing. Prefer the request Origin (works
     // across every deploy host); fall back to the configured frontend URL.
     const origin = (req.headers.origin as string | undefined) || config.frontendUrl;
     if (!origin) return sendError(res, 500, 'Cannot determine a return URL for the billing portal', ErrorCode.INTERNAL_ERROR);
-    const returnUrl = `${origin.replace(/\/$/, '')}/dashboard/billing`;
+    const returnUrl = `${origin.replace(/\/$/, '')}/dashboard/usage?tab=billing`;
 
     const url = await provider.createBillingPortalSession(subscription.externalCustomerId, returnUrl);
     return sendSuccess(res, 200, { url });

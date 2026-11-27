@@ -3,7 +3,7 @@
 
 /**
  * The money paths a buyer lands on from OUTSIDE the app:
- *  - the hosted-Checkout return (`/dashboard/billing?checkout=success`): the
+ *  - the hosted-Checkout return (`/dashboard/usage?tab=billing&checkout=success`): the
  *    page says it is activating, polls the subscription until the webhook has
  *    provisioned it, and strips `?checkout=` so a reload does not re-toast;
  *    `?checkout=cancelled` says nothing changed;
@@ -27,10 +27,12 @@ test('checkout success says it is activating and strips the outcome', async ({ p
   const api = await signedInPage(page);
   api.on('GET /api/billing/plans', { json: { success: true, data: { plans: [PLAN], total: 1 } } });
   api.on('GET /api/billing/subscriptions', { json: { success: true, data: { subscription: SUBSCRIPTION } } });
-  await page.goto('/dashboard/billing?checkout=success');
+  // The URL the billing service builds for Checkout's success_url.
+  await page.goto('/dashboard/usage?tab=billing&checkout=success');
   await expect(page.getByText('Checkout complete — activating your subscription…')).toBeVisible();
-  // Stripped straight away, so a reload does not re-toast.
+  // Stripped straight away, so a reload does not re-toast; the tab stays.
   await expect(page).not.toHaveURL(/checkout=/);
+  await expect(page).toHaveURL(/\/dashboard\/usage\?tab=billing/);
   expect(api.pageErrors).toEqual([]);
 });
 
@@ -45,7 +47,7 @@ test('checkout success keeps polling until the webhook provisions the subscripti
     polls += 1;
     return { json: { success: true, data: { subscription: polls >= 3 ? SUBSCRIPTION : null } } };
   });
-  await page.goto('/dashboard/billing?checkout=success');
+  await page.goto('/dashboard/usage?tab=billing&checkout=success');
   await expect(page.getByText('Checkout complete — activating your subscription…')).toBeVisible();
   await expect.poll(() => polls, { timeout: 20_000 }).toBeGreaterThanOrEqual(3);
 });
@@ -54,7 +56,7 @@ test('checkout cancelled says nothing changed', async ({ page }) => {
   const api = await signedInPage(page);
   api.on('GET /api/billing/plans', { json: { success: true, data: { plans: [PLAN], total: 1 } } });
   api.on('GET /api/billing/subscriptions', { json: { success: true, data: { subscription: SUBSCRIPTION } } });
-  await page.goto('/dashboard/billing?checkout=cancelled');
+  await page.goto('/dashboard/usage?tab=billing&checkout=cancelled');
   await expect(page.getByText('Checkout cancelled — no changes were made.')).toBeVisible();
   await expect(page).not.toHaveURL(/checkout=/);
 });

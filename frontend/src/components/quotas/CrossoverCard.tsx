@@ -60,7 +60,7 @@ export function CrossoverCard({ crossover, currency }: { crossover: CrossoverVer
           )}
 
           <p className="mt-3">
-            <Link href="/dashboard/billing" className="action-link text-sm font-medium">
+            <Link href="/dashboard/usage?tab=billing" className="action-link text-sm font-medium">
               Compare plans
             </Link>
           </p>

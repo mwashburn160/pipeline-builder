@@ -20,7 +20,7 @@ import { Send, Store } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
-import { useUrlTab } from '@/hooks/useUrlTab';
+import { useGroupedUrlTab } from '@/hooks/useGroupedUrlTab';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { Callout } from '@/components/ui/Callout';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -31,7 +31,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { RetryError } from '@/components/ui/RetryError';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Select } from '@/components/ui/Select';
-import { TabBar, tabPanelProps } from '@/components/ui/TabBar';
+import { GroupedTabs, type GroupedTabItem } from '@/components/ui/GroupedTabs';
 import { PublisherProfilePanel } from '@/components/publisher/PublisherProfilePanel';
 import { PublisherListingsPanel } from '@/components/publisher/PublisherListingsPanel';
 import { PublishRequestForm } from '@/components/publisher/PublishRequestForm';
@@ -42,22 +42,18 @@ import { PublisherFixRequestsPanel } from '@/components/publisher/PublisherFixRe
 import api from '@/lib/api';
 import { queryTags } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
+import { PUBLISHER_TABS, type PublisherSection, type PublisherTab } from '@/lib/page-tabs/publisher';
 import type { PublisherContext } from '@/types/ecosystem';
 
-/** Versions offered per search in the Publish tab's picker. */
+/** Versions offered per search in the New request picker. */
 const PICKER_PAGE = 50;
 
-const TABS = [
-  { id: 'profile', label: 'Profile' },
-  { id: 'listings', label: 'Listings' },
-  { id: 'insights', label: 'Insights' },
-  { id: 'publish', label: 'Publish' },
-  { id: 'requests', label: 'Requests' },
-  { id: 'advisories', label: 'Advisories' },
-  { id: 'fixes', label: 'Fix requests' },
-] as const;
-type TabId = (typeof TABS)[number]['id'];
-const TAB_IDS = TABS.map((t) => t.id) as TabId[];
+const TABS: readonly GroupedTabItem<PublisherTab, PublisherSection>[] = [
+  { id: 'profile', label: 'Profile', name: 'Profile' },
+  { id: 'listings', label: 'Listings', name: 'Listings', sections: [{ id: 'listings', label: 'Manage' }, { id: 'insights', label: 'Insights' }] },
+  { id: 'requests', label: 'Requests', name: 'Requests', sections: [{ id: 'requests', label: 'All requests' }, { id: 'publish', label: 'New request' }] },
+  { id: 'security', label: 'Security', name: 'Security', sections: [{ id: 'advisories', label: 'Advisories' }, { id: 'fixes', label: 'Fix requests' }] },
+];
 const TAB_PREFIX = 'publisher';
 
 /** Pick one of the org's own plugin versions, then the draft-driven request form. */
@@ -123,7 +119,10 @@ function PublishTab({ orgId, initialPluginId, onSubmitted }: {
 export default function PublisherPage() {
   const { accessDenied, user, isReady, can } = useAuthGuard();
   const router = useRouter();
-  const [tab, setTab] = useUrlTab<TabId>('tab', TAB_IDS, 'profile');
+  // `?tab=` and its `?section=` (PUBLISHER_TABS).
+  const { tab, section, select } = useGroupedUrlTab(PUBLISHER_TABS);
+  // The view: the tab itself, or its sub-tab.
+  const view = section ?? tab;
   const initialPluginId = useMemo(() => {
     const raw = router.query.pluginId;
     return (Array.isArray(raw) ? raw[0] : raw) ?? null;
@@ -147,7 +146,7 @@ export default function PublisherPage() {
     if (ctxQ.error) return <RetryError message={formatError(ctxQ.error, 'Failed to load the publisher')} onRetry={ctxQ.refetch} />;
     if (!ctx) return <LoadingPage />;
     const blocked = !ctx.publishingEnabled || !ctx.isRootOrg || !ctx.publisher;
-    if (tab === 'profile') {
+    if (view === 'profile') {
       return <PublisherProfilePanel key={ctx.publisher?.updatedAt ?? 'none'} ctx={ctx} canManage={canManage} onChanged={ctxQ.refetch} />;
     }
     if (blocked) {
@@ -163,42 +162,36 @@ export default function PublisherPage() {
         />
       );
     }
-    if (tab === 'listings') return <PublisherListingsPanel canPublish={canPublish} canManage={canManage} />;
+    if (view === 'listings') return <PublisherListingsPanel canPublish={canPublish} canManage={canManage} />;
     // Reading the org's advisories rides `plugins:read` (the server's gate);
     // REQUESTING one is `publishers:manage`, which the panel gates itself.
-    if (tab === 'advisories') {
+    if (view === 'advisories') {
       if (!can('plugins:read')) {
         return <Callout variant="neutral">Viewing your listings&apos; advisories needs the plugins:read permission.</Callout>;
       }
       return <PublisherAdvisoriesPanel canManage={canManage} />;
     }
-    if (tab === 'insights') return <PublisherInsightsPanel />;
+    if (view === 'insights') return <PublisherInsightsPanel />;
     // Fix requests (N40) from nightly CVE remediation are delivered as notices
     // only (no stored list or route), so the tab points at where they arrive.
-    if (tab === 'fixes') return <PublisherFixRequestsPanel />;
-    if (tab === 'publish') {
+    if (view === 'fixes') return <PublisherFixRequestsPanel />;
+    if (view === 'publish') {
       if (!canPublish) {
         return <Callout variant="neutral">Submitting listings and versions needs the plugins:publish permission.</Callout>;
       }
       if (!ctx.terms.accepted) {
         return <Callout variant="warning">Accept the current publisher terms on the Profile tab before submitting requests.</Callout>;
       }
-      return <PublishTab orgId={user.organizationId} initialPluginId={initialPluginId} onSubmitted={() => setTab('requests')} />;
+      return <PublishTab orgId={user.organizationId} initialPluginId={initialPluginId} onSubmitted={() => select('requests', 'requests')} />;
     }
     return <PublishRequestsPanel canPublish={canPublish} canManage={canManage} />;
   };
 
   return (
     <DashboardLayout title="Publisher" subtitle="Your organization's identity and listings in the public plugin directory">
-      <TabBar
-        items={TABS}
-        activeId={tab}
-        onSelect={(id) => setTab(id as TabId)}
-        idPrefix={TAB_PREFIX}
-        ariaLabel="Publisher sections"
-        className="mb-4"
-      />
-      <div {...tabPanelProps(TAB_PREFIX, tab)}>{body()}</div>
+      <GroupedTabs items={TABS} tab={tab} section={section} onSelect={select} idPrefix={TAB_PREFIX} ariaLabel="Publisher sections">
+        {body()}
+      </GroupedTabs>
     </DashboardLayout>
   );
 }

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0606071217a46f4f3b284cb64158811e0ecde33a94286f431805bd4e25011612
+// SOURCE-SHA256: 97b630b5e74678b160e77198a0942d61c20524399e6b5efd033128330853a0b7
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -173,7 +173,7 @@ export const notificationsTopic: HelpTopic = {
               "nothing platform-level — sent by the plugin / compliance service directly"
             ],
             [
-              "In-app inbox (/dashboard/messages)",
+              "In-app inbox (/dashboard/inbox?tab=messages)",
               "nobody — always on",
               "the message service (MESSAGE_ENABLED, defaults on)"
             ],
@@ -559,7 +559,7 @@ export const notificationsTopic: HelpTopic = {
             [
               "in-app",
               "none",
-              "Appends a row to the org's /dashboard/messages inbox, authored by the system org"
+              "Appends a row to the org's inbox (/dashboard/inbox?tab=messages), authored by the system org"
             ],
             [
               "email",

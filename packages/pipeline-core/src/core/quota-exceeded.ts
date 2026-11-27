@@ -32,7 +32,7 @@ export function isQuotaExceededBody(body: unknown): boolean {
 
 /**
  * `"API call quota reached (25,000/25,000); resets 2026-11-05. Upgrade:
- * https://pb.example.com/dashboard/billing"` for a quota refusal body, or
+ * https://pb.example.com/dashboard/usage?tab=billing"` for a quota refusal body, or
  * `undefined` for anything else. `platformUrl` prefixes the RELATIVE upgrade
  * path the server sends (the dashboard and API share an origin behind nginx).
  */

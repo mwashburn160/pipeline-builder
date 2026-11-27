@@ -23,8 +23,8 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { User } from '../src/types';
 
 let features: string[] = [];
-/** An org admin who may configure SSO (`org_idp:write`) but whose plan has no `sso`. */
-const mockViewer = { id: 'u1', username: 'dana', permissions: ['org_idp:write', 'members:manage'] };
+/** An org admin who may configure SSO (`org_idp:write`) and read messages, but whose plan has no `sso` and no support level. */
+const mockViewer = { id: 'u1', username: 'dana', permissions: ['org_idp:write', 'members:manage', 'messages:read'] };
 jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ isReadOnly: false, user: mockViewer })));
 jest.mock('@/hooks/useBillingEnabled', () => ({ __esModule: true, useBillingEnabled: () => true }));
 jest.mock('@/hooks/useFeatures', () => ({
@@ -57,37 +57,43 @@ const sidebarProps = {
   user: ssoAdmin,
   unreadCount: 0,
   currentPath: '/dashboard',
-  isDark: false,
-  onToggleDark: jest.fn<AnyFn>(),
-  onLogout: jest.fn<AnyFn>(),
 };
 
 beforeEach(() => { features = []; });
 
+// Single sign-on moved under Org settings and is a ⌘K entry now (see below);
+// Support is the sidebar row that carries an entitlement, so it is the one
+// that proves the rail locks rather than deletes. Its gate is the OR form
+// (`requiredAnyFeature`): any one support level unlocks it.
 describe('Sidebar — an entitlement locks a row, it never deletes it', () => {
-  it('keeps Single Sign-On listed, and says in TEXT that it is off-plan', () => {
+  it('keeps Support listed, and says in TEXT that it is off-plan', () => {
     render(<Sidebar {...sidebarProps} />);
-    const link = screen.getByRole('link', { name: /single sign-on/i });
+    const link = screen.getByRole('link', { name: /^support/i });
     // Still a working link: the page behind it renders the FeatureLock upsell.
-    expect(link).toHaveAttribute('href', '/dashboard/settings/sso');
-    expect(link).toHaveAccessibleName(/single sign-on\s*—\s*not included in your plan/i);
+    expect(link).toHaveAttribute('href', '/dashboard/support');
+    expect(link).toHaveAccessibleName(/support\s*—\s*not included in your plan/i);
   });
 
-  it('drops the off-plan wording once the org holds the entitlement', () => {
-    features = ['sso'];
+  it('drops the off-plan wording once the org holds any support level', () => {
+    features = ['support_priority'];
     render(<Sidebar {...sidebarProps} />);
-    expect(screen.getByRole('link', { name: /single sign-on/i })).toHaveAccessibleName('Single sign-on');
+    expect(screen.getByRole('link', { name: /^support/i })).toHaveAccessibleName('Support');
   });
 
-  it('still hides it from a viewer without org_idp:write — a permission is not an upsell', () => {
+  it('still hides it from a viewer without messages:read — a permission is not an upsell', () => {
     render(<Sidebar {...sidebarProps} user={{ id: 'u2', username: 'sam', permissions: [] } as unknown as User} />);
-    expect(screen.queryByRole('link', { name: /single sign-on/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /^support/i })).not.toBeInTheDocument();
   });
 
   it('names the lock in the collapsed rail too, where the label is hidden', () => {
     render(<Sidebar {...sidebarProps} collapsed />);
-    expect(screen.getByRole('link', { name: /single sign-on/i }))
-      .toHaveAccessibleName(/single sign-on\s*—\s*not included in your plan/i);
+    expect(screen.getByRole('link', { name: /^support/i }))
+      .toHaveAccessibleName(/support\s*—\s*not included in your plan/i);
+  });
+
+  it('leaves Single sign-on to ⌘K — it lives under Org settings now', () => {
+    render(<Sidebar {...sidebarProps} />);
+    expect(screen.queryByRole('link', { name: /single sign-on/i })).not.toBeInTheDocument();
   });
 });
 
@@ -112,7 +118,7 @@ describe('Command palette — locked entries stay findable and legible', () => {
     features = ['sso'];
     const list = openPalette();
     expect(within(list).getByRole('option', { name: 'Go to Single sign-on' })).toBeInTheDocument();
-    expect(within(list).queryByRole('option', { name: /not on your plan/i })).not.toBeInTheDocument();
+    expect(within(list).queryByRole('option', { name: /single sign-on \(not on your plan\)/i })).not.toBeInTheDocument();
   });
 
   it('finds SSO by acronym, which its title does not contain', () => {
@@ -128,8 +134,8 @@ describe('Command palette — Teams is discoverable at all', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'teams' } });
     const option = within(list).getByRole('option', { name: 'Go to Teams' });
     fireEvent.click(option);
-    // Team management lives on the Members page — one route, two names.
-    expect(push).toHaveBeenCalledWith('/dashboard/members');
+    // Team management is the Teams tab of the Members page.
+    expect(push).toHaveBeenCalledWith('/dashboard/members?tab=teams');
   });
 
   it.each(['hierarchy', 'sub-organization', 'child org'])('answers a search for %p', (term) => {

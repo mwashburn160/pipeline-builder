@@ -34,7 +34,7 @@ export type FeatureEnforcement = 'route' | 'handler' | 'entitlement-only';
 /**
  * How an org ACQUIRES the entitlement — which decides where a lock's CTA points.
  *
- *  - `bundle` — sold as an add-on in the billing catalog. `/dashboard/billing`
+ *  - `bundle` — sold as an add-on in the billing catalog. `/dashboard/usage?tab=billing`
  *               consumes `?highlight=<flag>` and scrolls to the matching card,
  *               so the deep link lands on the thing the viewer must buy.
  *  - `tier`   — included from some plan upward and NOT purchasable separately.
@@ -207,10 +207,10 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
  * Only offer it to a viewer who can OPEN that page — see {@link featureUpsellAdvice}.
  */
 export function featureUpsellHref(flag: FeatureFlag): string {
-  if (FEATURE_GATES[flag].acquiredVia === 'operator') return '/dashboard/messages';
+  if (FEATURE_GATES[flag].acquiredVia === 'operator') return '/dashboard/inbox?tab=messages';
   return FEATURE_GATES[flag].acquiredVia === 'tier'
-    ? '/dashboard/billing?tab=plans'
-    : `/dashboard/billing?highlight=${flag}`;
+    ? '/dashboard/usage?tab=billing&section=plans'
+    : `/dashboard/usage?tab=billing&highlight=${flag}`;
 }
 
 /** Link text for the upsell CTA, matching where {@link featureUpsellHref} goes. */
@@ -233,7 +233,7 @@ export function featureUpsellTrailer(flag: FeatureFlag): string {
 
 /**
  * What a lock says instead of the billing deep link when the viewer can't use
- * it: `/dashboard/billing` needs `billing:read` (a developer doesn't hold it)
+ * it: `/dashboard/usage?tab=billing` needs `billing:read` (a developer doesn't hold it)
  * and disappears entirely when the deployment runs with billing off. Sending
  * them there anyway swaps the upsell for a full-screen AccessDenied — a worse
  * dead end than the lock they just clicked.

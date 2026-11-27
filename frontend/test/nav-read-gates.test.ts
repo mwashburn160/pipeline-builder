@@ -16,11 +16,13 @@ import { hasPermission } from '../src/lib/auth-helpers';
 import { NAV_SECTIONS, isNavItemVisible, navItemLockedFeature, type NavItem } from '../src/lib/nav';
 import { resolvePageGate } from '../src/lib/page-access';
 
+// Quotas, Billing and Messages are tabs; their palette entries point at the
+// tab and carry the tab's read.
 const GATED: Record<string, string> = {
-  '/dashboard/quotas': 'quotas:read',
+  '/dashboard/usage?tab=quotas': 'quotas:read',
   '/dashboard/reports': 'reports:read',
-  '/dashboard/billing': 'billing:read',
-  '/dashboard/messages': 'messages:read',
+  '/dashboard/usage?tab=billing': 'billing:read',
+  '/dashboard/inbox?tab=messages': 'messages:read',
 };
 
 function findItem(href: string, title?: string): NavItem {
@@ -153,7 +155,7 @@ describe('entitlement-gated nav items are locked, not hidden', () => {
 });
 
 describe('Teams entry point', () => {
-  const TEAMS = findItem('/dashboard/members', 'Teams');
+  const TEAMS = findItem('/dashboard/members?tab=teams', 'Teams');
 
   it('is findable in ⌘K by the words people actually type', () => {
     expect(TEAMS.paletteOnly).toBe(true);
@@ -162,7 +164,7 @@ describe('Teams entry point', () => {
     }
   });
 
-  it('rides the Members page gate, so it never advertises a page that denies', () => {
+  it('rides the Teams tab gate, so it never advertises a tab that denies', () => {
     expect(TEAMS.requiredPermission).toBe('members:manage');
     expect(isNavItemVisible(TEAMS, ctx({ permissions: [] }))).toBe(false);
     expect(isNavItemVisible(TEAMS, ctx({ permissions: ['members:manage'] }))).toBe(true);
@@ -183,7 +185,8 @@ describe('Teams entry point', () => {
       }));
       expect({ href, gates }).toEqual({ href, gates: gates.map(() => gates[0]) });
     }
-    expect(resolvePageGate('/dashboard/members')).toEqual({ permission: 'members:manage' });
+    // Members is a merged page: it opens for a holder of ANY of its tabs.
+    expect(resolvePageGate('/dashboard/members')).toEqual({ anyOf: [{ permission: 'members:manage' }, { permission: 'members:manage' }, { permission: 'roles:manage' }, { permission: 'invitations:manage' }] });
   });
 
   it('keys a page gate by its own entry, never by a link to one of its tabs', () => {
@@ -197,7 +200,7 @@ describe('Access Requests nav entry', () => {
   it('is visible to an ordinary member with NO permissions', () => {
     // The person most often asked to approve is the impersonated user, who is
     // usually not an admin. Gating this entry would leave them no way to answer.
-    const item = findItem('/dashboard/access-requests');
+    const item = findItem('/dashboard/inbox?tab=access-requests');
     expect(item.requiredPermission).toBeUndefined();
     expect(isNavItemVisible(item, ctx({ permissions: [] }))).toBe(true);
   });

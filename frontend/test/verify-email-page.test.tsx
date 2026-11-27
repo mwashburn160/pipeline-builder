@@ -48,7 +48,7 @@ describe('verify-email page', () => {
     apiFn('verifyEmail').mockResolvedValueOnce({ success: false });
     const { unmount } = render(<VerifyEmailPage />);
     expect(await screen.findByText('This verification link is invalid or has expired.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Resend from settings' })).toHaveAttribute('href', '/dashboard/settings');
+    expect(screen.getByRole('link', { name: 'Resend from settings' })).toHaveAttribute('href', '/dashboard/settings?tab=profile');
     unmount();
     apiFn('verifyEmail').mockRejectedValueOnce(new Error('Token already used'));
     render(<VerifyEmailPage />);

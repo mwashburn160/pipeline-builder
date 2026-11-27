@@ -330,8 +330,8 @@ describe('POST /subscriptions/checkout', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { url: 'https://checkout.stripe/xyz' });
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith('cust-1', 'pro', 'monthly', {
       orgId: 'org-1',
-      successUrl: 'https://app.example/dashboard/billing?checkout=success',
-      cancelUrl: 'https://app.example/dashboard/billing?checkout=cancelled',
+      successUrl: 'https://app.example/dashboard/usage?tab=billing&checkout=success',
+      cancelUrl: 'https://app.example/dashboard/usage?tab=billing&checkout=cancelled',
     });
     // No local subscription is created here — the webhook provisions it on completion.
     expect(mockSubscriptionCreate).not.toHaveBeenCalled();

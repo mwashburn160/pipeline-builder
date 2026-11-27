@@ -35,7 +35,7 @@ describe('AddToTeamModal', () => {
       render(<AddToTeamModal target={{ orgId: 't1', orgName: 'Platform' }} email="out@other.io" onEmailChange={jest.fn()} form={refused} onSubmit={jest.fn()} onClose={jest.fn()} canInvite inviteEmail="out@other.io" />);
       expect(screen.getByText(/not in your organization yet/i)).toBeInTheDocument();
       const link = screen.getByRole('link', { name: /invite out@other.io to the organization/i });
-      expect(link).toHaveAttribute('href', '/dashboard/invitations?email=out%40other.io');
+      expect(link).toHaveAttribute('href', '/dashboard/members?tab=invitations&email=out%40other.io');
     });
 
     it('names who can invite (no link) without invitation access', () => {

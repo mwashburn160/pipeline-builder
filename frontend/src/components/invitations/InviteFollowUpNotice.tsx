@@ -82,7 +82,7 @@ export function InviteFollowUpNotice({ orgId, role, hasTeams, rolesChosen }: Inv
         {rolesChosen === 0 && (
           <li>
             No roles selected, so they start with the coarse {role} permissions only. Fine-grained
-            permissions come from <Link href="/dashboard/roles" className="action-link">Roles</Link> — pick
+            permissions come from <Link href="/dashboard/members?tab=roles" className="action-link">Roles</Link> — pick
             them above to have them applied on acceptance, or grant them later from Members → Manage roles.
           </li>
         )}

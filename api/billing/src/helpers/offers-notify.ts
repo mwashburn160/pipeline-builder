@@ -52,7 +52,7 @@ import type { OfferType } from '../models/offer.js';
 const logger = createLogger('offers-notify');
 
 /** Where an account goes to act on any of this. One path, so the mail, the card and the banner agree. */
-export const OFFER_LANDING_PATH = '/dashboard/quotas';
+export const OFFER_LANDING_PATH = '/dashboard/usage?tab=quotas';
 
 /**
  * The two switches the consent check ANDs. Both arrive on the profile read billing already

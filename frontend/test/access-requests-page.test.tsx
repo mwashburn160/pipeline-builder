@@ -19,7 +19,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
-import AccessRequestsPage from '../pages/dashboard/access-requests';
+import AccessRequestsPage from '../src/components/access-requests/AccessRequestsTab';
 import { ApiError } from '../src/lib/api/errors';
 import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 

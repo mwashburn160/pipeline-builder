@@ -108,7 +108,7 @@ export function OfferCard({ canRespond, subscriptionId, bundles, interval = 'mon
 
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <Link
-              href={offer.offerType === 'upgrade' ? '/dashboard/billing?view=plans' : '/dashboard/billing?view=addons'}
+              href={offer.offerType === 'upgrade' ? '/dashboard/usage?tab=billing&section=plans' : '/dashboard/usage?tab=billing&section=addons'}
               className="action-link text-sm font-medium"
             >
               {offer.offerType === 'upgrade' ? 'Compare plans' : 'See the add-on'}

@@ -69,7 +69,7 @@ export function AddToTeamModal({
         <p className="mt-2 text-sm text-fg-muted">
           {canInvite ? (
             <>
-              <Link href={`/dashboard/invitations?email=${encodeURIComponent(inviteEmail)}`} className="action-link font-medium underline">
+              <Link href={`/dashboard/members?tab=invitations&email=${encodeURIComponent(inviteEmail)}`} className="action-link font-medium underline">
                 Invite {inviteEmail} to the organization
               </Link>{' '}first — once they accept, add them to {target.orgName}.
             </>

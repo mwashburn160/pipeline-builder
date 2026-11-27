@@ -251,9 +251,9 @@ function prerequisiteLink(unmet: NonNullable<Bundle['unmetRequirement']>, bundle
   const provider = unmet.bundleIds.map((id) => bundles.find((b) => b.id === id)).find(Boolean)
     ?? unmet.features.map((f) => bundles.find((b) => b.features?.includes(f))).find(Boolean);
   if (provider) {
-    return { href: { pathname: '/dashboard/billing', query: { tab: 'addons', highlight: provider.id } }, label: `Add ${provider.name} first` };
+    return { href: { pathname: '/dashboard/usage', query: { tab: 'billing', section: 'addons', highlight: provider.id } }, label: `Add ${provider.name} first` };
   }
-  return { href: { pathname: '/dashboard/billing', query: { tab: 'plans' } }, label: 'Upgrade your plan' };
+  return { href: { pathname: '/dashboard/usage', query: { tab: 'billing', section: 'plans' } }, label: 'Upgrade your plan' };
 }
 
 /** Human labels for the feature flags a bundle grants (unknown flags pass through raw). */

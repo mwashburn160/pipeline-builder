@@ -67,7 +67,7 @@ export function InviteRolePicker({ orgId, value, onChange, disabled }: InviteRol
       <legend className="label">Roles <span className="font-normal text-fg-subtle">(optional)</span></legend>
       <p className="mb-2 text-xs text-fg-muted">
         Assigned when they accept, so they can work on day one. Fine-grained permissions come from{' '}
-        <Link href="/dashboard/roles" className="action-link">Roles</Link> — pick one here instead of
+        <Link href="/dashboard/members?tab=roles" className="action-link">Roles</Link> — pick one here instead of
         granting admin and demoting later.
       </p>
       <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-default p-2">

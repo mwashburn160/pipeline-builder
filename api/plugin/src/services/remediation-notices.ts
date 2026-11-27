@@ -156,7 +156,7 @@ export function remediationNoticesEnabled(): boolean {
 
 /** The remediation card on the plugins page. */
 export const remediationUrl = (remediationId: string): string =>
-  `${frontendBaseUrl()}/dashboard/plugins?tab=remediations&remediation=${encodeURIComponent(remediationId)}`;
+  `${frontendBaseUrl()}/dashboard/plugins?tab=security&section=remediations&remediation=${encodeURIComponent(remediationId)}`;
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 /** `1 finding` / `2 findings`; a consonant + `y` takes `-ies` (`2 vulnerabilities`). */

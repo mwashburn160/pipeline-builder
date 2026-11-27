@@ -44,7 +44,7 @@ const LIST = (over: Record<string, unknown> = {}) => ok({
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockRouter.query = { tab: 'remediations' };
+  mockRouter.query = { tab: 'security', section: 'remediations' };
   api.listPlugins.mockReturnValue(ok({ plugins: [], pagination: { total: 0, limit: 25, offset: 0, hasMore: false } }));
   api.getPluginUsage.mockReturnValue(ok({ counts: {} }));
   api.getPluginShadowing.mockReturnValue(ok({ shadowing: [] }));
@@ -67,7 +67,7 @@ describe('Plugins → Remediations', () => {
   });
 
   it('opens the deep-linked remediation, and a viewer without plugins:write gets no Approve', async () => {
-    mockRouter.query = { tab: 'remediations', remediation: 'rem-1' };
+    mockRouter.query = { tab: 'security', section: 'remediations', remediation: 'rem-1' };
     mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => p === 'plugins:read' });
     render(<PluginsPage />);
     expect(await screen.findByTestId('remediation-card')).toBeTruthy();

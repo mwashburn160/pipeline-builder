@@ -8,9 +8,9 @@ import { aiQuotaBlocked, isAITrialTier, type AIKeySource } from '@/lib/ai-quota'
 import type { AIQuota } from '@/hooks/useAIQuota';
 
 /** Where a trial runs out to: the Plans tab, since AI calls come with a plan. */
-const PLANS_HREF = '/dashboard/billing?tab=plans';
+const PLANS_HREF = '/dashboard/usage?tab=billing&section=plans';
 /** Where a paid org at its limit goes (plans and the add-on packs). */
-const BILLING_HREF = '/dashboard/billing';
+const BILLING_HREF = '/dashboard/usage?tab=billing';
 
 /**
  * The one line every AI surface shows BEFORE a generation: how many AI calls
