@@ -9,8 +9,9 @@
  */
 
 import { createContext, Script, type Context } from 'vm';
-import { createLogger, envInt, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import type { RuleFieldFunction, RuleOperator } from '@pipeline-builder/api-core';
+import { config } from '../config.js';
 
 const logger = createLogger('rule-operators');
 
@@ -19,13 +20,13 @@ const logger = createLogger('rule-operators');
  * `COMPLIANCE_MAX_REGEX_LENGTH`. Authoring-time hygiene only — it is NOT the
  * ReDoS bound (a 9-character `(a+)+$` is already catastrophic).
  */
-const MAX_REGEX_LENGTH = envInt('COMPLIANCE_MAX_REGEX_LENGTH', 100, { min: 1 });
+const MAX_REGEX_LENGTH = config.rules.maxRegexLength;
 
 /**
  * HARD wall-clock bound on one rule-authored regex match. Override via
  * `COMPLIANCE_REGEX_TIMEOUT_MS`.
  */
-const REGEX_TIMEOUT_MS = envInt('COMPLIANCE_REGEX_TIMEOUT_MS', 50, { min: 1 });
+const REGEX_TIMEOUT_MS = config.rules.regexTimeoutMs;
 
 /**
  * ReDoS bound for rule-authored patterns.

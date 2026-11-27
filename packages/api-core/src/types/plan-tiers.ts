@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envBool, envInt, envNameFragment, envStr } from '../utils/env.js';
+import { apiCoreConfig } from '../config.js';
 import type { QuotaType } from './common.js';
 import { DEFAULT_TIER_LIMITS, tierLabel, type PlanTierLimits } from './tier-limits.js';
+import { envBool, envInt, envNameFragment, envStr } from '../utils/env.js';
 
 /**
  * The limits shape, the code-default table and the sizing arithmetic live in
@@ -59,8 +60,8 @@ export interface PlanTierPreset {
  * mechanism existed and only the predicate excluded it.
  */
 const QUOTA_GRACE_PCT: Readonly<Record<string, number>> = {
-  automationCalls: envInt('QUOTA_AUTOMATION_GRACE_PCT', 10, { min: 0, max: 100 }),
-  storageBytes: envInt('QUOTA_STORAGE_GRACE_PCT', 10, { min: 0, max: 100 }),
+  automationCalls: apiCoreConfig.quota.gracePct.automationCalls,
+  storageBytes: apiCoreConfig.quota.gracePct.storageBytes,
   // `satisfies Partial<…>` keeps BOTH properties this map needs: the keys are
   // checked against `QuotaType` (a typo'd `storagebytes` would otherwise leave a
   // banded quota stopping hard at 100%, silently), while the annotation keeps the
@@ -175,11 +176,11 @@ export function isBillingEnabled(): boolean {
  * - Billing DISABLED → `unlimited` (nothing is metered, so everything is uncapped).
  * - Billing ENABLED  → `DEFAULT_PLAN_TIER` if it's a valid standard tier, else `developer`.
  */
-export const DEFAULT_TIER: PlanTier = !isBillingEnabled()
-  ? 'unlimited'
-  : (isValidTier(process.env.DEFAULT_PLAN_TIER ?? '') && process.env.DEFAULT_PLAN_TIER !== 'unlimited'
-    ? (process.env.DEFAULT_PLAN_TIER as PlanTier)
-    : 'developer');
+export const DEFAULT_TIER: PlanTier = (() => {
+  if (!isBillingEnabled()) return 'unlimited';
+  const configured = envStr('DEFAULT_PLAN_TIER', '');
+  return isValidTier(configured) && configured !== 'unlimited' ? configured : 'developer';
+})();
 
 /** Check whether a string is a valid PlanTier. */
 export function isValidTier(value: string): value is PlanTier {
@@ -201,16 +202,15 @@ export function getTierLimits(tier: string): PlanTierLimits {
  * many days after it expires, and platform seeds a new org's counters with the
  * same window (`QUOTA_RESET_DAYS`, default 3).
  */
-export const QUOTA_RESET_DAYS = envInt('QUOTA_RESET_DAYS', 3, { min: 1 });
+export const QUOTA_RESET_DAYS = apiCoreConfig.quota.resetDays;
 
-/** The next quota reset: local midnight `days` from `now`. */
 /**
  * The `cpuCredits` period, in days. A MONTH rather than the global three-day
  * window, because build demand is bursty in a way API traffic is not: a full
  * catalogue rebuild is a day's work that arrives on one day, and a three-day
  * window refuses it while the account holds most of a month's budget unspent.
  */
-export const CPU_CREDITS_PERIOD_DAYS = envInt('QUOTA_CPU_CREDITS_PERIOD_DAYS', 30, { min: 1 });
+export const CPU_CREDITS_PERIOD_DAYS = apiCoreConfig.quota.cpuCreditsPeriodDays;
 
 /**
  * The usage period for ONE quota type, in days.
@@ -230,6 +230,7 @@ export function quotaPeriodDays(type: QuotaType): number {
   return type === 'cpuCredits' ? CPU_CREDITS_PERIOD_DAYS : QUOTA_RESET_DAYS;
 }
 
+/** The next quota reset: local midnight `days` from `now`. */
 export function nextQuotaResetDate(days: number = QUOTA_RESET_DAYS, now: Date = new Date()): Date {
   const date = new Date(now);
   date.setDate(date.getDate() + days);

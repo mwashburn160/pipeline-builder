@@ -1,6 +1,7 @@
 import NextDocument, { Html, Head, Main, NextScript, type DocumentContext, type DocumentInitialProps } from 'next/document';
 import { fontClassNames } from '@/lib/fonts';
 import { requestNonce } from '@/lib/csp';
+import { serverConfig } from '@/lib/server-config';
 
 /**
  * Custom document, added for one reason: `next/font` exposes each face as a CSS
@@ -31,7 +32,7 @@ export default function Document({ nonce }: { nonce?: string }) {
   // so no NEXT_PUBLIC_ prefix is needed and the value never enters the client
   // bundle as a build-time constant; it is read per render, which is what lets
   // one image serve different domains.
-  const siteVerification = process.env.GOOGLE_SITE_VERIFICATION;
+  const siteVerification = serverConfig.googleSiteVerification;
   return (
     <Html lang="en" className={fontClassNames}>
       <Head nonce={nonce}>

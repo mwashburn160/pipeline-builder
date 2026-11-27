@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, envInt } from '@pipeline-builder/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
+import { apiServerConfig } from '../config.js';
 
 const logger = createLogger('mongo-connect');
 
@@ -59,9 +60,7 @@ export async function connectMongo(mongoose: MongooseLike, uri: string): Promise
     });
   }
 
-  const maxPoolSize = envInt('MONGO_MAX_POOL', 20, { min: 1 });
-  const minPoolSize = envInt('MONGO_MIN_POOL', 2, { min: 0 });
-  const serverSelectionTimeoutMS = envInt('MONGO_SERVER_SELECTION_MS', 5000, { min: 1 });
+  const { maxPoolSize, minPoolSize, serverSelectionTimeoutMs: serverSelectionTimeoutMS } = apiServerConfig.mongo;
 
   await mongoose.connect(uri, { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
   logger.info('MongoDB connection established', { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });

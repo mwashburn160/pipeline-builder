@@ -9,7 +9,7 @@
  */
 
 import {
-  envInt, failOnLabel, gatedFindingCount, gatedFixableCount, lastScannedAt, pluginVulnFailOn, scanStaleHours, PLUGIN_CATALOG_LINK_FIELDS,
+  failOnLabel, gatedFindingCount, gatedFixableCount, lastScannedAt, pluginVulnFailOn, scanStaleHours, PLUGIN_CATALOG_LINK_FIELDS,
   STEP_UP_REQUEST_KINDS,
   VERIFY_REQUEST_KINDS,
   type PluginCatalogField,
@@ -18,6 +18,7 @@ import {
 import type { ListingVersionSpecSnapshot, PublisherTier } from '@pipeline-builder/pipeline-data';
 
 import type { PluginRow } from './store.js';
+import { config } from '../../config.js';
 
 // -----------------------------------------------------------------------------
 // Versions
@@ -177,7 +178,7 @@ export interface Gate {
  * requested — the ecosystem vuln gate.
  */
 export function vulnGateMaxFindings(): number {
-  return envInt('ECOSYSTEM_VULN_GATE_MAX_FINDINGS', 0, { min: 0 });
+  return config.ecosystem.vulnGateMaxFindings;
 }
 
 /**

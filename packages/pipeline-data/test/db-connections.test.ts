@@ -104,6 +104,17 @@ describe('primary Connection', () => {
     expect(c.isClosing()).toBe(false);
   });
 
+  it('close: a prompt close clears its timeout timer (does not hold the event loop open)', async () => {
+    const c = Connection.getInstance({ enableLogging: false });
+    const clearSpy = jest.spyOn(global, 'clearTimeout');
+    try {
+      await c.close(60_000);
+      expect(clearSpy).toHaveBeenCalled();
+    } finally {
+      clearSpy.mockRestore();
+    }
+  });
+
   it('close while already closing is a no-op', async () => {
     const c = Connection.getInstance({ enableLogging: false });
     let finish: () => void = () => undefined;

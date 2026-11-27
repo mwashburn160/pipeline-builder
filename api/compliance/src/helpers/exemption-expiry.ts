@@ -31,7 +31,6 @@ import {
   createLogger,
   createScheduler,
   DEFAULT_LEADER_LOCK_TTL_MS,
-  envInt,
   leaderLockKey,
   recordAudit,
   SYSTEM_ACTOR_ID,
@@ -40,11 +39,12 @@ import {
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, gt, isNull, lte } from 'drizzle-orm';
 import { inAppChannel } from './notification-channels.js';
+import { config } from '../config.js';
 
 const logger = createLogger('exemption-expiry');
 
 /** How far ahead of `expiresAt` the org is warned. */
-export const EXPIRY_WARN_DAYS = envInt('COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS', 7, { min: 1, max: 90 });
+export const EXPIRY_WARN_DAYS = config.exemptionExpiryWarnDays;
 /** Sweep cadence — daily is enough at day-granularity warnings. */
 const SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;

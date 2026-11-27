@@ -10,7 +10,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import {
   PENDING_RUN_REQUEST_STATUSES, RUNNER_REPLY_ERROR_CODES, runnerTunable, TERMINAL_RUN_REQUEST_STATUSES,
-  type RunnerDeliveryFailureClass, type RunnerErrorCode, type RunnerReplyErrorCode, type RunRequestStatus, type RunnerTunableEnv,
+  type RunnerDeliveryFailureClass, type RunnerErrorCode, type RunRequestStatus, type RunnerTunableEnv,
 } from '@pipeline-builder/api-core/pipeline-runners';
 
 const logger = createLogger('runner-settings');
@@ -32,7 +32,6 @@ export const PENDING_STATUSES: readonly RunRequestStatus[] = PENDING_RUN_REQUEST
 
 /** Error codes a RUNNER answers with (its 4xx/5xx `errorCode`). */
 export const RUNNER_REPLY_ERRORS = RUNNER_REPLY_ERROR_CODES;
-export type RunnerReplyError = RunnerReplyErrorCode;
 
 // Terminal codes the platform records on a request on its own.
 /** Not delivered within the request's 10 minutes. */

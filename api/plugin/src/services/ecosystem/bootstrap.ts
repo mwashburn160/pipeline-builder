@@ -7,13 +7,14 @@
  * (docs/runbooks/ecosystem-moderation.md).
  */
 
-import { envInt, createLogger, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
+import { createLogger, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
 import { OFFICIAL_PUBLISHER_HANDLE, type PluginPublishRequest, type Publisher } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 
 import { ecosystemAudit } from './audit.js';
 import { isOfficialLoader, type Caller } from './context.js';
 import { atomically, elevated, listings, settings } from './store.js';
+import { config } from '../../config.js';
 
 const logger = createLogger('ecosystem-bootstrap');
 
@@ -34,7 +35,7 @@ export interface BootstrapState {
 
 /** How long the bootstrap window stays open once the first Official request rides it. */
 export function bootstrapWindowMs(): number {
-  return envInt('ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS', 24, { min: 1 }) * 3_600_000;
+  return config.ecosystem.bootstrapWindowMs;
 }
 
 /** The advisory lock every first opener takes (the settings row may not exist yet). */

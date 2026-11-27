@@ -29,7 +29,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { envInt, createEnvRedisLock, createLogger, AppError, ErrorCode, leaderLockKey, PUBLISHER_TIERS, SYSTEM_ORG_ID, withLeaderLock, type LockRedis, type PublisherTier } from '@pipeline-builder/api-core';
+import { createEnvRedisLock, createLogger, AppError, ErrorCode, leaderLockKey, PUBLISHER_TIERS, SYSTEM_ORG_ID, withLeaderLock, type LockRedis, type PublisherTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge } from '@pipeline-builder/api-server';
 
 import { cosignCompanionTags, isCosignCompanionTag } from './cosign-tags.js';
@@ -57,6 +57,7 @@ import {
 import { invalidateOrgStorageCache, invalidateStorageCache } from './storage-usage.js';
 import { TtlCache } from './ttl-cache.js';
 import { config } from '../config/index.js';
+import { tunables } from '../config/tunables.js';
 
 const logger = createLogger('public-publishing');
 
@@ -168,7 +169,7 @@ export interface PublicationVerification {
  * on, and every resign/yank/gc clears the pod that ran it — the TTL bounds how
  * long another replica can serve the old annotations.
  */
-const VERIFY_CACHE_TTL_MS = envInt('PUBLIC_VERIFY_CACHE_TTL_MS', 60_000, { min: 1 });
+const VERIFY_CACHE_TTL_MS = tunables.publicVerifyCacheTtlMs;
 const verifyCache = new TtlCache<PublicationVerification>(5000, VERIFY_CACHE_TTL_MS);
 
 const cacheKey = (repository: string, digest: string) => `${repository}@${digest}`;

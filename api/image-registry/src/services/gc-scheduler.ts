@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler, leaderLockKey } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { listRepositoriesUnderPrefix } from './registry-client.js';
 import { GC_FAILED_COUNTER, runQuarantineGc, runRegistryGc } from './registry-gc.js';
 import { computeStorageUsage, invalidateStorageCache } from './storage-usage.js';
+import { tunables } from '../config/tunables.js';
 
 const logger = createLogger('gc-scheduler');
 
@@ -57,11 +58,11 @@ interface SchedulerOptions {
  */
 function readConfig(): SchedulerOptions {
   return {
-    enabled: process.env.REGISTRY_GC_ENABLED === 'true',
-    intervalMs: envInt('REGISTRY_GC_INTERVAL_HOURS', 24, { min: 1 }) * 60 * 60 * 1000,
-    maxAgeDays: envInt('REGISTRY_GC_MAX_AGE_DAYS', 30, { min: 1 }),
-    startupDelayMs: envInt('REGISTRY_GC_STARTUP_DELAY_MS', 300_000, { min: 0 }),
-    lockTtlMs: envInt('REGISTRY_GC_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1 }),
+    enabled: tunables.gc.enabled,
+    intervalMs: tunables.gc.intervalHours * 60 * 60 * 1000,
+    maxAgeDays: tunables.gc.maxAgeDays,
+    startupDelayMs: tunables.gc.startupDelayMs,
+    lockTtlMs: tunables.gc.lockTtlMs,
   };
 }
 

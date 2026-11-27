@@ -37,19 +37,19 @@
  */
 
 import type { QuotaService, QuotaUsageAttribution } from './quota.js';
+import { apiCoreConfig } from '../config.js';
 import type { QuotaType } from '../types/common.js';
 import { runConcurrent } from '../utils/concurrency.js';
-import { envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 
 const logger = createLogger('quota-increment-batcher');
 
 /** Flush interval (ms). `0` disables batching: every increment is sent on its own. */
-export const QUOTA_INCREMENT_FLUSH_MS = envInt('QUOTA_INCREMENT_FLUSH_MS', 1000, { min: 0, max: 60_000 });
+export const QUOTA_INCREMENT_FLUSH_MS = apiCoreConfig.quota.incrementFlushMs;
 
 /** Most attribution groups held between flushes, across every org. */
-export const QUOTA_INCREMENT_BUFFER_MAX = envInt('QUOTA_INCREMENT_BUFFER_MAX', 10_000, { min: 1 });
+export const QUOTA_INCREMENT_BUFFER_MAX = apiCoreConfig.quota.incrementBufferMax;
 
 /** Most groups one metered increment carries (the quota service enforces the same bound). */
 export const MAX_GROUPS_PER_INCREMENT = 500;

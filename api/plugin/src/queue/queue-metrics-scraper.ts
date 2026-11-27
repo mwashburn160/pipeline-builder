@@ -12,9 +12,10 @@
  * a few dozen series. Safe to label.
  */
 
-import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { setGauge } from '@pipeline-builder/api-server';
 import type { Queue } from 'bullmq';
+import { config } from '../config.js';
 
 
 const logger = createLogger('queue-metrics-scraper');
@@ -22,7 +23,7 @@ const logger = createLogger('queue-metrics-scraper');
 /** Scrape interval. Picked to give Prometheus' 15s scrape ample fresh samples.
  *  Override via `PLUGIN_QUEUE_METRICS_INTERVAL_MS`. NaN-guarded so a garbage
  *  env value falls back to the default instead of a nonsensical `NaN` interval. */
-const DEFAULT_INTERVAL_MS = envInt('PLUGIN_QUEUE_METRICS_INTERVAL_MS', 15000, { min: 1 });
+const DEFAULT_INTERVAL_MS = config.queue.metricsIntervalMs;
 
 /** BullMQ states reported by `getJobCounts`. BullMQ 6 dropped `paused` from
  *  `JobType` — a paused queue's jobs are reported as `waiting` — so the gauge

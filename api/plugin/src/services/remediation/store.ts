@@ -257,12 +257,6 @@ export async function listRemediations(q: ListQuery): Promise<{ rows: PluginReme
   return { rows: page, nextCursor: rows.length > q.limit ? encodeCursor(page[page.length - 1]!) : null };
 }
 
-/** Whether a version has a remediation still building or awaiting approval. */
-export async function activeRemediationOf(pluginId: string): Promise<PluginRemediation | null> {
-  const rows = await elevatedTx((tx) => tx.select().from(R()).where(and(eq(R().pluginId, pluginId), inArray(R().stage, [...ACTIVE_BUILD_REMEDIATION_STAGES]))).limit(1)) as PluginRemediation[];
-  return rows[0] ?? null;
-}
-
 // -- settings -----------------------------------------------------------------------
 
 export async function readSettingsRow(orgId: string): Promise<PluginRemediationSettingRow | null> {

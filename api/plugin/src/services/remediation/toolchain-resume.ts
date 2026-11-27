@@ -17,12 +17,12 @@
  */
 
 import {
-  createLogger, createScheduler, DEFAULT_LEADER_LOCK_TTL_MS, envInt, errorMessage, leaderLockKey,
-  TOOLCHAIN_FIX_METRICS, TOOLCHAIN_FIX_RESUME_INTERVAL, type LockRedis, type Scheduler,
+  createLogger, createScheduler, DEFAULT_LEADER_LOCK_TTL_MS, errorMessage, leaderLockKey,
+  TOOLCHAIN_FIX_METRICS, type LockRedis, type Scheduler,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 
-import { remediationConfig } from '../../config.js';
+import { config, remediationConfig } from '../../config.js';
 
 const logger = createLogger('toolchain-fix-resume');
 const LOCK_KEY = leaderLockKey('plugin', 'toolchain-fix-resume');
@@ -36,7 +36,7 @@ export interface ToolchainResumeDeps {
 
 /** TOOLCHAIN_FIX_RESUME_INTERVAL_MS, at least 30 s. */
 export function toolchainResumeIntervalMs(): number {
-  return envInt('TOOLCHAIN_FIX_RESUME_INTERVAL_MS', TOOLCHAIN_FIX_RESUME_INTERVAL.default, { min: TOOLCHAIN_FIX_RESUME_INTERVAL.min });
+  return config.operator.toolchainFixResumeIntervalMs;
 }
 
 const knobsOn = (): boolean => {

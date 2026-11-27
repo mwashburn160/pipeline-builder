@@ -13,7 +13,6 @@ import {
   sendBadRequest,
   ErrorCode,
   createLogger,
-  envInt,
   getParam,
   validateBody,
   parseQueryString,
@@ -25,6 +24,7 @@ import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { BILLING_CURRENCY } from '../config/currency.js';
+import { tunables } from '../config/tunables.js';
 import { createBillingEvent, getBundleCatalog } from '../helpers/billing-helpers.js';
 import { normalizeCampaignId } from '../helpers/campaign.js';
 import { parseAuthoringForm, encodeDiscountCode } from '../helpers/discount-code.js';
@@ -349,13 +349,13 @@ export function createDiscountRoutes(): Router {
   // frontend does not probe speculatively.
   const probeLimit = rateLimitByOrg({
     name: 'discount-preview',
-    max: envInt('BILLING_DISCOUNT_PROBE_RATE_LIMIT_PER_MIN', 10, { min: 1 }),
+    max: tunables.discountProbeRatePerMin,
     windowMs: 60_000,
     message: 'Too many discount-code checks, please slow down.',
   }) as RequestHandler;
   const redeemLimit = rateLimitByOrg({
     name: 'discount-redeem',
-    max: envInt('BILLING_DISCOUNT_REDEEM_RATE_LIMIT_PER_MIN', 5, { min: 1 }),
+    max: tunables.discountRedeemRatePerMin,
     windowMs: 60_000,
     message: 'Too many discount redemption attempts, please slow down.',
   }) as RequestHandler;

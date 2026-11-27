@@ -144,7 +144,12 @@ export async function sweepDefinitions(): Promise<IntervalSweepDefinition[]> {
     import('./org-purge.js'),
     import('./cascade-outbox.js'),
   ]);
-  defs.push(invitationReaperSweep(), impersonationReaperSweep(), orgPurgeSweep(), cascadeOutboxSweep());
+  defs.push(
+    invitationReaperSweep(),
+    impersonationReaperSweep(config.impersonation.reaperIntervalMs),
+    orgPurgeSweep(),
+    cascadeOutboxSweep(),
+  );
 
   // Verify an org's secrets under its new KMS config once every replica's
   // per-org key cache has lapsed (Organization.kmsVerifyDueAt marker).

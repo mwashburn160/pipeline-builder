@@ -210,9 +210,3 @@ export async function initRunnerKeyEncryption(env: NodeJS.ProcessEnv = process.e
     return false;
   }
 }
-
-/** Tests: set the readiness flag (and optionally the base provider) directly. */
-export function setEncryptionStateForTesting(over: Partial<EncryptionState> | null): void {
-  if (over === null) { state.ready = false; state.base = null; state.perOrg = null; return; }
-  Object.assign(state, over);
-}

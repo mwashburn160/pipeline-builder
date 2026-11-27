@@ -36,7 +36,6 @@ import {
   isPluginReviewsEnabled,
   SYSTEM_ACTOR_ID,
   SYSTEM_ORG_ID,
-  envInt,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/markdown';
@@ -61,13 +60,10 @@ import { replies, reports, reviewHistory, reviews, votes } from './reviews-store
 import { refreshListingRating } from './stats.js';
 import { listings, publishers, versions } from './store.js';
 import { DAY_MS, isActiveListing } from './util.js';
+import { config } from '../../config.js';
 
 const logger = createLogger('ecosystem-reviews');
 
-/** Per-org cap on NEW reviews in a rolling day; `REVIEW_ORG_DAILY_LIMIT` overrides. */
-export const REVIEW_ORG_DAILY_LIMIT_DEFAULT = 20;
-/** Distinct open reports (from outside the listing owner's org) that auto-hold a review; `REVIEW_AUTO_HOLD_REPORTS` overrides. */
-export const REVIEW_AUTO_HOLD_REPORTS_DEFAULT = 3;
 /** Burst detection: this many unverified reviews on one listing within the window hold the next ones. */
 export const REVIEW_BURST_THRESHOLD = 5;
 export const REVIEW_BURST_WINDOW_MS = 3_600_000;
@@ -79,8 +75,10 @@ export const REPLY_BODY_MAX = 5_000;
 export const REPORT_REASON_MAX = 2_000;
 export const AUTHOR_NAME_MAX = 100;
 
-export const reviewOrgDailyLimit = (): number => envInt('REVIEW_ORG_DAILY_LIMIT', REVIEW_ORG_DAILY_LIMIT_DEFAULT, { min: 1 });
-export const reviewAutoHoldReports = (): number => envInt('REVIEW_AUTO_HOLD_REPORTS', REVIEW_AUTO_HOLD_REPORTS_DEFAULT, { min: 1 });
+/** Per-org cap on NEW reviews in a rolling day (`REVIEW_ORG_DAILY_LIMIT`, default 20). */
+export const reviewOrgDailyLimit = (): number => config.ecosystem.reviewOrgDailyLimit;
+/** Distinct open reports (from outside the listing owner's org) that auto-hold a review (`REVIEW_AUTO_HOLD_REPORTS`, default 3). */
+export const reviewAutoHoldReports = (): number => config.ecosystem.reviewAutoHoldReports;
 
 // -----------------------------------------------------------------------------
 // Verified use: swappable for tests

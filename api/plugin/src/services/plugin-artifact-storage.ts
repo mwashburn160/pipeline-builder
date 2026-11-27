@@ -36,13 +36,14 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
-import { createLogger, envStr } from '@pipeline-builder/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 import { ensureBucket, s3Client } from '@pipeline-builder/api-core/s3';
+import { config } from '../config.js';
 
 const logger = createLogger('plugin-artifact-storage');
 
 /** Resolved bucket name — the single bucket all plugin build contexts live in. */
-export const PLUGIN_ARTIFACT_BUCKET = envStr('S3_BUCKET', 'plugins');
+export const PLUGIN_ARTIFACT_BUCKET = config.storage.artifactBucket;
 
 /**
  * The SEPARATE bucket anonymous submissions are staged in (plugin-ecosystem
@@ -50,7 +51,7 @@ export const PLUGIN_ARTIFACT_BUCKET = envStr('S3_BUCKET', 'plugins');
  * credentials as the build-context bucket; never read by the tenant build path.
  */
 export function pluginQuarantineBucket(): string {
-  return envStr('PLUGIN_QUARANTINE_BUCKET', 'plugin-quarantine');
+  return config.storage.quarantineBucket;
 }
 
 /** The quarantine key of a submission's zip. */

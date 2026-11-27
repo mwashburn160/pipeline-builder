@@ -3,6 +3,7 @@
 
 import { ErrorCode, errorMessage, sendError } from '@pipeline-builder/api-core';
 import type { ErrorRequestHandler, Request } from 'express';
+import { config } from '../config.js';
 
 /**
  * What both plugin-ZIP upload routes (the authenticated `POST /plugins` and the
@@ -15,7 +16,7 @@ import type { ErrorRequestHandler, Request } from 'express';
  * a path under `/app`. The staged file is transient: each route removes it on every
  * outcome. Override via PLUGIN_UPLOAD_DIR (tests).
  */
-export const UPLOAD_DEST = process.env.PLUGIN_UPLOAD_DIR || '/opt/pipeline/pipeline-data/plugins-data';
+export const UPLOAD_DEST = config.upload.dir;
 
 /** Content types a browser or CLI sends for a ZIP. */
 export const ZIP_UPLOAD_MIME_TYPES = ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'] as const;

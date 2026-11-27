@@ -12,7 +12,6 @@ import {
   createComplianceClient,
   requireFeature,
   runConcurrent,
-  envInt,
   errorMessage,
   requirePermission,
   toComplianceAttributes,
@@ -27,6 +26,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService, viewerCacheSegment } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
+import { config } from '../config.js';
 import {
   averageScore,
   buildScorecard,
@@ -52,9 +52,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const SCORECARD_DEFAULT_DAYS = 30;
 
 /** Cap on pipelines scored per org-wide roll-up (bounds the N× compliance+DORA cost). */
-const ORG_SCORECARD_MAX = envInt('ORG_SCORECARD_MAX_PIPELINES', 50, { min: 1 });
+const ORG_SCORECARD_MAX = config.scorecard.maxPipelines;
 /** Max concurrent per-pipeline computes in a roll-up (bounds load on the compliance service). */
-const ORG_SCORECARD_CONCURRENCY = envInt('ORG_SCORECARD_CONCURRENCY', 4, { min: 1 });
+const ORG_SCORECARD_CONCURRENCY = config.scorecard.concurrency;
 
 /**
  * How long one computed roll-up page is reused (seconds). Every page costs up to

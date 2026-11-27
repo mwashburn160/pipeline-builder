@@ -12,10 +12,10 @@ import {
   getErrorRetryDecision,
   type RetryConfig,
 } from './retry-strategy.js';
+import { apiCoreConfig } from '../config.js';
 import { HttpStatus } from '../constants/http-status.js';
 import type { ServiceConfig } from '../types/common.js';
 import { sleep } from '../utils/concurrency.js';
-import { envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
@@ -25,7 +25,7 @@ const logger = createLogger('http-client');
 /**
  * Default request timeout in milliseconds (env: `HTTP_CLIENT_TIMEOUT_MS`).
  */
-const DEFAULT_TIMEOUT = envInt('HTTP_CLIENT_TIMEOUT_MS', 5000, { min: 1 });
+const DEFAULT_TIMEOUT = apiCoreConfig.httpClient.timeoutMs;
 
 /**
  * Default cap on concurrent keep-alive sockets per client agent
@@ -34,7 +34,7 @@ const DEFAULT_TIMEOUT = envInt('HTTP_CLIENT_TIMEOUT_MS', 5000, { min: 1 });
  * (fd exhaustion + connection-storm on the callee). 64 is ample for
  * service-to-service fan-out while staying bounded.
  */
-const DEFAULT_MAX_SOCKETS = envInt('HTTP_CLIENT_MAX_SOCKETS', 64, { min: 1 });
+const DEFAULT_MAX_SOCKETS = apiCoreConfig.httpClient.maxSockets;
 
 /**
  * Default cap on a response body (bytes; env: `HTTP_CLIENT_MAX_RESPONSE_BYTES`,
@@ -42,7 +42,7 @@ const DEFAULT_MAX_SOCKETS = envInt('HTTP_CLIENT_MAX_SOCKETS', 64, { min: 1 });
  * unbounded body from a misbehaving (or compromised) peer is a memory DoS on the
  * caller. Exceeding it aborts the request with {@link ResponseTooLargeError}.
  */
-const DEFAULT_MAX_RESPONSE_BYTES = envInt('HTTP_CLIENT_MAX_RESPONSE_BYTES', 10 * 1024 * 1024, { min: 1 });
+const DEFAULT_MAX_RESPONSE_BYTES = apiCoreConfig.httpClient.maxResponseBytes;
 
 /** A response body exceeded the client's `maxResponseBytes`. Not retried. */
 export class ResponseTooLargeError extends Error {

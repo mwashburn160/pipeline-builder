@@ -31,8 +31,9 @@
  * which is correct, and costs nothing.
  */
 
-import { createLogger, emitGauge, envInt, withTimeout } from '@pipeline-builder/api-core';
+import { createLogger, emitGauge, withTimeout } from '@pipeline-builder/api-core';
 import type { Pool } from 'pg';
+import { pipelineDataConfig } from '../config.js';
 
 const logger = createLogger('database-read-lag');
 
@@ -47,8 +48,8 @@ const logger = createLogger('database-read-lag');
  * Confusing the two is how a lag threshold ends up tuned to a number that
  * neither protects correctness nor permits any offload.
  */
-const maxLagSeconds = () => envInt('DB_READ_MAX_LAG_SECONDS', 5);
-const sampleIntervalMs = () => envInt('DB_READ_LAG_SAMPLE_MS', 5000);
+const maxLagSeconds = () => pipelineDataConfig.readLag.maxLagSeconds;
+const sampleIntervalMs = () => pipelineDataConfig.readLag.sampleIntervalMs;
 /**
  * How long one sample may take before it is abandoned.
  *
@@ -62,7 +63,7 @@ const sampleIntervalMs = () => envInt('DB_READ_LAG_SAMPLE_MS', 5000);
  * read fell back to the primary permanently — safe, but unrecoverable without
  * a restart, and visible only as PostgresReadCircuitOpen 30 minutes later.
  */
-const sampleTimeoutMs = () => envInt('DB_READ_LAG_SAMPLE_TIMEOUT_MS', 5000);
+const sampleTimeoutMs = () => pipelineDataConfig.readLag.sampleTimeoutMs;
 
 // The sample query is raced against api-core's `withTimeout` so the caller
 // always regains control. The abandoned query is left to the pool — Postgres

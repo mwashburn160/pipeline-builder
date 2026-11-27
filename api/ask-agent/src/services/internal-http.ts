@@ -25,7 +25,6 @@ import {
   buildContractPath,
   createLogger,
   currentAuditContext,
-  envInt,
   errorMessage,
   getServiceAuthHeader,
   InternalHttpClient,
@@ -38,6 +37,7 @@ import type { OnBehalfSubject } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 import { DownstreamError } from './downstream-error.js';
+import { config } from '../config.js';
 
 const logger = createLogger('ask-internal-http');
 
@@ -60,7 +60,7 @@ export interface ServiceClient {
 // Per-call timeout so a hung downstream service can't wedge the whole SSE turn
 // (the tool `execute` runs inside the model's fullStream await). Mirrors the
 // bounded external calls in api/pipeline's git-analysis client.
-export const HTTP_TIMEOUT_MS = envInt('ASK_HTTP_TIMEOUT_MS', 30000, { min: 1 });
+export const HTTP_TIMEOUT_MS = config.http.timeoutMs;
 
 /**
  * Timeout for a DELEGATED generation. The peer runs a model call bounded by
@@ -78,7 +78,7 @@ export const GENERATION_TIMEOUT_MS = Math.max(HTTP_TIMEOUT_MS, AI_REQUEST_TIMEOU
  * page size) must fail the call rather than buffer it into memory — `res.json()`
  * previously read whatever arrived. Generous for any page a tool asks for.
  */
-export const MAX_RESPONSE_BYTES = envInt('ASK_HTTP_MAX_RESPONSE_BYTES', 4 * 1024 * 1024, { min: 1024 });
+export const MAX_RESPONSE_BYTES = config.http.maxResponseBytes;
 
 /** The peer's `code` from an error body, when it is a plain upper-snake identifier. */
 function errorCodeOf(body: unknown): string | undefined {

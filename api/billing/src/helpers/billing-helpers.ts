@@ -9,11 +9,12 @@
  * `addon-prune.ts`, and the route response shape in `subscription-response.ts`.
  */
 
-import { addUtcMonths, createLogger, envBool, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { addUtcMonths, createLogger, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { getBillingConfig } from '../config/billing-config.js';
 import type { BundleConfig } from '../config/billing-types.js';
+import { tunables } from '../config/tunables.js';
 import { config } from '../config.js';
 import { BillingEvent } from '../models/billing-event.js';
 import type { BillingEventType } from '../models/billing-event.js';
@@ -139,7 +140,7 @@ export function getBundleCatalog(): readonly BundleConfig[] {
  *  style; set `false` to hide the add-on catalog. Self-service is still gated
  *  separately for AWS Marketplace (see `bundleSelfServiceAllowed`). */
 export function bundlesEnabled(): boolean {
-  return envBool('BILLING_BUNDLES_ENABLED', true);
+  return tunables.bundlesEnabled;
 }
 
 /**

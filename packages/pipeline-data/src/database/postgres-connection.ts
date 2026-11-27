@@ -267,6 +267,7 @@ export class Connection {
 
     this.isShuttingDown = true;
 
+    let closeTimer: NodeJS.Timeout | undefined;
     try {
       if (this.options.enableLogging) {
         logger.info('Closing database connection pool...');
@@ -274,11 +275,13 @@ export class Connection {
         logger.info(`Pool stats - Total: ${stats.totalCount}, Idle: ${stats.idleCount}, Waiting: ${stats.waitingCount}`);
       }
 
-      // Set a timeout for graceful shutdown
+      // Set a timeout for graceful shutdown. The timer is cleared in `finally`:
+      // left running, a pool that closed promptly still held the event loop
+      // open for the rest of `timeout` (delaying process exit on shutdown).
       const closePromise = this.pool.end();
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Connection close timeout')), timeout),
-      );
+      const timeoutPromise = new Promise((_, reject) => {
+        closeTimer = setTimeout(() => reject(new Error('Connection close timeout')), timeout);
+      });
 
       await Promise.race([closePromise, timeoutPromise]);
 
@@ -289,6 +292,7 @@ export class Connection {
       logger.error('Error closing database connection:', error);
       throw error;
     } finally {
+      if (closeTimer) clearTimeout(closeTimer);
       this.isShuttingDown = false;
     }
   }

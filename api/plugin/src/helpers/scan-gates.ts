@@ -21,16 +21,17 @@
  */
 
 import {
-  AppError, applyVulnWaivers, describeFindings, envBool, ErrorCode, exceedsVulnFloor, failOnLabel, gatedFixableCount,
+  AppError, applyVulnWaivers, describeFindings, ErrorCode, exceedsVulnFloor, failOnLabel, gatedFixableCount,
   isGatedFinding, pluginVulnFailOn, pluginVulnGateKev, pluginVulnMaxFindings, SCAN_FLAG_TOP_FINDINGS,
   type PluginScanFinding, type PluginScanFlag, type PluginVulnFailOn, type VulnWaiver,
 } from '@pipeline-builder/api-core';
+import { config } from '../config.js';
 
 type VulnFinding = PluginScanFinding;
 
 /** `PLUGIN_ALLOW_UNSCANNED` (default false): persist a version whose build-time scan could not run. */
 export function allowUnscanned(): boolean {
-  return envBool('PLUGIN_ALLOW_UNSCANNED', false);
+  return config.build.allowUnscanned;
 }
 
 /** The terminal build failure for an image that could not be scanned (nothing is persisted). */

@@ -3,18 +3,19 @@
 
 import { Agent } from 'https';
 import type { Readable } from 'stream';
-import { envInt, createLogger, ValidationError } from '@pipeline-builder/api-core';
+import { createLogger, ValidationError } from '@pipeline-builder/api-core';
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios';
 import type { RegistryScope } from './scope.js';
 import { authorizeAndIssue } from './token-service.js';
 import { TtlCache } from './ttl-cache.js';
 import { config } from '../config/index.js';
+import { tunables } from '../config/tunables.js';
 
 const logger = createLogger('registry-client');
 
 /** Read timeout for blob streaming — short to fail fast on stuck upstream
  * connections. Override via `REGISTRY_BLOB_STREAM_TIMEOUT_MS`. */
-const BLOB_STREAM_TIMEOUT_MS = envInt('REGISTRY_BLOB_STREAM_TIMEOUT_MS', 30_000, { min: 1 });
+const BLOB_STREAM_TIMEOUT_MS = tunables.registryHttp.blobStreamTimeoutMs;
 
 /**
  * Request timeout (ms) for management calls against the upstream OCI registry
@@ -25,7 +26,7 @@ const BLOB_STREAM_TIMEOUT_MS = envInt('REGISTRY_BLOB_STREAM_TIMEOUT_MS', 30_000,
  * by nature (large layers, cold object storage), so the service-to-service
  * budget would abort healthy work.
  */
-const REGISTRY_HTTP_TIMEOUT_MS = envInt('REGISTRY_HTTP_TIMEOUT_MS', 30_000, { min: 1 });
+const REGISTRY_HTTP_TIMEOUT_MS = tunables.registryHttp.timeoutMs;
 
 const protocol = config.registry.http ? 'http': 'https';
 const baseURL = `${protocol}://${config.registry.host}:${config.registry.port}`;

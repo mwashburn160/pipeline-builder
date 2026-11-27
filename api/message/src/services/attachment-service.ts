@@ -7,9 +7,9 @@
  * every query runs under the caller's org GUC.
  */
 
-import { envInt } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray, isNull, lt } from 'drizzle-orm';
+import { config } from '../config.js';
 import { deleteAttachments, deleteAttachmentsByOrgPrefix } from './attachment-storage.js';
 
 type Attachment = typeof schema.messageAttachment.$inferSelect;
@@ -108,7 +108,7 @@ export class AttachmentService {
    * returns the number reaped.
    */
   async purgePending(now: Date, limit = 500): Promise<number> {
-    const ttlHours = envInt('MESSAGE_ATTACHMENT_PENDING_TTL_HOURS', 24, { min: 1 });
+    const ttlHours = config.attachments.pendingTtlHours;
     const cutoff = new Date(now.getTime() - ttlHours * 3_600_000);
     const keys = await withTenantTx(async (tx) => {
       // pg DELETE has no LIMIT — select a bounded batch, then delete by id.

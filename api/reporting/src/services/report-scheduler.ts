@@ -47,10 +47,7 @@
 import {
   createLogger,
   createScheduler,
-  DEFAULT_LEADER_LOCK_TTL_MS,
   emitCounter,
-  envBool,
-  envInt,
   errorMessage,
   leaderLockKey,
   recordAudit,
@@ -71,13 +68,14 @@ import { reportIdentity } from './report-identity.js';
 import { composeRun } from './report-runner.js';
 import { nextRunFor, reportSettleHours } from './report-schedule.js';
 import { createRetentionRootResolver } from './reporting-retention.js';
+import { config } from '../config.js';
 import { resolveOrgSubtree } from '../helpers/report-helpers.js';
 
 const logger = createLogger('report-scheduler');
 
 /** Kill switch: stops every scheduled run without a redeploy. */
 export function isReportSchedulerEnabled(): boolean {
-  return envBool('REPORT_SCHEDULER_ENABLED', true);
+  return config.scheduler.enabled;
 }
 
 /** The permission a definition's owner must still hold for a run to happen. */
@@ -162,7 +160,7 @@ async function runDefinition(
     definition.weekStart,
     definition.lastRunAt,
     now,
-    envInt('REPORT_CATCHUP_MAX', 4, { min: 1 }),
+    config.scheduler.catchupMax,
   );
 
   for (const period of periods) {
@@ -277,9 +275,7 @@ async function runDefinition(
 async function sweep(run: { signal: AbortSignal }): Promise<void> {
   if (!isReportSchedulerEnabled()) return;
   const now = new Date();
-  const batch = envInt('REPORT_SCHEDULER_BATCH', 25, { min: 1 });
-  const concurrency = envInt('REPORT_SCHEDULER_CONCURRENCY', 3, { min: 1 });
-  const runTimeoutMs = envInt('REPORT_RUN_TIMEOUT_MS', 120_000, { min: 1_000 });
+  const { batch, concurrency, runTimeoutMs } = config.scheduler;
 
   const due = await stakeholderReportStore.dueDefinitions(now, batch);
   if (due.length === 0) return;
@@ -414,14 +410,14 @@ export function createReportScheduler(): Scheduler | null {
   }
   return createScheduler({
     name: 'report-scheduler',
-    intervalMs: envInt('REPORT_SCHEDULER_INTERVAL_MS', 300_000, { min: 1_000 }),
-    startupDelayMs: envInt('REPORT_SCHEDULER_STARTUP_DELAY_MS', 60_000, { min: 0 }),
+    intervalMs: config.scheduler.intervalMs,
+    startupDelayMs: config.scheduler.startupDelayMs,
     run: sweep,
     // A CRASH-RECOVERY window, not a run-duration cover: withLeaderLock heartbeats for as
     // long as the sweep runs, so this is only how long a dead pod parks the job.
     lock: {
       key: leaderLockKey('reporting', 'report-scheduler'),
-      ttlMs: envInt('REPORT_SCHEDULER_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1_000 }),
+      ttlMs: config.scheduler.lockTtlMs,
     },
   });
 }

@@ -22,11 +22,12 @@
  * service.
  */
 
-import { audited, requireAssurance, requirePermission, sendSuccess, envInt } from '@pipeline-builder/api-core';
+import { audited, requireAssurance, requirePermission, sendSuccess } from '@pipeline-builder/api-core';
 import { rateLimitByOrg } from '@pipeline-builder/api-server';
 import { Router, type RequestHandler } from 'express';
 
 import { ecosystemRoute, param } from './ecosystem-route.js';
+import { config } from '../config.js';
 import {
   createReview, deleteReply, deleteReview, putReply, reportReview, reviewState, setHelpful, updateReview,
 } from '../services/ecosystem/reviews.js';
@@ -38,12 +39,12 @@ export function createReviewRoutes(): Router {
   const router = Router();
   const read = requirePermission('plugins:read') as RequestHandler;
   const person = requireAssurance({ minAssurance: 1 }) as RequestHandler;
-  const perUser = rateLimitByOrg({ name: 'review-write-user', keyBy: 'user', max: envInt('REVIEW_WRITE_RATE_LIMIT_PER_MIN', 30, { min: 1 }), windowMs: 60_000 }) as RequestHandler;
-  const perOrg = rateLimitByOrg({ name: 'review-write-org', max: envInt('REVIEW_ORG_WRITE_RATE_LIMIT_PER_MIN', 120, { min: 1 }), windowMs: 60_000 }) as RequestHandler;
+  const perUser = rateLimitByOrg({ name: 'review-write-user', keyBy: 'user', max: config.rateLimits.reviewWritePerUserPerMin, windowMs: 60_000 }) as RequestHandler;
+  const perOrg = rateLimitByOrg({ name: 'review-write-org', max: config.rateLimits.reviewWritePerOrgPerMin, windowMs: 60_000 }) as RequestHandler;
   const perIpDaily = rateLimitByOrg({
     name: 'review-create-ip',
     keyBy: 'ip',
-    max: envInt('REVIEW_IP_DAILY_LIMIT', 20, { min: 1 }),
+    max: config.rateLimits.reviewCreatePerIpPerDay,
     windowMs: DAY_MS,
     message: 'Too many new reviews from this network today.',
   }) as RequestHandler;

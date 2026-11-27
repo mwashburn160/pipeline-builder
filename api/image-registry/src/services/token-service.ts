@@ -11,6 +11,7 @@ import { parentPublicPlugins } from './parent-public-plugins.js';
 import type { RegistryScope } from './scope.js';
 import { readOrgStorageUsage } from './storage-snapshot.js';
 import { config } from '../config/index.js';
+import { tunables } from '../config/tunables.js';
 
 const logger = createLogger('token-service');
 
@@ -487,7 +488,7 @@ export function storageGateReason(d: StorageGateDecision): string {
  * is fail-CLOSED: an unverifiable cap must not silently let over-quota orgs
  * push. Mirrors the `QUOTA_RESERVE_FAIL_OPEN` escape hatch on the reserve path.
  */
-const STORAGE_FAIL_OPEN = (process.env.QUOTA_STORAGE_FAIL_OPEN || '').toLowerCase() === 'true';
+const STORAGE_FAIL_OPEN = tunables.storageFailOpen;
 
 /**
  * Compare an org's measured registry storage against its `storageBytes` quota.

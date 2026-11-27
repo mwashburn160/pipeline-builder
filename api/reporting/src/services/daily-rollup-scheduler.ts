@@ -15,32 +15,30 @@
  * each day's rebuild is an idempotent delete-and-insert, so a pass that runs on
  * two pods (no Redis) is redundant work, not wrong data.
  *
- * Env config:
+ * Env config (read via `config.rollup`, when the scheduler is built):
  *   REPORTING_ROLLUP_ENABLED            (default true; false ⇒ no rollup)
  *   REPORTING_ROLLUP_INTERVAL_MINUTES   (default 60)
  *   REPORTING_ROLLUP_STARTUP_DELAY_MS   (default 60000 — 1 min settle)
  *   REPORTING_ROLLUP_LOCK_TTL_MS        (default: the shared crash-recovery window)
  * The settle window and batch size are pipeline-data's own
- * (`ROLLUP_SETTLE_HOURS`, `ROLLUP_BATCH_DAYS`).
+ * (`REPORTING_ROLLUP_SETTLE_HOURS`, `REPORTING_ROLLUP_BATCH_DAYS`).
  */
 
 import {
   createLogger,
   createScheduler,
-  envBool,
-  envInt,
   errorMessage,
   leaderLockKey,
-  DEFAULT_LEADER_LOCK_TTL_MS,
   type Scheduler,
 } from '@pipeline-builder/api-core';
 import { runRollupPass } from '@pipeline-builder/pipeline-data';
+import { config } from '../config.js';
 
 const logger = createLogger('daily-rollup');
 
 /** Kill-switch for the rollup scheduler. */
 export function isDailyRollupEnabled(): boolean {
-  return envBool('REPORTING_ROLLUP_ENABLED', true);
+  return config.rollup.enabled;
 }
 
 let scheduler: Scheduler | null = null;
@@ -56,9 +54,7 @@ export function createDailyRollupScheduler(
     logger.info('Daily rollup disabled (REPORTING_ROLLUP_ENABLED=false)');
     return null;
   }
-  const intervalMs = envInt('REPORTING_ROLLUP_INTERVAL_MINUTES', 60) * 60_000;
-  const startupDelayMs = envInt('REPORTING_ROLLUP_STARTUP_DELAY_MS', 60_000);
-  const lockTtlMs = envInt('REPORTING_ROLLUP_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS);
+  const { intervalMs, startupDelayMs, lockTtlMs } = config.rollup;
   return createScheduler({
     name: 'daily-rollup',
     intervalMs,

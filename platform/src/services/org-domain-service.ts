@@ -15,6 +15,7 @@ import { withSeatGuard } from '../helpers/seats.js';
 import { emailDomain } from '../helpers/sso-enforcement.js';
 import { OrgDomain, JoinRequest, Organization, RoleAssignment, UserOrganization, User, type JoinRequestData, type OrgDomainDocument } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
+import { escapeRegex } from '../utils/regex.js';
 
 const logger = createLogger('org-domain-service');
 
@@ -356,7 +357,7 @@ class OrgDomainService {
    *  is re-enabled the user can request again. `denied` is reserved for an
    *  explicit admin rejection in `decideJoinRequest`, which IS sticky. */
   private async cancelPendingRequestsForDomain(orgId: string, domain: string): Promise<string[]> {
-    const suffix = new RegExp(`@${domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    const suffix = new RegExp(`@${escapeRegex(domain)}$`, 'i');
     const filter: QueryFilter<JoinRequestData> = { organizationId: orgId, status: 'pending', email: suffix };
     // Ids first, so a caller can say WHICH requests went (the audit row).
     const ids = (await JoinRequest.find(filter).select('_id').lean()).map((r) => String(r._id));

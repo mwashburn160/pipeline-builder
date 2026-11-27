@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as http from 'http';
-import { envInt } from '../utils/env.js';
+import { apiCoreConfig } from '../config.js';
 
 /**
  * Default retry configuration (env: `HTTP_CLIENT_MAX_RETRIES`, `HTTP_CLIENT_RETRY_DELAY_MS`).
  */
-export const DEFAULT_MAX_RETRIES = envInt('HTTP_CLIENT_MAX_RETRIES', 2, { min: 0 });
-export const DEFAULT_RETRY_DELAY_MS = envInt('HTTP_CLIENT_RETRY_DELAY_MS', 200, { min: 0 });
+export const DEFAULT_MAX_RETRIES = apiCoreConfig.httpClient.maxRetries;
+export const DEFAULT_RETRY_DELAY_MS = apiCoreConfig.httpClient.retryDelayMs;
 export const DEFAULT_MAX_RATE_LIMIT_RETRIES = 4;
 
 /** Max Retry-After value we'll honor (60 seconds). */

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { InternalHttpClient, type RequestOptions } from './http-client.js';
+import { apiCoreConfig } from '../config.js';
 import type { ServiceConfig } from '../types/common.js';
-import { envBool, envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
 import type { PluginComplianceAttributes } from '../utils/plugin-compliance.js';
 import { serviceEndpoint } from '../utils/service-registry.js';
@@ -14,7 +14,7 @@ const logger = createLogger('compliance-client');
  * When true, compliance checks are bypassed if the service is unavailable
  * (fail-open). Default is fail-closed (errors propagate and block the operation).
  */
-const COMPLIANCE_BYPASS = envBool('COMPLIANCE_BYPASS', false);
+const COMPLIANCE_BYPASS = apiCoreConfig.compliance.bypass;
 
 /**
  * Per-attempt timeout for a validation POST (env: `COMPLIANCE_VALIDATE_TIMEOUT_MS`).
@@ -22,7 +22,7 @@ const COMPLIANCE_BYPASS = envBool('COMPLIANCE_BYPASS', false);
  * fit inside a bounded total budget rather than stacking three 5s stalls onto a
  * single interactive request.
  */
-const VALIDATE_TIMEOUT_MS = envInt('COMPLIANCE_VALIDATE_TIMEOUT_MS', 4000, { min: 1 });
+const VALIDATE_TIMEOUT_MS = apiCoreConfig.compliance.validateTimeoutMs;
 
 /**
  * Result of a compliance validation check.

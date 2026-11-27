@@ -14,8 +14,9 @@ import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import path from 'path';
 
-import { envInt, ValidationError } from '@pipeline-builder/api-core';
+import { ValidationError } from '@pipeline-builder/api-core';
 import yauzl from 'yauzl';
+import { config } from '../config.js';
 
 /**
  * Decompression limits (zip-bomb defense). Multer bounds only the *compressed*
@@ -35,11 +36,7 @@ import yauzl from 'yauzl';
 export interface ExtractionLimits { maxBytes: number; maxEntries: number }
 
 export function extractionLimits(): ExtractionLimits {
-  const maxUploadMb = envInt('PLUGIN_MAX_UPLOAD_MB', 4096, { min: 1 });
-  const maxRatio = envInt('PLUGIN_MAX_EXTRACT_RATIO', 50, { min: 1 });
-  const maxBytes = envInt('PLUGIN_MAX_EXTRACT_BYTES', maxUploadMb * 1024 * 1024 * maxRatio, { min: 1 });
-  const maxEntries = envInt('PLUGIN_MAX_EXTRACT_ENTRIES', 10000, { min: 1 });
-  return { maxBytes, maxEntries };
+  return { maxBytes: config.upload.maxExtractBytes, maxEntries: config.upload.maxExtractEntries };
 }
 
 /** One past the permission bits: st_mode % this = permissions, the rest = S_IFMT type. */

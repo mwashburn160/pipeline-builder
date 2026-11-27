@@ -6,6 +6,7 @@ import type { BuildClass, PlanTier } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 
 import { getAllTierQueues, getBuildCfg, getConnectionForDb, getDeadLetterQueue } from './connections.js';
+import { config } from '../config.js';
 
 const logger = createLogger('plugin-build-queue');
 
@@ -110,7 +111,7 @@ export function maxBuildsPerOrg(tier: PlanTier, buildClass: BuildClass): number 
  * install has to raise this too, or stop at 12.
  */
 export function systemOrgSlotCap(): number {
-  return envInt('PLUGIN_SYSTEM_ORG_MAX_BUILDS', 12, { min: 1 });
+  return config.orgSlots.systemOrgMaxBuilds;
 }
 
 /**
@@ -132,8 +133,8 @@ export function orgSlotWaitExempt(orgId: string): boolean {
   return isSystemOrgId(orgId);
 }
 
-export const ORG_SLOT_DELAY_MS = envInt('PLUGIN_ORG_SLOT_DELAY_MS', 10000, { min: 1 });
-const ORG_SLOT_TTL_SECONDS = envInt('PLUGIN_ORG_SLOT_TTL_SECONDS', 900, { min: 1 });
+export const ORG_SLOT_DELAY_MS = config.orgSlots.delayMs;
+const ORG_SLOT_TTL_SECONDS = config.orgSlots.ttlSeconds;
 
 /**
  * How often a RUNNING build refreshes its slot's TTL, derived from the TTL so
@@ -151,7 +152,7 @@ const ORG_SLOT_TTL_SECONDS = envInt('PLUGIN_ORG_SLOT_TTL_SECONDS', 900, { min: 1
  * negative clamp. At a 900s TTL that fires for any build over fifteen minutes,
  * which is the ordinary case rather than the exceptional one.
  */
-const ORG_SLOT_HEARTBEAT_MS = Math.max(1_000, Math.floor((ORG_SLOT_TTL_SECONDS * 1000) / 3));
+const ORG_SLOT_HEARTBEAT_MS = config.orgSlots.heartbeatMs;
 
 /**
  * Longest a denied build waits between re-tries. The interval BACKS OFF —
@@ -161,7 +162,7 @@ const ORG_SLOT_HEARTBEAT_MS = Math.max(1_000, Math.floor((ORG_SLOT_TTL_SECONDS *
  * builds they are waiting on take minutes. At 60s the churn drops ~6x and the
  * worst case is a minute of extra latency on a job already waiting an hour.
  */
-const ORG_SLOT_MAX_DELAY_MS = envInt('PLUGIN_ORG_SLOT_MAX_DELAY_MS', 60_000, { min: 1 });
+const ORG_SLOT_MAX_DELAY_MS = config.orgSlots.maxDelayMs;
 
 /**
  * How long to wait before the next slot attempt, given how many have failed.
@@ -184,7 +185,7 @@ export function orgSlotRetryDelayMs(attempt: number): number {
  * while every interval is the same, and the retry interval backs off. It is
  * also what the refusal message reports.
  */
-export const ORG_SLOT_WAIT_BUDGET_MS = envInt('PLUGIN_ORG_SLOT_MAX_WAIT_MS', 1_800_000, { min: 1 });
+export const ORG_SLOT_WAIT_BUDGET_MS = config.orgSlots.maxWaitMs;
 
 /**
  * Reconciliation interval for {@link scrubOrgSlots}. Its OWN interval: it used
@@ -193,7 +194,7 @@ export const ORG_SLOT_WAIT_BUDGET_MS = envInt('PLUGIN_ORG_SLOT_MAX_WAIT_MS', 1_8
  * so in steady state the TTL was the de-facto reclaimer and the scrub was the
  * backstop rather than the other way round. Defaults to the heartbeat interval.
  */
-export const ORG_SLOT_SCRUB_MS = envInt('PLUGIN_ORG_SLOT_SCRUB_MS', ORG_SLOT_HEARTBEAT_MS, { min: 1_000 });
+export const ORG_SLOT_SCRUB_MS = config.orgSlots.scrubMs;
 /**
  * One counter PER CLASS, so the two classes cannot eat each other's headroom.
  *

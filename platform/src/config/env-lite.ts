@@ -26,6 +26,15 @@ export const envLite = {
   },
 
   /**
+   * PUBLIC path the login-binding cookie (helpers/login-binding.ts) is scoped
+   * to: the OAuth/SSO callback, SAML completion and OAuth invitation-accept
+   * endpoints all live under `/api` as the browser sees it.
+   */
+  get loginBindingCookiePath(): string {
+    return envStr('AUTH_LOGIN_BINDING_COOKIE_PATH', '/api');
+  },
+
+  /**
    * `Secure` on the session cookies. Every shipped target terminates TLS in
    * front of the gateway and browsers treat `http://localhost` as a secure
    * context, so this stays on by default. `AUTH_COOKIE_SECURE=false` is for a

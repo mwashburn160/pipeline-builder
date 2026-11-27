@@ -137,8 +137,9 @@ describe('log retention', () => {
     // Both now read LOG_RETENTION_HOURS. The DEFAULTS are what can still drift,
     // since each states its own fallback, so those are what this compares.
     // The log controller moved from platform to ops-center with the rest of
-    // /observability/*.
-    const controller = 'api/ops-center/src/observability/log-controller.ts';
+    // /observability/*, and its clamp is read through ops-center's config
+    // object (`config.observability.logRetentionHours`).
+    const controller = 'api/ops-center/src/config/index.ts';
     const clamp = grab(controller, /envInt\('LOG_RETENTION_HOURS',\s*(\d+)/);
     const pairs: Array<[string, string | undefined]> = [[`${controller}`, clamp]];
     for (const tree of ['deploy/local/docker', 'deploy/local/minikube', 'deploy/aws/eks', 'deploy/aws/ec2']) {

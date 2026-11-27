@@ -9,7 +9,6 @@ import {
   audited,
   contractErrorMessage,
   contractRoute,
-  envInt,
   ErrorCode,
   IMAGE_REGISTRY_INTERNAL,
   parseContractBody,
@@ -30,6 +29,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import express, { Router, type Request, type RequestHandler, type Response } from 'express';
 
 import { registerPublicationRoutes } from './internal-publications.js';
+import { tunables } from '../config/tunables.js';
 import { deleteCosignCompanions } from '../services/cosign-tags.js';
 import { QUARANTINE_PREFIX, inQuarantineNamespace, repoOwnerOrgId } from '../services/namespaces.js';
 import {
@@ -48,61 +48,6 @@ const C = IMAGE_REGISTRY_INTERNAL;
 /** The mount every route below is registered under (app-routes.ts). */
 const MOUNT = '/internal';
 
-/** Path of the signing route — also excluded from the app's global 1mb JSON parser. */
-export const PLUGIN_SIGNATURES_PATH = C.signPluginImage.path;
-
-/** Base path (under `/internal`) of the quarantine-namespace delete hook. */
-export const QUARANTINE_PATH = contractRoute(C.deleteQuarantineRepository, MOUNT).replace(/\/:submissionId$/, '');
-
-/** Path (under `/internal`) of the refused-build discard hook. */
-export const PLUGIN_IMAGE_DISCARD_PATH = contractRoute(C.discardPluginImage, MOUNT);
-
-/**
- * Base path (under `/internal`) of the per-org storage reading. The quota
- * service's client (api/quota `REGISTRY_STORAGE_USAGE_PATH`) calls
- * `/internal/storage-usage/<orgId>` on this service directly — keep the two in step.
- */
-export const STORAGE_USAGE_PATH = contractRoute(C.orgStorageUsage, MOUNT).replace(/\/:orgId$/, '');
-
-/**
- * Per-version storage attribution for an org — what each image version costs
- * and what deleting it would actually free. Read by the PLUGIN service, which
- * owns plugin versions and knows which ones a pipeline still references, so it
- * can join these byte figures to eligibility before showing a tenant anything.
- *
- * Separate from {@link STORAGE_USAGE_PATH} because the cost differs in kind:
- * the rollup is a cached single number on the push-gate's path, while this is an
- * on-demand catalog walk with a HEAD per blob. Nothing latency-sensitive may
- * call it.
- */
-export const STORAGE_BREAKDOWN_PATH = contractRoute(C.orgStorageBreakdown, MOUNT).replace(/\/:orgId$/, '');
-
-/**
- * Tenant-driven reclaim of ONE image version's storage: drop the version tag so
- * the org's measured usage stops counting its layers.
- *
- * WHY A TAG DELETE IS ENOUGH, which is not obvious. An org's `storageBytes` is
- * measured by walking `listTags` → manifest → blobs (see `storage-usage.ts`), so
- * usage is REFERENCE-based, not disk-based: the moment the tag is gone its
- * layers leave the org's total, and the cap stops refusing pushes. Reclaiming
- * the bytes ON DISK is the registry's own `garbage-collect` (the scheduled
- * `registry-blob-gc` job) — and nothing a tenant action should trigger. That
- * job runs WITHOUT `--delete-untagged`, precisely so the manifest this route
- * untags stays pullable by digest; its bytes are reclaimed only once the
- * manifest itself is deleted (the age GC, an org teardown).
- *
- * So this route deliberately does NOT run GC. Driving a namespace GC from a
- * tenant request would move a destructive registry-wide operation inside the
- * tenant boundary to achieve something the tenant cannot observe, while the
- * thing it CAN observe — its quota — is already freed.
- *
- * It deletes the TAG rather than the manifest, which is the conservative
- * choice twice over: a digest-pinned pipeline keeps working (pipelines pin by
- * digest — the same reason the public yank uses a tag delete), and a manifest
- * shared by a second tag cannot be removed out from under it.
- */
-export const STORAGE_PRUNE_PATH = contractRoute(C.pruneOrgStorage, MOUNT).replace(/\/:orgId$/, '');
-
 /**
  * Full paths (the router is mounted at `/internal`) of the routes that run
  * their own `express.json` with their own limit; the global parser skips them
@@ -114,11 +59,11 @@ export const OWN_BODY_PARSER_PATHS = [
 ] as const;
 
 /**
- * An organization's PRIVATE namespace teardown, called by the platform's
- * org-delete cascade. Published (`public/*`) copies are deliberately kept —
- * see {@link deleteOrgNamespace} for why each excluded namespace is excluded.
+ * Base path (under `/internal`) of the per-org storage reading. The quota
+ * service's client (api/quota `REGISTRY_STORAGE_USAGE_PATH`) calls
+ * `/internal/storage-usage/<orgId>` on this service directly — keep the two in step.
  */
-export const ORG_NAMESPACE_PATH = contractRoute(C.purgeOrgNamespace, MOUNT).replace(/\/:orgId$/, '');
+export const STORAGE_USAGE_PATH = contractRoute(C.orgStorageUsage, MOUNT).replace(/\/:orgId$/, '');
 
 /** The private-namespace prefix: `org-<id>/…`. */
 const ORG_NAMESPACE_PREFIX = 'org-';
@@ -188,7 +133,7 @@ function discardContext(raw: unknown): DiscardContext {
  * that also holds build scratch — but it no longer costs heap, and it is the
  * operator's to move.
  */
-const SBOM_MAX_BYTES = envInt('REGISTRY_SBOM_MAX_BYTES', 256 * 1024 * 1024, { min: 1024 });
+const SBOM_MAX_BYTES = tunables.sbomMaxBytes;
 
 /** Human spelling of {@link SBOM_MAX_BYTES} for the refusal message. */
 const sbomLimitLabel = () => `${Math.round(SBOM_MAX_BYTES / (1024 * 1024))} MiB`;
@@ -562,6 +507,16 @@ export function createInternalRoutes(): Router {
     }),
   );
 
+  // Per-version storage attribution for an org — what each image version costs
+  // and what deleting it would actually free. Read by the PLUGIN service, which
+  // owns plugin versions and knows which ones a pipeline still references, so it
+  // can join these byte figures to eligibility before showing a tenant anything.
+  //
+  // Separate from the storage-usage route because the cost differs in kind:
+  // the rollup is a cached single number on the push-gate's path, while this is an
+  // on-demand catalog walk with a HEAD per blob. Nothing latency-sensitive may
+  // call it.
+  //
   // Per-version attribution, for the plugin service's prune surface and the
   // "what is consuming my storage" view. Read-only, so not audited — the PRUNE
   // it informs is the audited action, in the plugin service.
@@ -601,6 +556,29 @@ export function createInternalRoutes(): Router {
     }),
   );
 
+  // Tenant-driven reclaim of ONE image version's storage: drop the version tag so
+  // the org's measured usage stops counting its layers.
+  //
+  // WHY A TAG DELETE IS ENOUGH, which is not obvious. An org's `storageBytes` is
+  // measured by walking `listTags` → manifest → blobs (see `storage-usage.ts`), so
+  // usage is REFERENCE-based, not disk-based: the moment the tag is gone its
+  // layers leave the org's total, and the cap stops refusing pushes. Reclaiming
+  // the bytes ON DISK is the registry's own `garbage-collect` (the scheduled
+  // `registry-blob-gc` job) — and nothing a tenant action should trigger. That
+  // job runs WITHOUT `--delete-untagged`, precisely so the manifest this route
+  // untags stays pullable by digest; its bytes are reclaimed only once the
+  // manifest itself is deleted (the age GC, an org teardown).
+  //
+  // So this route deliberately does NOT run GC. Driving a namespace GC from a
+  // tenant request would move a destructive registry-wide operation inside the
+  // tenant boundary to achieve something the tenant cannot observe, while the
+  // thing it CAN observe — its quota — is already freed.
+  //
+  // It deletes the TAG rather than the manifest, which is the conservative
+  // choice twice over: a digest-pinned pipeline keeps working (pipelines pin by
+  // digest — the same reason the public yank uses a tag delete), and a manifest
+  // shared by a second tag cannot be removed out from under it.
+  //
   // Reclaim one version's storage for a tenant. The PLUGIN service decides
   // eligibility (no pipeline references it, it is not a published copy) and
   // audits the tenant-facing action; this route enforces the registry-side

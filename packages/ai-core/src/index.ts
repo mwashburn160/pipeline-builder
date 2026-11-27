@@ -1,6 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Typed configuration (limits read once; the failover chain per call).
+export { aiCoreConfig } from './config.js';
+export type { AiCoreConfig } from './config.js';
+
 export {
   getAvailableProviders,
   getProviderModels,

@@ -52,11 +52,12 @@
  * which is how all four targets ship — never touches Redis on the request path.
  */
 
-import { createEnvRedisClient, createLogger, emitCounter, envInt, isReadReplicaConfigured } from '@pipeline-builder/api-core';
+import { createEnvRedisClient, createLogger, emitCounter, isReadReplicaConfigured } from '@pipeline-builder/api-core';
 // TYPE-ONLY, and that is deliberate: a type import is erased at compile time, so
 // it never touches pipeline-data's `stubModule` at runtime. A VALUE import here
 // turned all 91 suites that stub that package into a 500.
 import type { TenantContext } from '@pipeline-builder/pipeline-data';
+import { apiServerConfig } from '../config.js';
 
 const logger = createLogger('write-pin');
 
@@ -68,7 +69,7 @@ const logger = createLogger('write-pin');
  * missing-row bug, while too long only costs offload. The asymmetry says which
  * way to err.
  */
-const ttlSeconds = () => envInt('DB_READ_WRITE_PIN_TTL_SECONDS', 10);
+const ttlSeconds = () => apiServerConfig.readReplica.writePinTtlSeconds;
 
 const key = (orgId: string) => `rw-pin:${orgId}`;
 

@@ -17,15 +17,16 @@
  * would orphan the replies.
  */
 
-import { createLogger, envInt, errorMessage, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { messageService } from './message-service.js';
+import { config } from '../config.js';
 
 const logger = createLogger('notification-retention');
 
-/** Days a system notification is kept. */
-export const NOTIFICATION_RETENTION_DAYS = envInt('MESSAGE_NOTIFICATION_RETENTION_DAYS', 365, { min: 7 });
+/** Days a system notification is kept (`MESSAGE_NOTIFICATION_RETENTION_DAYS`). */
+export const NOTIFICATION_RETENTION_DAYS = config.notificationRetentionDays;
 
 /**
  * Hard-delete one batch of system notifications older than the retention

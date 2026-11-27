@@ -46,8 +46,9 @@
 import { createHash } from 'node:crypto';
 import { access, constants, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createLogger, emitCounter, envBool, envInt, envStr, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, emitCounter, errorMessage } from '@pipeline-builder/api-core';
 import { observe } from '@pipeline-builder/api-server';
+import { config } from '../config.js';
 
 const logger = createLogger('report-pdf');
 
@@ -68,27 +69,27 @@ export interface PdfRefusal {
 
 /** Is PDF rendering switched on for this instance at all? */
 export function pdfEnabled(): boolean {
-  return envBool('REPORT_PDF_ENABLED', true);
+  return config.pdf.enabled;
 }
 
 /** Where the Chromium binary lives. The alpine package's path is the default. */
 export function chromiumPath(): string {
-  return envStr('REPORT_PDF_CHROMIUM_PATH', '/usr/bin/chromium-browser');
+  return config.pdf.chromiumPath;
 }
 
 /** Hard wall-clock ceiling for one render. */
 function timeoutMs(): number {
-  return envInt('REPORT_PDF_TIMEOUT_MS', 20_000, { min: 1000 });
+  return config.pdf.timeoutMs;
 }
 
 /** How many renders may run at once. */
 function maxConcurrent(): number {
-  return envInt('REPORT_PDF_CONCURRENCY', 1, { min: 1 });
+  return config.pdf.concurrency;
 }
 
 /** How many may WAIT. Beyond this the answer is "busy", not a longer queue. */
 function maxQueued(): number {
-  return envInt('REPORT_PDF_QUEUE', 4, { min: 0 });
+  return config.pdf.queue;
 }
 
 /**
@@ -102,12 +103,12 @@ function maxQueued(): number {
  * metric that is supposed to tell those apart tells you nothing.
  */
 function queueWaitMs(): number {
-  return envInt('REPORT_PDF_QUEUE_WAIT_MS', 5_000, { min: 0 });
+  return config.pdf.queueWaitMs;
 }
 
 /** Cap on one renderer's old-space heap, in MB. */
 function heapMb(): number {
-  return envInt('REPORT_PDF_HEAP_MB', 256, { min: 64 });
+  return config.pdf.heapMb;
 }
 
 /**
@@ -118,7 +119,7 @@ function heapMb(): number {
  * startup — which is why it is a named env var rather than a guess at `/tmp`.
  */
 function scratchDir(): string {
-  return envStr('REPORT_PDF_SCRATCH_DIR', '/tmp/report-pdf');
+  return config.pdf.scratchDir;
 }
 
 /**

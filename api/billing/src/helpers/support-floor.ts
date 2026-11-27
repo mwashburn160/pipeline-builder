@@ -43,12 +43,13 @@
  * on the same recalculation, in both directions, with no separate trigger.
  */
 
-import { envBool, envInt, type PlanTier, type BillingInterval } from '@pipeline-builder/api-core';
+import type { PlanTier, BillingInterval } from '@pipeline-builder/api-core';
 import { getComboDiscounts, priceForInterval, volumeCredits, volumeDiscountPct } from './combo-pricing.js';
 import { snapUpPrice } from './price-rounding.js';
 import type { BundleConfig, ComboDiscountConfig } from '../config/billing-types.js';
 import { effectiveEntitlements } from '../config/entitlements.js';
-import { BASELINE_SUPPORT_LEVELS, PREMIUM_SUPPORT_LEVEL, SUPPORT_LEVELS, type SupportLevelId } from '../config/support-levels.js';
+import { BASELINE_SUPPORT_LEVELS, PREMIUM_SUPPORT_LEVEL, type SupportLevelId } from '../config/support-levels.js';
+import { tunables } from '../config/tunables.js';
 
 /**
  * Months an annual interval is priced at — TEN, not twelve.
@@ -84,19 +85,19 @@ export interface SupportFloorConfig {
   weightPercent: FloorWeights;
 }
 
-/** Read the floor configuration from the environment. */
+/** Read the floor configuration from the environment (per call — see config/tunables.ts). */
 export function supportFloorConfig(): SupportFloorConfig {
+  const floor = tunables.supportFloor;
   return {
-    enabled: envBool('BILLING_SUPPORT_FLOOR_ENABLED', true),
-    perSeatCents: envInt('BILLING_SUPPORT_FLOOR_PER_SEAT_CENTS', 499, { min: 0 }),
+    enabled: floor.enabled,
+    perSeatCents: floor.perSeatCents,
     // Defaults to enterprise's own seat base — see the module comment.
-    freeSeats: envInt('BILLING_SUPPORT_FLOOR_FREE_SEATS', 15, { min: 0 }),
+    freeSeats: floor.freeSeats,
+    // Exhaustive over `SupportLevelId`, so a new level is a compile error.
     weightPercent: {
-      // Env names stay literal (api-core's env-documented scanner matches literal reader calls);
-      // the record is exhaustive over `SupportLevelId`, so a new level is a compile error.
-      support_standard: envInt('BILLING_SUPPORT_FLOOR_WEIGHT_STANDARD', SUPPORT_LEVELS.support_standard.defaultFloorWeightPercent, { min: 0 }),
-      support_priority: envInt('BILLING_SUPPORT_FLOOR_WEIGHT_PRIORITY', SUPPORT_LEVELS.support_priority.defaultFloorWeightPercent, { min: 0 }),
-      support_premium: envInt('BILLING_SUPPORT_FLOOR_WEIGHT_PREMIUM', SUPPORT_LEVELS.support_premium.defaultFloorWeightPercent, { min: 0 }),
+      support_standard: floor.weightStandardPercent,
+      support_priority: floor.weightPriorityPercent,
+      support_premium: floor.weightPremiumPercent,
     },
   };
 }

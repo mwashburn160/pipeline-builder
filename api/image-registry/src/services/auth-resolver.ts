@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  createLogger, envInt, exchangeApiKey, getServiceAuthHeader, hasValidIdentityClaims, isAccessTokenRevoked,
+  createLogger, exchangeApiKey, getServiceAuthHeader, hasValidIdentityClaims, isAccessTokenRevoked,
   isOpaqueApiKey, isServiceTokenDenied, serviceNameOf, verifyBearerToken, SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import { z } from 'zod';
 import { verifyQuarantineCredential } from './quarantine-credential.js';
 import { config } from '../config/index.js';
+import { tunables } from '../config/tunables.js';
 
 const logger = createLogger('auth-resolver');
 
@@ -23,7 +24,7 @@ const ORG_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
  * (`HTTP_CLIENT_TIMEOUT_MS`, same 5s default) on purpose — dropping the value
  * entirely would give axios an UNBOUNDED wait, not the shared default.
  */
-const PLATFORM_LOGIN_TIMEOUT_MS = envInt('HTTP_CLIENT_TIMEOUT_MS', 5000, { min: 1 });
+const PLATFORM_LOGIN_TIMEOUT_MS = tunables.platformLoginTimeoutMs;
 
 /**
  * Platform's `/auth/login` reply. Platform answers through api-core's

@@ -40,9 +40,7 @@ import { createHash } from 'crypto';
 
 import {
   createLogger,
-  envStr,
   errorMessage,
-  parseRemediationEnabled,
   REMEDIATION_REMAINING_REASON_LABELS,
   remediationFindingsKey,
   rolloutStartFailureText,
@@ -57,6 +55,7 @@ import {
 import { incCounter } from '@pipeline-builder/api-server';
 import { OFFICIAL_PUBLISHER_HANDLE } from '@pipeline-builder/pipeline-data';
 
+import { config } from '../config.js';
 import { notifyInstallers } from './ecosystem/install-notify.js';
 import { listings, publishers } from './ecosystem/store.js';
 import { frontendBaseUrl } from './ecosystem/submission-config.js';
@@ -151,7 +150,7 @@ export type RemediationNotice = FixPublishedNotice | RolloutNotice | RollbackNot
 
 /** Whether the operator knob allows remediation (and so its notices). Read per call. */
 export function remediationNoticesEnabled(): boolean {
-  return parseRemediationEnabled(envStr('PLUGIN_REMEDIATION_ENABLED', 'true'));
+  return config.operator.remediationEnabled;
 }
 
 /** The remediation card on the plugins page. */

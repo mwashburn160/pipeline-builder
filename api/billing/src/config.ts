@@ -4,6 +4,7 @@
 import { envBool, envInt, envStr, serviceEndpoint } from '@pipeline-builder/api-core';
 import { DEFAULT_BUNDLE_DIMENSION_MAP } from './config/billing-config.js';
 import { BILLING_CURRENCY } from './config/currency.js';
+import { tunables, type BillingTunables } from './config/tunables.js';
 
 export type BillingProviderType = 'stub' | 'aws-marketplace' | 'stripe';
 
@@ -199,6 +200,12 @@ export interface AppConfig {
   /** Interval in ms for the Marketplace add-on metering job (default 1 hour). AWS
    *  dedupes BatchMeterUsage records by (customer, dimension, hour). */
   meteringIntervalMs: number;
+  /**
+   * Tunables that live in `config/tunables.ts` (rate limits, cache/lease TTLs,
+   * the support floor, the bundles switch) so helpers can read them without
+   * this module's required-variable check. Some are getters read per access.
+   */
+  tunables: BillingTunables;
 }
 
 /** Safely parse a JSON env var, falling back to a default on parse error. */
@@ -453,4 +460,5 @@ export const config: AppConfig = {
     backfillIntervalMs: intSetting('BILLING_PROMOTION_BACKFILL_INTERVAL_MS', 3_600_000, { min: 1000 }),
     clawbackWindowMs: intSetting('BILLING_PROMOTION_CLAWBACK_WINDOW_MS', 7 * 24 * 3600 * 1000, { min: 0 }),
   },
+  tunables,
 };

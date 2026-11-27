@@ -174,6 +174,13 @@ export const config = {
     dashboardMaxDescription: envInt('DASHBOARD_MAX_DESCRIPTION', 1000),
     dashboardMaxPanelTitle: envInt('DASHBOARD_MAX_PANEL_TITLE', 200),
     dashboardMaxPanels: envInt('DASHBOARD_MAX_PANELS', 50),
+    /**
+     * How far back a log query may reach, in hours: Loki's own retention, read
+     * from the SAME variable `loki-config.yml` expands into `retention_period`.
+     * A deploy contract asserts the two defaults match, so the name and the
+     * 720 h default must not change here alone.
+     */
+    logRetentionHours: envInt('LOG_RETENTION_HOURS', 720, { min: 1 }),
   },
   oncall: {
     // How often the rota-coverage gauge is refreshed. 15 minutes: the question

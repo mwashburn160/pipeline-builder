@@ -34,10 +34,7 @@
 import {
   createLogger,
   createScheduler,
-  DEFAULT_LEADER_LOCK_TTL_MS,
   emitCounter,
-  envBool,
-  envInt,
   errorMessage,
   leaderLockKey,
   type Scheduler,
@@ -283,22 +280,15 @@ function createStorageNoticeScheduler(): Scheduler | null {
     logger.info('Storage notice sweep skipped: threshold notices are disabled');
     return null;
   }
-  if (!envBool('QUOTA_STORAGE_SWEEP_ENABLED', true)) {
+  if (!config.storageSweep.enabled) {
     logger.info('Storage notice sweep skipped: QUOTA_STORAGE_SWEEP_ENABLED=false');
     return null;
   }
 
-  // Hours, not minutes. Each org costs one registry read (cached per org for
-  // QUOTA_STORAGE_USAGE_CACHE_TTL_MS), and storage moves slowly — nobody fills a
-  // registry between two sweeps without a build, which the push gate already
-  // governs.
-  const intervalMs = envInt('QUOTA_STORAGE_SWEEP_INTERVAL_HOURS', 6, { min: 1 }) * 60 * 60 * 1000;
-  const startupDelayMs = envInt('QUOTA_STORAGE_SWEEP_STARTUP_DELAY_MS', 120_000, { min: 0 });
-  // A CRASH-RECOVERY window, not a run-duration cover: withLeaderLock
-  // heartbeats for as long as the pass runs.
-  const lockTtlMs = envInt('QUOTA_STORAGE_SWEEP_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1000 });
-  const maxOrgs = envInt('QUOTA_STORAGE_SWEEP_MAX_ORGS', 200, { min: 1 });
-  const reminderMs = envInt('QUOTA_STORAGE_NOTICE_REMINDER_DAYS', 7, { min: 1 }) * 86_400_000;
+  // Hours, not minutes: nobody fills a registry between two sweeps without a
+  // build, which the push gate already governs. The lock TTL is a CRASH-RECOVERY
+  // window, not a run-duration cover: withLeaderLock heartbeats while a pass runs.
+  const { intervalMs, startupDelayMs, lockTtlMs, maxOrgs, reminderMs } = config.storageSweep;
 
   logger.info('Storage notice sweep starting', { intervalHours: intervalMs / 3_600_000, maxOrgs });
 

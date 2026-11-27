@@ -26,7 +26,7 @@
  */
 
 import {
-  AppError, ErrorCode, SYSTEM_ACTOR_ID, createLogger, envInt, errorMessage, isSystemOrgId, recordAudit, type WriteAccess,
+  AppError, ErrorCode, SYSTEM_ACTOR_ID, createLogger, errorMessage, isSystemOrgId, recordAudit, type WriteAccess,
 } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
@@ -35,6 +35,7 @@ import { and, asc, count, eq, lte, ne } from 'drizzle-orm';
 
 import { isUuid } from './ecosystem/util.js';
 import { persistVersion } from './version-persist.js';
+import { config } from '../config.js';
 import type { BuildResult } from '../helpers/docker-build.js';
 import { establishImageFacts } from '../helpers/image-facts.js';
 import { complianceRefusal, vulnFloor, type GateEmit } from '../helpers/image-gates.js';
@@ -47,7 +48,7 @@ const logger = createLogger('kept-setup-images');
 
 /** `PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS` (default 30): how long a kept setup image waits for promotion. */
 export function keptSetupImageTtlDays(): number {
-  return envInt('PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS', 30, { min: 1 });
+  return config.storage.keptSetupImageTtlDays;
 }
 
 /** Whether a build's `setupLoad` marker is honoured: only for the system org. */

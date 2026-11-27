@@ -40,6 +40,22 @@ describe('config env parsing', () => {
     expect(numbers.every(Number.isFinite)).toBe(true);
   });
 
+  it('reads the storage-sweep knobs on access, with the shipped defaults', () => {
+    expect(config.storageSweep).toMatchObject({
+      enabled: true,
+      intervalMs: 6 * 3_600_000,
+      startupDelayMs: 120_000,
+      maxOrgs: 200,
+      reminderMs: 7 * 86_400_000,
+    });
+    process.env.QUOTA_STORAGE_SWEEP_MAX_ORGS = '0';
+    try {
+      expect(config.storageSweep.maxOrgs).toBe(1);
+    } finally {
+      delete process.env.QUOTA_STORAGE_SWEEP_MAX_ORGS;
+    }
+  });
+
   it('has a default for every quota type, keyed by the derived QUOTA_DEFAULT_* name', () => {
     expect(Object.keys(config.quota.defaults).sort()).toEqual([...VALID_QUOTA_TYPES].sort());
     expect(quotaDefaultEnvName('plugins')).toBe('QUOTA_DEFAULT_PLUGINS');

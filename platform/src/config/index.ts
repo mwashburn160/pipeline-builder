@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, PLAN_TIERS, type PlanTier, type PlanTierLimits, VALID_TIERS, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
+import { envInt, envStr, PLAN_TIERS, type PlanTier, type PlanTierLimits, VALID_TIERS, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
 import { assertWebAuthnConfig, resolveWebAuthnConfig } from './webauthn-validate.js';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
@@ -679,7 +679,29 @@ export const config = {
       // past the event TTL so a head outlives the rows it vouches for.
       retentionDays: envInt('AUDIT_HEAD_EXPORT_RETENTION_DAYS', 400, { min: 1 }),
       intervalMs: envInt('AUDIT_HEAD_EXPORT_INTERVAL_MS', 300_000, { min: 10_000 }),
+      // Deadline for one chain-head PUT/GET (utils/s3-sigv4.ts). The export runs
+      // in a leader-locked job, where an untimed request would hold the lock and
+      // silently stop the anchor being published. 0 (or a negative) means the
+      // default, as the original `Number(...) || 10_000` read did.
+      s3TimeoutMs: envInt('AUDIT_HEAD_EXPORT_S3_TIMEOUT_MS', 10_000, { min: 0 }) || 10_000,
     },
+  },
+
+  impersonation: {
+    // How often the reaper flips lapsed `pending` / `approved` impersonation
+    // requests to `expired` (services/impersonation-reaper.ts). Status is
+    // otherwise only corrected lazily, so this bounds how stale it can be; keep
+    // it well under IMPERSONATION_REQUEST_TTL_MS. The request/session TTLs
+    // themselves stay in constants/impersonation.ts, which must import nothing.
+    reaperIntervalMs: envInt('IMPERSONATION_REAPER_INTERVAL_MS', 5 * 60 * 1000, { min: 1000 }),
+  },
+
+  scim: {
+    // `documentationUri` served in the SCIM ServiceProviderConfig — the human
+    // docs an IdP links to. Overridable for installs that republish the docs
+    // internally (air-gapped installs cannot reach the public site). The paging
+    // and rate-limit knobs stay in constants/scim.ts, which must import nothing.
+    documentationUrl: envStr('SCIM_DOCUMENTATION_URL', 'https://docs.pipeline-builder.io/docs/authentication.html'),
   },
 
   quota: {

@@ -3,6 +3,9 @@
 
 import { readFileSync } from 'fs';
 import { envInt, serviceEndpoint } from '@pipeline-builder/api-core';
+import { tunables, type RegistryTunables } from './tunables.js';
+
+export { tunables, type RegistryTunables } from './tunables.js';
 
 /**
  * Resolve an env-supplied secret material to its raw value. The convention
@@ -102,6 +105,13 @@ export interface AppConfig {
      *  `REGISTRY_SIGN_MAX_CONCURRENT`). */
     readonly maxConcurrentSigns: number;
   };
+
+  /**
+   * Operational tunables (timeouts, caches, rate limits, concurrency, scheduler
+   * cadences). Lives in `./tunables.ts` so modules that need only these can
+   * import it without this loader's required-variable checks.
+   */
+  readonly tunables: RegistryTunables;
 }
 
 export function loadConfig(): AppConfig {
@@ -150,6 +160,8 @@ export function loadConfig(): AppConfig {
        */
       maxConcurrentSigns: envInt('REGISTRY_SIGN_MAX_CONCURRENT', 4, { min: 1 }),
     },
+
+    tunables,
   };
 }
 

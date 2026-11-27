@@ -100,8 +100,15 @@ export async function loadSdk<T>(pkg: string): Promise<T> {
  * and lets the retry happen on SQS's schedule rather than by exhausting the clock.
  *
  * Default 5s, well inside a typical 30s function timeout even with one auth retry.
+ * `REPORTING_FETCH_TIMEOUT_MS` is guarded to a positive finite number: this package
+ * has no api-core dependency (so no `envInt`), and `AbortSignal.timeout` THROWS
+ * synchronously on a negative or infinite value — a typo like `-1` used to fail every
+ * ingest call, outside the handler's `.catch`, instead of falling back to the default.
  */
-export const FETCH_TIMEOUT_MS = Number(process.env.REPORTING_FETCH_TIMEOUT_MS ?? 5000) || 5000;
+export const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.REPORTING_FETCH_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 5000;
+})();
 
 /**
  * `fetch` with a deadline.

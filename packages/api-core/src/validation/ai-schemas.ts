@@ -4,10 +4,10 @@
 import { z } from 'zod';
 import { VisibilitySchema } from './common-schemas.js';
 import { PLUGIN_NAME_PATTERN, PLUGIN_VERSION_PATTERN } from './plugin-spec-schema.js';
+import { apiCoreConfig } from '../config.js';
 import { BUILD_CLASSES, BUILD_SIZES } from '../types/build-catalog.js';
-import { envInt } from '../utils/env.js';
 
-const MAX_PROMPT_LENGTH = envInt('MAX_PROMPT_LENGTH', 5000, { min: 1 });
+const MAX_PROMPT_LENGTH = apiCoreConfig.limits.maxPromptLength;
 
 /**
  * Largest `previousConfig` (serialized JSON, chars) an iterative refinement may

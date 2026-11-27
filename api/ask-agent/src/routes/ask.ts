@@ -17,7 +17,6 @@ import {
   audited,
   clientAbortSignal,
   createLogger,
-  envInt,
   errorMessage,
   fetchOrgAIAccess,
   initSSEStream,
@@ -38,6 +37,7 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
 import { requireAskAccess } from '../authz.js';
+import { config } from '../config.js';
 import { AskBodySchema, AskFeedbackSchema } from '../request-schema.js';
 import { recordAi, recordAiTokens, recordAskFeedback, recordHelpSearchMiss } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
@@ -192,7 +192,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   const availabilityPerUser = rateLimitByOrg({
     name: 'ask-availability',
     keyBy: 'user',
-    max: envInt('ASK_AVAILABILITY_RATE_LIMIT_PER_MIN', 30, { min: 1 }),
+    max: config.rateLimits.availabilityPerMin,
     windowMs: 60_000,
     message: 'Too many Ask availability checks',
   });

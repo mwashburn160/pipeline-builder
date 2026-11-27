@@ -57,12 +57,10 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  DEFAULT_LEADER_LOCK_TTL_MS,
   SYSTEM_ACTOR_ID,
   SYSTEM_ORG_ID,
   createLogger,
   createScheduler,
-  envInt,
   errorMessage,
   leaderLockKey,
   recordAudit,
@@ -72,6 +70,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { setGauge } from '@pipeline-builder/api-server';
 import { listCasesDueForPage } from '@pipeline-builder/pipeline-data';
+import { config } from '../config.js';
 
 const logger = createLogger('oncall-sweep');
 
@@ -101,15 +100,15 @@ export interface OnCallSweepConfig {
 
 export function oncallSweepConfig(): OnCallSweepConfig {
   return {
-    leadMs: envInt('ONCALL_CASE_LEAD_MINUTES', 120, { min: 1 }) * 60_000,
-    intervalMs: envInt('ONCALL_SWEEP_INTERVAL_MS', 300_000, { min: 10_000 }),
+    leadMs: config.oncallSweep.caseLeadMinutes * 60_000,
+    intervalMs: config.oncallSweep.intervalMs,
     // A tick that pages more than this is an incident, not a backlog, and the
     // fleet alert covers the shape. Bounded because the alternative is one tick
     // walking an unbounded table while holding the lock.
-    batchSize: envInt('ONCALL_SWEEP_BATCH_SIZE', 100, { min: 1 }),
+    batchSize: config.oncallSweep.batchSize,
     // CRASH-RECOVERY window only — `withLeaderLock` heartbeats for as long as
     // the tick runs, so this does not have to outlast a slow sweep.
-    lockTtlMs: envInt('ONCALL_SWEEP_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1000 }),
+    lockTtlMs: config.oncallSweep.lockTtlMs,
   };
 }
 
@@ -255,7 +254,7 @@ export function createOnCallSweepScheduler(): Scheduler {
     intervalMs: cfg.intervalMs,
     // A short settle before the first tick: paging on a half-booted replica's
     // first database read is how a deploy becomes a page.
-    startupDelayMs: envInt('ONCALL_SWEEP_STARTUP_DELAY_MS', 60_000, { min: 0 }),
+    startupDelayMs: config.oncallSweep.startupDelayMs,
     run: async (run) => {
       try {
         // One run id per tick, so the audit rows a tick writes read back together.

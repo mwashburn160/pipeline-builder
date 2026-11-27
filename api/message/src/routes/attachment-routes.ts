@@ -16,7 +16,6 @@ import {
   sendEntityNotFound,
   MESSAGE_ATTACHMENT_MAX_BYTES,
   isAllowedAttachmentType,
-  envInt,
   audited,
   actorId,
   recordAudit,
@@ -29,6 +28,7 @@ import {
 } from '@pipeline-builder/api-server';
 import { Router, type Request, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
+import { config } from '../config.js';
 import { attachmentService } from '../services/attachment-service.js';
 import { deleteAttachment, getAttachmentStream, getAttachmentStreamOrNull, putAttachment, generateThumbnail, thumbnailSiblingOf, thumbnailContentType } from '../services/attachment-storage.js';
 import { messageService } from '../services/message-service.js';
@@ -68,8 +68,8 @@ function safeName(name: string): string {
  *  than message-send. Env-overridable; runs BEFORE multer (below). */
 const uploadLimiter = rateLimitByOrg({
   name: 'attachment-upload',
-  max: envInt('MESSAGE_ATTACHMENT_RATE_MAX', 30, { min: 1 }),
-  windowMs: envInt('MESSAGE_ATTACHMENT_RATE_WINDOW_MS', 60000, { min: 1000 }),
+  max: config.attachments.uploadRateMax,
+  windowMs: config.attachments.uploadRateWindowMs,
   message: 'Too many attachment uploads, please slow down.',
 });
 

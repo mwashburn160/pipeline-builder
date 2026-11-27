@@ -6,7 +6,6 @@ import {
   audited,
   clientAbortSignal,
   createLogger,
-  envInt,
   errorMessage,
   handleAIError,
   initSSEStream,
@@ -24,6 +23,7 @@ import { extendRequestTimeout, withAiCallReservation, withRoute, rateLimitByOrg 
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request } from 'express';
 
+import { config } from '../config.js';
 import { parentOrgIdOf } from '../helpers/plugin-helpers.js';
 import { GenerationRun, type GenerationModelRequest } from '../services/ai-generation-run.js';
 import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service.js';
@@ -47,7 +47,7 @@ const logger = createLogger('generate-plugin');
  */
 const generateRateLimit = rateLimitByOrg({
   name: 'plugin-generate',
-  max: envInt('PLUGIN_GENERATE_RATE_LIMIT_PER_MIN', 20, { min: 1 }),
+  max: config.rateLimits.generatePerMin,
   windowMs: 60_000,
   message: 'Too many plugin generation requests, please slow down.',
 });

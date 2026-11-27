@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Server } from 'http';
-import { assertJwtIssuerAudienceConfigured, buildRouteTable, createLogger, errorMessage, flushQuotaIncrements, installCrashHandlers, nextBackoffMs, resolveRedisConnection, retryForever, summarizeRouteTable, sleep, envInt } from '@pipeline-builder/api-core';
+import { assertJwtIssuerAudienceConfigured, buildRouteTable, createLogger, errorMessage, flushQuotaIncrements, installCrashHandlers, nextBackoffMs, resolveRedisConnection, retryForever, summarizeRouteTable, sleep } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { getConnection, closeConnection } from '@pipeline-builder/pipeline-data';
 import type { Express } from 'express';
 import { installGracefulShutdown } from './graceful-shutdown.js';
 import { setReady, isReady } from './readiness.js';
+import { apiServerConfig } from '../config.js';
 import { SSEManager } from '../http/sse-connection-manager.js';
 
 const logger = createLogger('server');
@@ -19,7 +20,7 @@ const logger = createLogger('server');
 // ever exiting / restarting the process.
 const READY_RETRY_BASE_MS = 1000;
 const READY_RETRY_MAX_MS = 10000;
-const READY_MONITOR_INTERVAL_MS = envInt('READINESS_MONITOR_INTERVAL_MS', 15_000, { min: 1 });
+const READY_MONITOR_INTERVAL_MS = apiServerConfig.readiness.monitorIntervalMs;
 
 /**
  * Establish and continuously monitor the service's datastore dependency,

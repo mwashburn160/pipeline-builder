@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { SYSTEM_ACTOR_ID, ErrorCode, audited, createLogger, envInt, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit, PluginToolchainSchema, toolchainMetadata, isManagedToolchainPlugin, isSystemOrgId } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, ErrorCode, audited, createLogger, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit, PluginToolchainSchema, toolchainMetadata, isManagedToolchainPlugin, isSystemOrgId } from '@pipeline-builder/api-core';
 import type { ManagedToolchainPlugin, QuotaService } from '@pipeline-builder/api-core';
 import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, withQuotaReservation, type QuotaSlot, type SSEManager } from '@pipeline-builder/api-server';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
@@ -11,6 +11,7 @@ import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import multer from 'multer';
 
+import { config } from '../config.js';
 import { resolveBuildShape } from '../helpers/build-shape.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { compliancePreflight, queuePluginBuild } from '../helpers/build-submission.js';
@@ -98,7 +99,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
   // 25s REQUEST_TIMEOUT_MS). It matches nginx's upload-route proxy timeouts and the
   // loader's curl limit — the shortest of the three cuts the upload, so a
   // deploy-contracts test keeps them equal.
-  const UPLOAD_TIMEOUT_MS = envInt('PLUGIN_UPLOAD_TIMEOUT_MS', 900_000, { min: 1 });
+  const UPLOAD_TIMEOUT_MS = config.upload.timeoutMs;
 
   // Extend the socket timeout before multer starts reading the body — on the
   // upload AND the inspect dry-run, which takes the same ZIP.

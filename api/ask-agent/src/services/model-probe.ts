@@ -20,12 +20,13 @@
  * share one in-flight request, so opening forms cannot hammer the model server.
  */
 
-import { envInt, getOpenAICompatibleProvider } from '@pipeline-builder/api-core';
+import { getOpenAICompatibleProvider } from '@pipeline-builder/api-core';
+import { config } from '../config.js';
 
 /** Upper bound on one probe; the form waits on it before choosing a default. */
-const PROBE_TIMEOUT_MS = envInt('ASK_MODEL_PROBE_TIMEOUT_MS', 2500, { min: 200 });
+const PROBE_TIMEOUT_MS = config.modelProbe.timeoutMs;
 /** How long one answer is reused. */
-const PROBE_CACHE_MS = envInt('ASK_MODEL_PROBE_CACHE_MS', 15_000, { min: 0 });
+const PROBE_CACHE_MS = config.modelProbe.cacheMs;
 
 export interface ModelProbeResult {
   /** True only when the server answered and serves an advertised model. */
@@ -44,11 +45,12 @@ function servedIds(body: unknown): Set<string> {
 
 async function probeOnce(fetchImpl: typeof fetch): Promise<ModelProbeResult> {
   const provider = getOpenAICompatibleProvider();
-  const baseURL = process.env.OPENAI_COMPATIBLE_BASE_URL;
+  const baseURL = config.modelProbe.baseUrl;
   if (!provider || !baseURL) return { reachable: false };
 
   const headers: Record<string, string> = { accept: 'application/json' };
-  if (process.env.OPENAI_COMPATIBLE_API_KEY) headers.authorization = `Bearer ${process.env.OPENAI_COMPATIBLE_API_KEY}`;
+  const apiKey = config.modelProbe.apiKey;
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
 
   try {
     const res = await fetchImpl(`${baseURL.replace(/\/+$/, '')}/models`, {

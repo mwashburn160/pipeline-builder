@@ -551,13 +551,6 @@ function applyVolumeTiersOverride(id: string, defaultTiers?: VolumeTier[]): Volu
 }
 
 /**
- * Purchasable add-on bundles (docs/billing-bundles.md, "The bundles"). Grants are per-unit
- * deltas on PlanTierLimits; prices (cents, `BILLING_BUNDLE_<ID>_MONTHLY` /
- * `_ANNUAL`), the single-dimension grant amount (`BILLING_BUNDLE_<ID>_GRANT`),
- * and the purchasable-tier list (`BILLING_BUNDLE_<ID>_TIERS`) are all
- * env-overridable. Annual ≈ 10× monthly.
- */
-/**
  * Default add-on bundle id → Marketplace metered dimension.
  *
  * Mostly identity (dimension named like the bundle id, metering a quantity of
@@ -639,6 +632,13 @@ const supportEnabled = envBool('SUPPORT_ENABLED', true);
  */
 const supportPremiumEnabled = supportEnabled && envBool('SUPPORT_PREMIUM_ENABLED', true);
 
+/**
+ * Purchasable add-on bundles (docs/billing-bundles.md, "The bundles"). Grants are per-unit
+ * deltas on PlanTierLimits; prices (cents, `BILLING_BUNDLE_<ID>_MONTHLY` /
+ * `_ANNUAL`), the single-dimension grant amount (`BILLING_BUNDLE_<ID>_GRANT`),
+ * and the purchasable-tier list (`BILLING_BUNDLE_<ID>_TIERS`) are all
+ * env-overridable. Annual ≈ 10× monthly.
+ */
 function loadBundles(): BundleConfig[] {
   const b = (
     id: string,

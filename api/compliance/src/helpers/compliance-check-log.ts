@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createScheduler, envInt, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS, type ComplianceCheckVerdict } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS, type ComplianceCheckVerdict } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { and, inArray, lt, ne } from 'drizzle-orm';
+import { config } from '../config.js';
 import type { RuleValidationResult } from '../engine/rule-engine.js';
 
 const logger = createLogger('compliance-check-log');
@@ -47,8 +48,8 @@ function retentionCutoff(fn: string, maxAgeDays: number): Date {
   return new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
 }
 
-/** Default retention window for compliance audit log (days). Override per-deploy via env. */
-export const DEFAULT_AUDIT_RETENTION_DAYS = envInt('COMPLIANCE_AUDIT_RETENTION_DAYS', 180, { min: 1 });
+/** Default retention window for compliance audit log (days); `COMPLIANCE_AUDIT_RETENTION_DAYS`. */
+export const DEFAULT_AUDIT_RETENTION_DAYS = config.auditRetentionDays;
 
 /**
  * Delete compliance audit log rows older than `maxAgeDays`.

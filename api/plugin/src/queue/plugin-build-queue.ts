@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { PLUGIN_REMEDIATION_JOB_NAME, SYSTEM_ACTOR_ID, BUILD_CLASSES, buildConcurrencyEnvVar, buildWorkerConcurrencyFor, ErrorCode, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
+import { PLUGIN_REMEDIATION_JOB_NAME, SYSTEM_ACTOR_ID, BUILD_CLASSES, ErrorCode, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
 import type { AppError, BuildClass, BuildSize, PluginRemediationJobData, PluginScanSummary, QuotaService, PlanTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -46,6 +46,7 @@ import {
   orgSlotWaitExempt, orgSlotsBackedByLiveBuilds,
 } from './slot-manager.js';
 import type { OrgSlotState } from './slot-manager.js';
+import { config } from '../config.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { getBuildkitAddrForBuild, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { BuildResult } from '../helpers/docker-build.js';
@@ -269,7 +270,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   const tierConcurrency = Object.fromEntries(
     VALID_TIERS.map((tier) => [
       tier,
-      envInt(buildConcurrencyEnvVar(tier), buildWorkerConcurrencyFor(tier), { min: 1 }),
+      config.build.tierConcurrency(tier),
     ]),
   ) as Record<PlanTier, number>;
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {

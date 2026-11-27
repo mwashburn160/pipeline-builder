@@ -10,10 +10,11 @@
  * Timeseries reads (execution/build metrics over a range) — 2 min.
  */
 
-import { createCacheService, envInt } from '@pipeline-builder/api-core';
+import { createCacheService } from '@pipeline-builder/api-core';
+import { pipelineDataConfig } from '../../config.js';
 
-export const inventoryCache = createCacheService('report:inv:', envInt('CACHE_TTL_REPORT_INVENTORY_SECONDS', 300, { min: 1 }));
-export const timeseriesCache = createCacheService('report:ts:', envInt('CACHE_TTL_REPORT_TIMESERIES_SECONDS', 120, { min: 1 }));
+export const inventoryCache = createCacheService('report:inv:', pipelineDataConfig.reporting.inventoryCacheTtlSeconds);
+export const timeseriesCache = createCacheService('report:ts:', pipelineDataConfig.reporting.timeseriesCacheTtlSeconds);
 
 /** Drop every cached report for an org — called after an ingest/write that
  *  could change any of them. Both caches are pattern-invalidated because a

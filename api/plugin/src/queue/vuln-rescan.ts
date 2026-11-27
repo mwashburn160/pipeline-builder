@@ -79,8 +79,8 @@
 import { randomUUID } from 'crypto';
 
 import {
-  ADVISORY_SEVERITIES, envInt, createLogger, createScheduler, errorMessage, isManagedToolchainPlugin, isSystemOrgId, newScanFindings, parseVulnWaivers, recordAudit, runWithAuditContext, scanFindingKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID,
-  vulnWaiverLabels, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
+  ADVISORY_SEVERITIES, createLogger, createScheduler, errorMessage, isManagedToolchainPlugin, isSystemOrgId, newScanFindings, parseVulnWaivers, recordAudit, runWithAuditContext, scanFindingKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID,
+  vulnWaiverLabels, leaderLockKey,
   type PluginScanFinding, type RemoteAuditEvent, type PluginScanFlag, type PluginScanSummary, type Scheduler, type VulnWaiver,
   compareSemverLenient,
 } from '@pipeline-builder/api-core';
@@ -92,6 +92,7 @@ import {
 import { and, asc, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm';
 
 import { getHealthRedisConnection } from './connections.js';
+import { config } from '../config.js';
 import type { RegistryInfo } from '../helpers/registry-auth.js';
 import { matchedWaiversFor, scanFlagFor, waivedFor, type FloorInput } from '../helpers/scan-gates.js';
 import type { PluginImageRef } from '../helpers/supply-chain.js';
@@ -127,11 +128,11 @@ const PAGE_SIZE = 100;
 
 /** `PLUGIN_RESCAN_ENABLED=false` switches the nightly rescan off (default on). */
 export function isRescanEnabled(): boolean {
-  return (process.env.PLUGIN_RESCAN_ENABLED ?? 'true').toLowerCase() !== 'false';
+  return config.rescan.enabled;
 }
 
 function rescanIntervalMs(): number {
-  return envInt('PLUGIN_RESCAN_INTERVAL_MS', 24 * 60 * 60 * 1000, { min: 1 });
+  return config.rescan.intervalMs;
 }
 
 /** The Redis surface the rescan's bookkeeping needs (ioredis satisfies it). */
@@ -812,8 +813,8 @@ export function createVulnRescanScheduler(redis: () => ReturnType<typeof getHeal
   return createScheduler({
     name: 'vuln-rescan',
     intervalMs: Math.min(intervalMs, 60 * 60 * 1000),
-    startupDelayMs: envInt('PLUGIN_RESCAN_STARTUP_DELAY_MS', 120_000, { min: 1 }),
-    lock: { redis, key: LOCK_KEY, ttlMs: envInt('PLUGIN_RESCAN_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1 }) },
+    startupDelayMs: config.rescan.startupDelayMs,
+    lock: { redis, key: LOCK_KEY, ttlMs: config.rescan.lockTtlMs },
     run: async () => {
       // Refresh the waiver expiry gauge on the same cadence. Set only at boot it
       // would go stale on a long-lived pod and quietly stop counting down,

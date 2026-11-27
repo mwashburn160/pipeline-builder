@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { armDeferredQuotaCheck, callQuotaExemption, createLogger, emitCounter, enforcedQuotaLimit, envInt, getQuotaServiceAuthHeader, isQuotaExemptRoute, meteredQuotaTypeFor, sendQuotaExceeded, errorMessage, tagRouteGate } from '@pipeline-builder/api-core';
+import { armDeferredQuotaCheck, callQuotaExemption, createLogger, emitCounter, enforcedQuotaLimit, getQuotaServiceAuthHeader, isQuotaExemptRoute, meteredQuotaTypeFor, sendQuotaExceeded, errorMessage, tagRouteGate } from '@pipeline-builder/api-core';
 import type { QuotaCheckResult, QuotaType, QuotaService } from '@pipeline-builder/api-core';
 import type { Request, RequestHandler, Response, NextFunction } from 'express';
 import { getContext } from './get-context.js';
+import { apiServerConfig } from '../config.js';
 import { hasCompletedIdempotentResponse } from './idempotency-middleware.js';
 
 const logger = createLogger('check-quota');
@@ -29,13 +30,13 @@ const logger = createLogger('check-quota');
 // a single in-flight read.
 
 /** TTL (ms) of a cached ALLOWED check. `0` disables the cache. */
-export const QUOTA_CHECK_CACHE_TTL_MS = envInt('QUOTA_CHECK_CACHE_TTL_MS', 5000, { min: 0 });
+export const QUOTA_CHECK_CACHE_TTL_MS = apiServerConfig.quotaCheck.cacheTtlMs;
 
 /** Longest (ms) a DENIED check is reused before re-asking (it never outlives `resetAt`). */
-export const QUOTA_CHECK_DENIED_CACHE_MS = envInt('QUOTA_CHECK_DENIED_CACHE_MS', 60000, { min: 0 });
+export const QUOTA_CHECK_DENIED_CACHE_MS = apiServerConfig.quotaCheck.deniedCacheMs;
 
-/** Bound on cached (org, type) readings per pod. */
-const CHECK_CACHE_MAX_ENTRIES = 10_000;
+/** Bound on cached (org, type) readings per pod (`QUOTA_CHECK_CACHE_MAX_ENTRIES`, default 10000). */
+const CHECK_CACHE_MAX_ENTRIES = apiServerConfig.quotaCheck.cacheMaxEntries;
 
 interface CachedCheck {
   status: QuotaCheckResult;

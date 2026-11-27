@@ -44,12 +44,6 @@ export interface PatchContext {
 export const SAFE_TOKEN = /^[A-Za-z0-9@][A-Za-z0-9@._+:~/-]{0,213}$/;
 export const isSafeToken = (s: string): boolean => SAFE_TOKEN.test(s) && !s.includes('..');
 
-/** Map helper: a copy of `tree` with `path` replaced. */
-export function withFile(files: Map<string, string>, path: string, content: string): Map<string, string> {
-  files.set(path, content);
-  return files;
-}
-
 /** The directory part of a relative path ('' for the root). */
 export const dirOf = (p: string): string => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 export const joinPath = (dir: string, name: string): string => (dir ? `${dir}/${name}` : name);

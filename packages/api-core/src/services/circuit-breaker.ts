@@ -24,7 +24,7 @@
  * one failing surface of a service can't shed traffic to its other surfaces. Disable entirely with `S2S_BREAKER_ENABLED=false`.
  */
 
-import { envInt, envBool } from '../utils/env.js';
+import { apiCoreConfig } from '../config.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 
@@ -41,11 +41,7 @@ export interface CircuitBreakerConfig {
   enabled: boolean;
 }
 
-export const DEFAULT_BREAKER_CONFIG: CircuitBreakerConfig = {
-  failureThreshold: envInt('S2S_BREAKER_THRESHOLD', 5, { min: 1 }),
-  cooldownMs: envInt('S2S_BREAKER_COOLDOWN_MS', 10000, { min: 1 }),
-  enabled: envBool('S2S_BREAKER_ENABLED', true),
-};
+export const DEFAULT_BREAKER_CONFIG: CircuitBreakerConfig = { ...apiCoreConfig.circuitBreaker };
 
 /**
  * A single target's breaker. Not concurrency-locked (JS is single-threaded per
