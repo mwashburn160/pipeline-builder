@@ -879,7 +879,8 @@ pipelineEvents.eslint?.addRules(rules);
 // the build bundles the handler into it (the Lambda runtime provides @aws-sdk).
 pipelineEvents.postCompileTask.exec(LAMBDA_BUNDLE('src/index.ts', 'lib/index.js'));
 // The handler imports @aws-sdk/client-sqs (DLQ self-healing redrive) and
-// @aws-sdk/client-codecommit (commit-timestamp resolution); the tests stub both
+// @aws-sdk/client-codecommit (commit-timestamp resolution) and
+// @aws-sdk/client-cloudwatch (the DLQ's oldest-message age); the tests stub all three
 // so no real AWS call is made. These map entries MUST live here (not just in the
 // generated package.json) or projen synth drops them — which breaks the handler
 // suite: CodeCommit GetCommit resolves `undefined` and the SQS/DLQ paths hang to
@@ -889,6 +890,7 @@ if (pipelineEvents.jest) {
     ...pipelineEvents.jest.config.moduleNameMapper,
     '^@aws-sdk/client-sqs$': '<rootDir>/test/aws-sdk-stub.js',
     '^@aws-sdk/client-codecommit$': '<rootDir>/test/aws-sdk-stub.js',
+    '^@aws-sdk/client-cloudwatch$': '<rootDir>/test/aws-sdk-stub.js',
   };
 }
 // Published to npm: `pipeline-manager infra setup-events` runs `npm install

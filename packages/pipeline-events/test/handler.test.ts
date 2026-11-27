@@ -50,8 +50,18 @@ jest.unstable_mockModule('@aws-sdk/client-codepipeline', () => ({
 // globalThis so we can install mocks and assert on the issued commands.
 const mockSqsSend = jest.fn<(cmd: Record<string, unknown>) => Promise<unknown>>();
 const mockCcSend = jest.fn<(cmd: Record<string, unknown>) => Promise<unknown>>();
+const mockCwSend = jest.fn<(cmd: Record<string, unknown>) => Promise<unknown>>();
 (globalThis as any).__sqsSend = mockSqsSend;
 (globalThis as any).__ccSend = mockCcSend;
+(globalThis as any).__cwSend = mockCwSend;
+
+/** A CloudWatch GetMetricStatistics reply whose latest 1-minute Maximum is `ageSec`. */
+const ageDatapoints = (ageSec: number) => ({
+  Datapoints: [
+    { Timestamp: new Date(Date.now() - 3 * 60 * 1000), Maximum: 1 },
+    { Timestamp: new Date(Date.now() - 60 * 1000), Maximum: ageSec },
+  ],
+});
 
 // Mock fetch globally
 const mockFetch = jest.fn<(url: string, opts?: any) => any>();
@@ -132,6 +142,10 @@ describe('pipeline-events handler', () => {
       SecretString: JSON.stringify({ password: STORED_KEY }),
     });
     mockTagsSend.mockImplementation(tagResolver);
+
+    // Default CloudWatch: the DLQ's oldest message is 60s old (inside the ceiling).
+    mockCwSend.mockReset();
+    mockCwSend.mockImplementation(() => Promise.resolve(ageDatapoints(60)));
 
     // Default SQS: empty DLQ, no active move task → no redrive.
     mockSqsSend.mockImplementation((cmd) => {
@@ -1319,10 +1333,11 @@ describe('pipeline-events handler', () => {
   describe('DLQ poison-message ceiling (packages#B)', () => {
     it('does NOT redrive when the oldest DLQ message exceeds the poison-age ceiling', async () => {
       mockSqsSend.mockImplementation((cmd) => {
-        if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '5', ApproximateAgeOfOldestMessage: String(7 * 60 * 60) } });
+        if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '5' } });
         if (cmd.__type === 'ListMessageMoveTasks') return Promise.resolve({ Results: [] });
         return Promise.resolve({ TaskHandle: 'task-1' });
       });
+      mockCwSend.mockImplementation(() => Promise.resolve(ageDatapoints(7 * 60 * 60)));
 
       await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
 
@@ -1333,13 +1348,102 @@ describe('pipeline-events handler', () => {
 
     it('DOES redrive when the oldest DLQ message is within the ceiling', async () => {
       mockSqsSend.mockImplementation((cmd) => {
-        if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '3', ApproximateAgeOfOldestMessage: String(60) } });
+        if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '3' } });
+        if (cmd.__type === 'ListMessageMoveTasks') return Promise.resolve({ Results: [] });
+        return Promise.resolve({ TaskHandle: 'task-1' });
+      });
+      mockCwSend.mockImplementation(() => Promise.resolve(ageDatapoints(60)));
+
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      expect(mockSqsSend.mock.calls.find((c: any[]) => c[0].__type === 'StartMessageMoveTask')).toBeDefined();
+    });
+
+    it('asks SQS ONLY for ApproximateNumberOfMessages (the age is not a queue attribute)', async () => {
+      // Real SQS rejects the whole call with InvalidAttributeName when asked for
+      // ApproximateAgeOfOldestMessage, which pinned depth at 0 and disabled the redrive.
+      mockSqsSend.mockImplementation((cmd) => {
+        if (cmd.__type === 'GetQueueAttributes') {
+          const names = (cmd as any).AttributeNames as string[];
+          if (names.some(n => n !== 'ApproximateNumberOfMessages')) {
+            return Promise.reject(Object.assign(new Error('Unknown Attribute'), { name: 'InvalidAttributeName' }));
+          }
+          return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '4' } });
+        }
         if (cmd.__type === 'ListMessageMoveTasks') return Promise.resolve({ Results: [] });
         return Promise.resolve({ TaskHandle: 'task-1' });
       });
 
       await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+
+      expect(ingestHealthBody().dropped).toBe(4);
       expect(mockSqsSend.mock.calls.find((c: any[]) => c[0].__type === 'StartMessageMoveTask')).toBeDefined();
+    });
+
+    it('reads the age from the AWS/SQS CloudWatch metric for the DLQ', async () => {
+      mockSqsSend.mockImplementation((cmd) => {
+        if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '2' } });
+        if (cmd.__type === 'ListMessageMoveTasks') return Promise.resolve({ Results: [] });
+        return Promise.resolve({ TaskHandle: 'task-1' });
+      });
+
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+
+      const call = mockCwSend.mock.calls.find((c: any[]) => c[0].__type === 'GetMetricStatistics');
+      expect(call![0]).toMatchObject({
+        Namespace: 'AWS/SQS',
+        MetricName: 'ApproximateAgeOfOldestMessage',
+        Dimensions: [{ Name: 'QueueName', Value: 'pipeline-builder-events-dlq' }],
+        Statistics: ['Maximum'],
+      });
+    });
+
+    it('uses the LATEST datapoint, not the largest', async () => {
+      mockSqsSend.mockImplementation((cmd) => {
+        if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '2' } });
+        if (cmd.__type === 'ListMessageMoveTasks') return Promise.resolve({ Results: [] });
+        return Promise.resolve({ TaskHandle: 'task-1' });
+      });
+      // Older datapoint was over the ceiling; the latest (after a purge) is fresh.
+      mockCwSend.mockImplementation(() => Promise.resolve({
+        Datapoints: [
+          { Timestamp: new Date(Date.now() - 60 * 1000), Maximum: 30 },
+          { Timestamp: new Date(Date.now() - 10 * 60 * 1000), Maximum: 7 * 60 * 60 },
+        ],
+      }));
+
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      expect(mockSqsSend.mock.calls.find((c: any[]) => c[0].__type === 'StartMessageMoveTask')).toBeDefined();
+    });
+
+    it('defers the redrive when no age datapoint exists yet (fail safe), still reporting depth', async () => {
+      mockSqsSend.mockImplementation((cmd) => {
+        if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '3' } });
+        if (cmd.__type === 'ListMessageMoveTasks') return Promise.resolve({ Results: [] });
+        return Promise.resolve({ TaskHandle: 'task-1' });
+      });
+      mockCwSend.mockImplementation(() => Promise.resolve({ Datapoints: [] }));
+
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      expect(mockSqsSend.mock.calls.find((c: any[]) => c[0].__type === 'StartMessageMoveTask')).toBeUndefined();
+      expect(ingestHealthBody().dropped).toBe(3);
+    });
+
+    it('skips the redrive when the CloudWatch read is denied, without failing the batch', async () => {
+      mockSqsSend.mockImplementation((cmd) => {
+        if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '3' } });
+        if (cmd.__type === 'ListMessageMoveTasks') return Promise.resolve({ Results: [] });
+        return Promise.resolve({ TaskHandle: 'task-1' });
+      });
+      mockCwSend.mockImplementation(() => Promise.reject(Object.assign(new Error('denied'), { name: 'AccessDenied' })));
+
+      await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).resolves.toEqual({ batchItemFailures: [] });
+      expect(mockSqsSend.mock.calls.find((c: any[]) => c[0].__type === 'StartMessageMoveTask')).toBeUndefined();
+      expect(ingestHealthBody().dropped).toBe(3);
+    });
+
+    it('does not read the age when the DLQ is empty', async () => {
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      expect(mockCwSend).not.toHaveBeenCalled();
     });
   });
 

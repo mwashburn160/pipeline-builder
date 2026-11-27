@@ -64,6 +64,16 @@ function resources(s: Json): Json[] {
 
 const actionsOf = (s: Json): string[] => (Array.isArray(s.Action) ? s.Action : [s.Action]);
 
+/**
+ * Read-only actions AWS gives no resource-level permissions, so `*` is the ONLY
+ * resource IAM accepts for them. A `*` statement must contain nothing else.
+ *   - cloudwatch:GetMetricStatistics: the ingestion Lambda reads the DLQ's
+ *     `AWS/SQS ApproximateAgeOfOldestMessage` (a metric, not a queue attribute)
+ *     for the redrive's poison-age ceiling.
+ */
+const NO_RESOURCE_LEVEL = new Set(['cloudwatch:GetMetricStatistics']);
+const isUnscopableOnly = (s: Json): boolean => actionsOf(s).every((a) => NO_RESOURCE_LEVEL.has(a));
+
 describe.each(TEMPLATES)('%s', (file) => {
   const tpl = load(file);
 
@@ -87,6 +97,7 @@ describe.each(TEMPLATES)('%s', (file) => {
         expect(a).not.toBe('*');
         expect(a).not.toMatch(/:\*$/);
       }
+      if (isUnscopableOnly(s)) continue; // `*` is the only resource these accept
       for (const r of resources(s)) expect(r).not.toBe('*');
     }
   });
@@ -95,6 +106,7 @@ describe.each(TEMPLATES)('%s', (file) => {
     for (const s of statements(tpl)) {
       for (const r of resources(s)) {
         if (typeof r !== 'string') continue; // Fn::GetAtt on a resource in this stack
+        if (r === '*' && isUnscopableOnly(s)) continue;
         expect(r).toMatch(/^arn:\$\{AWS::Partition\}:[a-z-]+:\$\{AWS::Region\}:\$\{AWS::AccountId\}:/);
       }
     }
@@ -104,6 +116,12 @@ describe.each(TEMPLATES)('%s', (file) => {
 describe('events-stack.json ingestion grants', () => {
   const tpl = load('events-stack.json');
   const grant = (action: string) => statements(tpl).find((s) => actionsOf(s).includes(action));
+
+  it('grants the DLQ age metric read alone, on `*` (CloudWatch has no resource-level reads)', () => {
+    const s = grant('cloudwatch:GetMetricStatistics')!;
+    expect(actionsOf(s)).toEqual(['cloudwatch:GetMetricStatistics']);
+    expect(resources(s)).toEqual(['*']);
+  });
 
   it('reads builds only in this region/account', () => {
     expect(resources(grant('codebuild:BatchGetBuilds')!)).toEqual(['arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/*']);
