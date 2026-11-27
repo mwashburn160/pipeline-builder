@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: deb4d2797c6c70bb005c3d916ab2cd103d0cfba946b2f9b37abd5cb8aeb1a8ae
+// SOURCE-SHA256: 0c1e9dbd713b1367e7abf5f98f469797132a939f29bbe5c1319d2e7813b1832e
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2346,6 +2346,11 @@ export const envVariablesTopic: HelpTopic = {
               "Longest a DENIED check is reused (never past the period reset) — an upgrade, bundle or operator reset is honoured within this window. 0 never caches a denial"
             ],
             [
+              "QUOTA_CHECK_CACHE_MAX_ENTRIES",
+              "10000",
+              "Most cached quota-check readings, one per (org, quota type), kept per pod. Bounds the cache's memory; the oldest reading is dropped first. Floored at 1"
+            ],
+            [
               "QUOTA_INCREMENT_FLUSH_MS",
               "1000",
               "Per-pod metering batch interval: units are summed per (org, type, principal, key, route, pipeline) and sent as one metered increment per (org, type). The counter lags by up to this much. 0 sends every unit on its own (max 60000)"
@@ -2673,6 +2678,11 @@ export const envVariablesTopic: HelpTopic = {
               "IMPERSONATION_REQUEST_TTL_MS",
               "3600000 (1 h)",
               "How long an impersonation approval (or pending request) stays redeemable. Floored at 60000"
+            ],
+            [
+              "IMPERSONATION_REAPER_INTERVAL_MS",
+              "300000 (5 min)",
+              "How often platform marks lapsed pending or approved impersonation requests expired. Keep it well under IMPERSONATION_REQUEST_TTL_MS. Floored at 1000"
             ],
             [
               "SCIM_DOCUMENTATION_URL",

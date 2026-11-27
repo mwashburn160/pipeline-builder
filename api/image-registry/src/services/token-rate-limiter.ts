@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, createLogger, createEnvRedisClient, incrWindow, type RedisEvalClient, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, createEnvRedisClient, incrWindow, type RedisEvalClient, errorMessage } from '@pipeline-builder/api-core';
+import { tunables } from '../config/tunables.js';
 
 const logger = createLogger('token-rate-limit');
 
@@ -31,11 +32,11 @@ const logger = createLogger('token-rate-limit');
  *
  * Defaults: 60 requests / 60s per (ip, username); 300 / 60s per ip. Override via env.
  */
-const RATE_LIMIT_WINDOW_MS = envInt('REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS', 60_000, { min: 1 });
-const RATE_LIMIT_MAX = envInt('REGISTRY_TOKEN_RATE_LIMIT_MAX', 60, { min: 1 });
-const RATE_LIMIT_IP_MAX = envInt('REGISTRY_TOKEN_RATE_LIMIT_IP_MAX', 300, { min: 1 });
+const RATE_LIMIT_WINDOW_MS = tunables.tokenRateLimit.windowMs;
+const RATE_LIMIT_MAX = tunables.tokenRateLimit.max;
+const RATE_LIMIT_IP_MAX = tunables.tokenRateLimit.ipMax;
 /** Hard cap on distinct in-memory buckets (fallback path only). */
-const MAX_MEMORY_BUCKETS = envInt('REGISTRY_TOKEN_RATE_LIMIT_MAX_BUCKETS', 10_000, { min: 1 });
+const MAX_MEMORY_BUCKETS = tunables.tokenRateLimit.maxBuckets;
 
 const REDIS_KEY_PREFIX = 'reg:tokrl:';
 
@@ -49,8 +50,7 @@ const memBuckets = new Map<string, { count: number; resetAt: number }>();
 /**
  * Build the per-(ip, username) bucket key. Password is intentionally EXCLUDED so
  * varying it can't spawn a fresh bucket per attempt.
- */
-/**
+ *
  * Lower-cased: the login identifier (an email) is matched case-insensitively, so
  * `Victim@x` and `victim@x` are one account — keyed as typed, every case variant
  * was a fresh budget against the same password check.

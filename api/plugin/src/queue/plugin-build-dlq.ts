@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { SYSTEM_ACTOR_ID, envInt, createLogger, getServiceAuthHeader, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, getServiceAuthHeader, recordAudit } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
@@ -20,6 +20,7 @@ import {
   getTierQueue,
   totalAttemptBudget,
 } from './connections.js';
+import { config } from '../config.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 
 const logger = createLogger('plugin-build-queue');
@@ -79,7 +80,7 @@ export function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMess
 
 let dlqWorker: Worker<PluginBuildJobData> | null = null;
 
-const DLQ_ENFORCE_SCAN_INTERVAL_MS = envInt('PLUGIN_DLQ_SCAN_INTERVAL_MS', 5000, { min: 1 });
+const DLQ_ENFORCE_SCAN_INTERVAL_MS = config.queue.dlqScanIntervalMs;
 let lastDlqEnforceMs = 0;
 
 /**

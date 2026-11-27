@@ -18,9 +18,10 @@ import { ALL_TARGETS, read } from '../src/index.js';
 
 /** The plugin service's default, in seconds, from the upload route. */
 function serviceDefaultSeconds(): number {
-  const src = read('api/plugin/src/routes/upload-plugin.ts');
+  // Read through plugin's config object (`config.upload.timeoutMs`).
+  const src = read('api/plugin/src/config.ts');
   const m = src.match(/envInt\(\s*'PLUGIN_UPLOAD_TIMEOUT_MS',\s*([\d_]+)/);
-  if (!m) throw new Error('upload-plugin.ts no longer reads PLUGIN_UPLOAD_TIMEOUT_MS with a numeric default');
+  if (!m) throw new Error('api/plugin/src/config.ts no longer reads PLUGIN_UPLOAD_TIMEOUT_MS with a numeric default');
   return Number(m[1].replace(/_/g, '')) / 1000;
 }
 

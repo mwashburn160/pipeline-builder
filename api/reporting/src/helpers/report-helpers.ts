@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { attachmentDisposition, createLogger, envInt, envStr, ErrorCode, fetchOrgDescendants, fetchParentOrgId, MAX_ORG_DEPTH, maskLine, parseReportTimezone, parseWeekStart, RETENTION_MAX_DAYS, sendError, userHasPermission, type WeekStart } from '@pipeline-builder/api-core';
+import { attachmentDisposition, createLogger, ErrorCode, fetchOrgDescendants, fetchParentOrgId, MAX_ORG_DEPTH, maskLine, parseReportTimezone, parseWeekStart, RETENTION_MAX_DAYS, sendError, userHasPermission, type WeekStart } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
+import { config } from '../config.js';
 import type { PdfFailure, PdfRefusal } from '../services/report-pdf.js';
 
 const _descLogger = createLogger('reporting-rollup');
@@ -18,7 +19,7 @@ const _descLogger = createLogger('reporting-rollup');
  * tick — each caller's own policy) beats holding the work for the full global
  * budget.
  */
-export const REPORTING_HTTP_TIMEOUT_MS = envInt('REPORTING_HTTP_TIMEOUT_MS', 3000, { min: 1 });
+export const REPORTING_HTTP_TIMEOUT_MS = config.http.timeoutMs;
 
 /**
  * The base URL user-facing report links are built from.
@@ -28,7 +29,7 @@ export const REPORTING_HTTP_TIMEOUT_MS = envInt('REPORTING_HTTP_TIMEOUT_MS', 300
  * a link that 404s on a hostname they were never meant to see.
  */
 export function publicBaseUrl(): string {
-  return envStr('PLATFORM_FRONTEND_URL', envStr('PLATFORM_BASE_URL', 'https://localhost:8443')).replace(/\/+$/, '');
+  return config.publicBaseUrl;
 }
 
 /** Where a manager reads a shared report. The page redeems the token against the API. */

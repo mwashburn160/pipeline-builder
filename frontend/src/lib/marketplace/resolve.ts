@@ -20,6 +20,8 @@
  * side of the wire and is never logged, not even truncated.
  */
 
+import { serverConfig } from '@/lib/server-config';
+
 /** Upper bound on the exchange. The route makes two AWS calls (ResolveCustomer
  *  + GetEntitlements), so this is well above the happy path and well below a
  *  page request that a buyer would abandon. */
@@ -49,7 +51,7 @@ interface ResolveBody {
  * of the same one cannot succeed.
  */
 export async function resolveRegistrationToken(token: string): Promise<ResolveOutcome> {
-  const base = process.env.BILLING_INTERNAL_URL;
+  const base = serverConfig.billingInternalUrl;
   if (!base) {
     // Deployment fault, not the buyer's. Loud in the logs, vague to them.
     console.error('[marketplace] BILLING_INTERNAL_URL is not set — cannot resolve a registration token');

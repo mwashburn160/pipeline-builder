@@ -3,28 +3,9 @@
 
 /** SCIM discovery documents: what a validator or IdP fetches first. */
 
-import { envStr } from '@pipeline-builder/api-core';
 import type { ScimListResponse } from './scim-filter.js';
 import { scimBaseUrl } from './scim-render.js';
 import { SCIM_GROUP_SCHEMA, SCIM_LIST_SCHEMA, SCIM_MAX_COUNT, SCIM_USER_SCHEMA } from '../constants/scim.js';
-
-/**
- * Human documentation an IdP links to from `ServiceProviderConfig`
- * (env: `SCIM_DOCUMENTATION_URL`).
- *
- * Defaults to the published docs site's Authentication & SSO page, which owns
- * the "SCIM 2.0 provisioning" section (base URL, `scim`-scoped service-account
- * key, endpoint list, group→role semantics). `_config.yml` sets
- * `url: https://docs.pipeline-builder.io` with an empty `baseurl`, and
- * `docs/authentication.md` declares no `permalink`, so Jekyll serves it at the
- * source path with `.html` — the same form the frontend's `categoryDocUrl`
- * builds. Overridable for an operator who republishes these docs internally
- * (air-gapped installs cannot reach the public site).
- */
-const DOCUMENTATION_URL = envStr(
-  'SCIM_DOCUMENTATION_URL',
-  'https://docs.pipeline-builder.io/docs/authentication.html',
-);
 
 // ---------------------------------------------------------------------------
 // Discovery documents (RFC 7643 §§5-6) — what a validator fetches first
@@ -34,9 +15,14 @@ const DOCUMENTATION_URL = envStr(
  *  client never attempts bulk, sort or a complex filter and gets a 400. */
 export async function serviceProviderConfig(): Promise<Record<string, unknown>> {
   const baseUrl = await scimBaseUrl();
+  // Loaded lazily, like scimBaseUrl, so this module stays out of the config
+  // graph. `SCIM_DOCUMENTATION_URL`, defaulting to the published docs site's
+  // Authentication & SSO page (Jekyll serves docs/authentication.md at its
+  // source path with `.html`); overridable for air-gapped installs.
+  const { config } = await import('../config/index.js');
   return {
     schemas: ['urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig'],
-    documentationUri: DOCUMENTATION_URL,
+    documentationUri: config.scim.documentationUrl,
     patch: { supported: true },
     bulk: { supported: false, maxOperations: 0, maxPayloadSize: 0 },
     filter: { supported: true, maxResults: SCIM_MAX_COUNT },

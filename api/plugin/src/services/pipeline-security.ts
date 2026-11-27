@@ -30,6 +30,7 @@ import { EcosystemError } from './ecosystem/context.js';
 import { elevated } from './ecosystem/store.js';
 import type { PluginRowState } from './plugin-row-state.js';
 import { notifyPipelineVulnerable } from './plugin-security-notifications.js';
+import { config } from '../config.js';
 import { acceptanceFor, acceptancesFor, consumptionPolicyFor } from '../helpers/lookup-vuln-policy.js';
 
 /** A plugin record an image digest belongs to, in the caller's scope. */
@@ -455,8 +456,7 @@ async function buildImageView(
 
 /** `PLUGIN_RISK_ACCEPTANCE_MAX_DAYS` (default 90): the longest an acceptance may run. */
 export function riskAcceptanceMaxDays(): number {
-  const n = Number.parseInt(process.env.PLUGIN_RISK_ACCEPTANCE_MAX_DAYS ?? '', 10);
-  return Number.isInteger(n) && n >= 1 && n <= 365 ? n : 90;
+  return config.vulnScan.riskAcceptanceMaxDays;
 }
 
 /** The validated triage body. */

@@ -5,7 +5,7 @@ import * as fs from 'fs/promises';
 import path from 'path';
 
 import {
-  envInt, ValidationError, checkPluginConfig, checkPluginSpec, checkPluginTemplates, formatPluginTemplateIssue,
+  ValidationError, checkPluginConfig, checkPluginSpec, checkPluginTemplates, formatPluginTemplateIssue,
   pluginSpecRequiredFieldsProblem, type PluginTemplateEngine, type PluginTemplateIssue,
 } from '@pipeline-builder/api-core';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
@@ -23,6 +23,7 @@ import { pluginIdentityProblem } from './plugin-identity.js';
 import { validateSafePath } from './safe-path.js';
 import { SECRET_FILE_SCREEN } from './secret-files.js';
 import { readAndExtractZip, type ExtractionLimits } from './zip-extract.js';
+import { config as serviceConfig } from '../config.js';
 
 // -----------------------------------------------------------------------------
 // Types
@@ -57,7 +58,7 @@ export interface ParsedPlugin {
  * Max YAML text length (bytes) accepted for config.yaml / plugin-spec.yaml.
  * Bounds memory before parsing. Default 1 MiB — plugin manifests are small.
  */
-const MAX_YAML_BYTES = envInt('PLUGIN_MAX_YAML_BYTES', 1_048_576, { min: 1 });
+const MAX_YAML_BYTES = serviceConfig.upload.maxYamlBytes;
 
 /**
  * Parse YAML with an input-length cap and a bounded alias count. The `yaml`

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, createLogger, envInt, errorMessage, recordAudit, runWithAuditContext, SYSTEM_ORG_ID, toComplianceAttributes, type ComplianceScanTarget } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, errorMessage, recordAudit, runWithAuditContext, SYSTEM_ORG_ID, toComplianceAttributes, type ComplianceScanTarget } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { eq, and, gt, lt, asc } from 'drizzle-orm';
@@ -10,6 +10,7 @@ import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-no
 import { ruleTargetsOf } from './compliance-vocabulary.js';
 import { evaluateEntity } from './evaluate-entity.js';
 import { resolveParentOrgId } from './org-hierarchy-client.js';
+import { config } from '../config.js';
 import type { ActiveExemption } from '../engine/rule-engine.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
@@ -18,10 +19,10 @@ const logger = createLogger('scan-executor');
 
 /** Progress update interval (every N entities). Override via
  *  `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE`. */
-const PROGRESS_BATCH_SIZE = envInt('COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE', 10, { min: 1 });
+const PROGRESS_BATCH_SIZE = config.scan.progressBatchSize;
 
 /** Per-batch concurrency for the entity-evaluation loop. Tunable for very large orgs. */
-const SCAN_CONCURRENCY = envInt('COMPLIANCE_SCAN_CONCURRENCY', 10, { min: 1 });
+const SCAN_CONCURRENCY = config.scan.concurrency;
 
 /** An entity to evaluate: its id + display name, and the compliance-safe
  *  attribute projection the rules run against. */
@@ -50,7 +51,7 @@ function toEntityRecord(row: Record<string, unknown>, name: unknown): EntityReco
 /** A `running` scan whose `startedAt` is older than this is presumed orphaned
  *  (its executor crashed / the pod died mid-scan) and is failed by
  *  {@link recoverStaleScans}. Override via `COMPLIANCE_SCAN_STALE_TIMEOUT_MS`. */
-const STALE_SCAN_TIMEOUT_MS = envInt('COMPLIANCE_SCAN_STALE_TIMEOUT_MS', 2 * 60 * 60 * 1000, { min: 60_000 });
+const STALE_SCAN_TIMEOUT_MS = config.scan.staleTimeoutMs;
 
 /**
  * Fail scans stuck in `running` past {@link STALE_SCAN_TIMEOUT_MS}.
@@ -361,14 +362,14 @@ async function evaluateBatch(
 /** Page size for entity pagination. Entities are fetched in keyset-paginated
  *  pages of this size and ALL pages are evaluated — there is no truncation.
  *  Override via `COMPLIANCE_SCAN_ENTITY_PAGE_SIZE`. */
-const ENTITY_PAGE_SIZE = envInt('COMPLIANCE_SCAN_ENTITY_PAGE_SIZE', 1000, { min: 1 });
+const ENTITY_PAGE_SIZE = config.scan.entityPageSize;
 
 /** Absolute safety bound on total entities materialized per target per scan.
  *  Pagination evaluates every entity; this only guards against pathological
  *  unbounded memory. Exceeding it FAILS the scan (honest terminal state) rather
  *  than silently truncating to a green "all pass". Override via
  *  `COMPLIANCE_SCAN_ENTITY_MAX_TOTAL`. */
-const ENTITY_MAX_TOTAL = envInt('COMPLIANCE_SCAN_ENTITY_MAX_TOTAL', 100_000, { min: 1 });
+const ENTITY_MAX_TOTAL = config.scan.entityMaxTotal;
 
 /**
  * Fetch ALL active entities for a target via keyset (id-ordered) pagination,

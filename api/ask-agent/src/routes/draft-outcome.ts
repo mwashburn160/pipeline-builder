@@ -1,12 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, envInt, ErrorCode, errorMessage, getAiDraftStore, getServiceAuthHeader, InternalHttpClient, requireFeature, requireOrgAIEnabled, sendBadRequest, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, errorMessage, getAiDraftStore, getServiceAuthHeader, InternalHttpClient, requireFeature, requireOrgAIEnabled, sendBadRequest, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
 import { incCounter, rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
 import { requireAskAccess } from '../authz.js';
+import { config } from '../config.js';
 import { AskDraftOutcomeSchema } from '../request-schema.js';
 
 const logger = createLogger('ask-draft-outcome');
@@ -78,7 +79,7 @@ export function createDraftOutcomeRoutes(): Router {
   const perUser = rateLimitByOrg({
     name: 'ask-draft-outcome',
     keyBy: 'user',
-    max: envInt('ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN', 20, { min: 1 }),
+    max: config.rateLimits.draftOutcomePerMin,
     windowMs: 60_000,
     message: 'Too many draft outcomes',
   });

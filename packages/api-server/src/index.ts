@@ -29,6 +29,10 @@
  * - Tracing and metrics collection utilities
  */
 
+// Typed configuration
+export { apiServerConfig } from './config.js';
+export type { ApiServerConfig } from './config.js';
+
 // API Infrastructure
 export * from './api/index.js';
 

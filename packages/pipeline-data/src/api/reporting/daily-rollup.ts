@@ -24,9 +24,10 @@
  * every execution still running at midnight as neither a success nor a failure.
  */
 
-import { createLogger, errorMessage, envInt, startOf } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, startOf } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { failedStatusList, nonOutcomeStatusList, notOvertaken, succeededStatusList } from './sql-helpers.js';
+import { pipelineDataConfig } from '../../config.js';
 import { affectedRowCount } from '../../database/pg-result.js';
 import { runWithTenantContext, withTenantTx } from '../../database/tenancy.js';
 
@@ -40,12 +41,12 @@ const logger = createLogger('daily-rollup');
  * report read a half-built day.
  */
 export function rollupSettleHours(): number {
-  return envInt('REPORTING_ROLLUP_SETTLE_HOURS', 6, { min: 0 });
+  return pipelineDataConfig.reporting.rollupSettleHours;
 }
 
 /** Rows per rebuild pass. Bounds the statement, not the backlog. */
 export function rollupBatchDays(): number {
-  return envInt('REPORTING_ROLLUP_BATCH_DAYS', 7, { min: 1 });
+  return pipelineDataConfig.reporting.rollupBatchDays;
 }
 
 /**

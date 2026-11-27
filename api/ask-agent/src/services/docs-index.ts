@@ -7,13 +7,14 @@ import { join, relative, sep } from 'node:path';
 import { buildDocsIndexFromFiles } from '@pipeline-builder/ai-core';
 import type { GroundingIndex, DocFile } from '@pipeline-builder/ai-core';
 import { createLogger } from '@pipeline-builder/api-core';
+import { config } from '../config.js';
 
 const logger = createLogger('ask-docs-index');
 
 // Directory the how-to grounding corpus is loaded from. The service image bundles
 // the repo's `docs/*.md` (the source-of-truth the in-app help mirrors); override the
 // location with ASK_DOCS_DIR.
-const DOCS_DIR = process.env.ASK_DOCS_DIR || join(process.cwd(), 'docs');
+const DOCS_DIR = config.docsDir;
 
 let cached: GroundingIndex | null = null;
 let building: Promise<GroundingIndex> | null = null;

@@ -3,8 +3,8 @@
 
 import { z } from 'zod';
 import { BaseFilterSchema, BooleanQuerySchema } from './common-schemas.js';
+import { apiCoreConfig } from '../config.js';
 import { MESSAGE_PRIORITIES, MESSAGE_SENT_BY, MESSAGE_TYPES } from '../types/wire-vocabulary.js';
-import { envInt } from '../utils/env.js';
 
 /**
  * Message type schema
@@ -92,7 +92,7 @@ export const MESSAGE_MAX_ATTACHMENTS = 5;
  * (multer `fileSize`); kept here so the bound lives with the other message
  * limits rather than only inline in the route.
  */
-export const MESSAGE_ATTACHMENT_MAX_MB = envInt('MESSAGE_ATTACHMENT_MAX_MB', 10, { min: 1 });
+export const MESSAGE_ATTACHMENT_MAX_MB = apiCoreConfig.limits.messageAttachmentMaxMb;
 export const MESSAGE_ATTACHMENT_MAX_BYTES = MESSAGE_ATTACHMENT_MAX_MB * 1024 * 1024;
 
 /**

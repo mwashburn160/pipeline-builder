@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConcurrencyConflictError, ConflictError, NotFoundError, ValidationError, createLogger, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, SYSTEM_ACTOR_ID, envInt } from '@pipeline-builder/api-core';
+import { ConcurrencyConflictError, ConflictError, NotFoundError, ValidationError, createLogger, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
 import { SQL, eq, and, or, asc, desc, sql, inArray, isNull, getTableColumns } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { CURSOR_SORT_KEY, decodeCursor, encodeCursor, isCastableTo, keysetAfter } from './keyset-cursor.js';
+import { pipelineDataConfig } from '../config.js';
 import { resultRows } from '../database/pg-result.js';
 import { withTenantTx, runWithTenantContext, getTenantContext } from '../database/tenancy.js';
 
@@ -132,7 +133,7 @@ interface CrudColumns {
  * Stamped into `purge_after` at delete time; the per-service purge sweep hard-
  * deletes tombstones once it has passed. `0` disables purge-deadline stamping.
  */
-const SOFT_DELETE_RETENTION_MS = envInt('SOFT_DELETE_RETENTION_DAYS', 30, { min: 0 }) * 24 * 60 * 60 * 1000;
+const SOFT_DELETE_RETENTION_MS = pipelineDataConfig.softDelete.retentionDays * 24 * 60 * 60 * 1000;
 
 /** The shared soft-delete retention window in ms (`SOFT_DELETE_RETENTION_DAYS`,
  *  default 30d; 0 disables purge-deadline stamping). Exposed so non-CrudService

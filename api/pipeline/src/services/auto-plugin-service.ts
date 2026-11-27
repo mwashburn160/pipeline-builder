@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createSafeClient, envInt, ErrorCode, errorMessage, onBehalfHeaders, runConcurrent } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, ErrorCode, errorMessage, onBehalfHeaders, runConcurrent } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
+import { config } from '../config.js';
 import { findExistingPluginNames, findListedNames } from './plugin-lookup-service.js';
 
 const logger = createLogger('auto-plugin');
@@ -21,7 +22,7 @@ const SAFE_PLUGIN_NAME_RE = /^[a-z0-9-]{1,64}$/; // 64 = the plugin service's na
  * 30s by default — these calls are sometimes slow because plugin upload
  * responses include build queue results. Override via
  * `PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS`. */
-const PLUGIN_SERVICE_TIMEOUT_MS = envInt('PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS', 30000, { min: 1 });
+const PLUGIN_SERVICE_TIMEOUT_MS = config.pluginService.timeoutMs;
 
 let _pluginClient: ReturnType<typeof createSafeClient> | undefined;
 /** Lazily construct the plugin service client — defers Config.get() until first

@@ -21,7 +21,7 @@
  */
 
 import {
-  createLogger, envInt, errorMessage, isManagedToolchainPlugin, managedRefPinsVersion, PluginFilterSchema, toolchainReleasePin, type ManagedToolchainPlugin,
+  createLogger, errorMessage, isManagedToolchainPlugin, managedRefPinsVersion, PluginFilterSchema, toolchainReleasePin, type ManagedToolchainPlugin,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { collectPluginSteps, pluginLookupFilter } from '@pipeline-builder/pipeline-core';
@@ -32,12 +32,13 @@ import {
 
 import { listingSource } from './ecosystem/installs-store.js';
 import { pluginService } from './plugin-service.js';
+import { config } from '../config.js';
 
 const logger = createLogger('declared-resolution-refresh');
 
 /** `PLUGIN_RESOLUTION_REFRESH_MAX` (default 500): pipelines re-resolved per trigger. */
 export function resolutionRefreshMax(): number {
-  return envInt('PLUGIN_RESOLUTION_REFRESH_MAX', 500, { min: 1 });
+  return config.ecosystem.resolutionRefreshMax;
 }
 
 /** Whose plugin moved: a listing (by publisher handle) or an org's own plugin. */

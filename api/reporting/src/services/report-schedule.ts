@@ -12,8 +12,8 @@
  */
 
 import { createHash } from 'node:crypto';
-import { envInt } from '@pipeline-builder/api-core';
 import { nextPeriodBoundary, type ReportDefinition } from '@pipeline-builder/pipeline-data';
+import { config } from '../config.js';
 
 /**
  * Hours after a period ends before it is reported.
@@ -25,7 +25,7 @@ import { nextPeriodBoundary, type ReportDefinition } from '@pipeline-builder/pip
  * half-built day.
  */
 export function reportSettleHours(): number {
-  return envInt('REPORT_SETTLE_HOURS', 6, { min: 0 });
+  return config.scheduler.settleHours;
 }
 
 /**
@@ -37,7 +37,7 @@ export function reportSettleHours(): number {
  * every definition created in the same second into the same minute of the window.
  */
 function jitterFor(id: string): number {
-  const span = envInt('REPORT_JITTER_MS', 1_800_000, { min: 0 });
+  const span = config.scheduler.jitterMs;
   if (span === 0) return 0;
   return createHash('sha256').update(id).digest().readUInt32BE(0) % span;
 }

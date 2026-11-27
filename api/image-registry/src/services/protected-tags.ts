@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { tunables } from '../config/tunables.js';
+
 /**
  * Tag names treated as mutable "floating" pointers that operators re-point at
  * a known-good build (which may be an OLD build). A digest carrying one of
@@ -14,7 +16,7 @@ export const DEFAULT_PROTECTED_TAGS = [
 
 /** The protected tag names in force (lowercased). */
 export function protectedTagNames(): Set<string> {
-  const raw = process.env.REGISTRY_GC_PROTECTED_TAGS;
+  const raw = tunables.gc.protectedTags;
   const names = raw
     ? raw.split(',').map((s) => s.trim()).filter(Boolean)
     : DEFAULT_PROTECTED_TAGS;

@@ -33,6 +33,7 @@ const cfg = {
   billing: { enabled: true, reconcileIntervalMs: 2000 },
   organization: { domainReverifyIntervalMs: 3000, domainReverifyStaleMs: 10 },
   invitation: { sweepIntervalMs: 1000 },
+  impersonation: { reaperIntervalMs: 1000 },
 };
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig(cfg));
 

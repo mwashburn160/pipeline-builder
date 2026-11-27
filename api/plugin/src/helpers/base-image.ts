@@ -27,12 +27,13 @@ import { createLogger, errorMessage, parseDockerfile, SYSTEM_ORG_ID } from '@pip
 
 import { run } from './build-process.js';
 import { imageRepository, writeAuthConfig, type RegistryInfo } from './registry-auth.js';
+import { config } from '../config.js';
 
 // Deliberately NOT imported from docker-build / supply-chain: this module sits
 // on the publish-decision path, which must not pull the build toolchain in.
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
-/** Same env + default as docker-build's PUBLISH_PLATFORM (the platform the plugin image is published for). */
-const PUBLISH_PLATFORM = process.env.PUBLISH_PLATFORM || 'linux/amd64';
+/** The platform the plugin image is published for — the same config field docker-build's PUBLISH_PLATFORM reads. */
+const PUBLISH_PLATFORM = config.build.publishPlatform;
 
 const logger = createLogger('base-image');
 

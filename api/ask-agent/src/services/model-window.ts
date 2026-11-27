@@ -47,6 +47,7 @@ import {
   timeZoneAbbreviation, weekdayOf, type CronField,
 } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
+import { config } from '../config.js';
 
 /**
  * Failures that mean "nothing answered at this address".
@@ -147,7 +148,7 @@ type WindowState =
  * business day, and a fixed-offset reading of that is an hour wrong for the
  * eight months the US is on EDT.
  */
-const SCHEDULE_TZ = (): string => process.env.ASK_SCHEDULE_TIMEZONE || 'America/New_York';
+const SCHEDULE_TZ = (): string => config.schedule.timeZone;
 
 /** Where `now` falls in a zone: minutes past local midnight, and the local weekday. */
 interface ZonedNow {
@@ -174,9 +175,8 @@ function zonedNow(now: Date, timeZone: string): ZonedNow | null {
 }
 
 function evaluateWindow(now: Date): WindowState {
-  if (process.env.ASK_SCHEDULE_ENABLED !== 'true') return { kind: 'none' };
-  const up = process.env.ASK_SCHEDULE_UP;
-  const down = process.env.ASK_SCHEDULE_DOWN;
+  if (!config.schedule.enabled) return { kind: 'none' };
+  const { up, down } = config.schedule;
   if (!up || !down) return { kind: 'none' };
   const window = readWindow(up, down);
   if (!window) return { kind: 'unreadable' };
@@ -224,7 +224,7 @@ function evaluateWindow(now: Date): WindowState {
 export function askModelScheduleNotice(providerId: string | undefined, failure: string, now: Date = new Date()): string | undefined {
   if (providerId !== OPENAI_COMPATIBLE_PROVIDER_ID) return undefined;
   if (!CONNECTION_FAILURE.test(failure)) return undefined;
-  if (process.env.ASK_SCHEDULE_ENABLED !== 'true') {
+  if (!config.schedule.enabled) {
     // No schedule to describe: say what is known and nothing more. Naming the
     // address would leak an internal host, and guessing at a window nobody
     // configured would be a lie.

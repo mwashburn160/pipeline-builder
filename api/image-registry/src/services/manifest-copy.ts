@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, runConcurrent } from '@pipeline-builder/api-core';
+import { runConcurrent } from '@pipeline-builder/api-core';
 
 import { isIndex } from './manifest.js';
 import {
@@ -11,12 +11,13 @@ import {
   isNotFound,
   type FetchedManifest,
 } from './registry-client.js';
+import { tunables } from '../config/tunables.js';
 
 // Parallelism budget for cross-repo copy. 3 children × 8 unique blobs per
 // child = 24 in-flight registry calls at most. Tuned for a comfortable load
 // on the in-cluster registry. Override via `REGISTRY_COPY_PARALLEL_*`.
-export const COPY_PARALLEL_CHILDREN = envInt('REGISTRY_COPY_PARALLEL_CHILDREN', 3, { min: 1 });
-export const COPY_PARALLEL_BLOBS = envInt('REGISTRY_COPY_PARALLEL_BLOBS', 8, { min: 1 });
+export const COPY_PARALLEL_CHILDREN = tunables.copy.parallelChildren;
+export const COPY_PARALLEL_BLOBS = tunables.copy.parallelBlobs;
 
 /**
  * Thrown when a layer or child manifest referenced by the source manifest

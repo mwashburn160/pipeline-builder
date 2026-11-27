@@ -6,7 +6,6 @@ import {
   audited,
   clientAbortSignal,
   createLogger,
-  envInt,
   errorMessage,
   handleAIError,
   initSSEStream,
@@ -26,6 +25,7 @@ import { createAuthenticatedWithOrgRoute, extendRequestTimeout, withRoute, rateL
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
+import { config } from '../config.js';
 import { GenerationRun, type GenerationRoute } from '../services/ai-generation-run.js';
 import {
   generatePipelineConfig,
@@ -211,7 +211,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
     requireOrgAIEnabled,
     rateLimitByOrg({
       name: 'pipeline-generate',
-      max: envInt('PIPELINE_GENERATE_RATE_LIMIT_PER_MIN', 20, { min: 1 }),
+      max: config.generate.rateLimitPerMin,
       windowMs: 60_000,
       message: 'Too many pipeline generation requests, please slow down.',
     }),
@@ -409,7 +409,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
     requireFeature('ai_generation'),
     rateLimitByOrg({
       name: 'pipeline-analyze',
-      max: envInt('PIPELINE_GENERATE_RATE_LIMIT_PER_MIN', 20, { min: 1 }),
+      max: config.generate.rateLimitPerMin,
       windowMs: 60_000,
       message: 'Too many repository analysis requests, please slow down.',
     }),

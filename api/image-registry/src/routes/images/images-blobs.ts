@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  envInt,
   sendBadRequest,
   sendError,
   sendEntityNotFound,
@@ -13,6 +12,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { canReadRepo } from './repo-access.js';
+import { tunables } from '../../config/tunables.js';
 import {
   headBlob,
   getBlobStream,
@@ -24,7 +24,7 @@ import {
 // (typically < 50 KB). Larger payloads (layer blobs, attestations) are
 // rejected with 413 so the platform can't OOM serving a multi-GB layer.
 // Override via `REGISTRY_MAX_BLOB_PROXY_BYTES`.
-const MAX_BLOB_PROXY_BYTES = envInt('REGISTRY_MAX_BLOB_PROXY_BYTES', 5 * 1024 * 1024, { min: 1 });
+const MAX_BLOB_PROXY_BYTES = tunables.maxBlobProxyBytes;
 
 /**
  * Register the blob proxy route (gated on `registry:read`):

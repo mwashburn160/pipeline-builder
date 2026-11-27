@@ -49,8 +49,6 @@ import {
   createEnvRedisLock,
   createLogger,
   createScheduler,
-  DEFAULT_LEADER_LOCK_TTL_MS,
-  envInt,
   errorMessage,
   leaderLockKey,
   type Scheduler,
@@ -67,6 +65,7 @@ import {
   type RepoUsage,
   type StorageUsage,
 } from './storage-usage.js';
+import { tunables } from '../config/tunables.js';
 
 const logger = createLogger('storage-snapshot');
 
@@ -630,9 +629,9 @@ interface SnapshotConfig {
  */
 function readConfig(): SnapshotConfig {
   return {
-    intervalMs: envInt('REGISTRY_STORAGE_SNAPSHOT_INTERVAL_MS', 600_000, { min: 60_000 }),
-    startupDelayMs: envInt('REGISTRY_STORAGE_SNAPSHOT_STARTUP_DELAY_MS', 30_000, { min: 0 }),
-    lockTtlMs: envInt('REGISTRY_STORAGE_SNAPSHOT_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1 }),
+    intervalMs: tunables.storageSnapshot.intervalMs,
+    startupDelayMs: tunables.storageSnapshot.startupDelayMs,
+    lockTtlMs: tunables.storageSnapshot.lockTtlMs,
   };
 }
 

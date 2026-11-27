@@ -28,17 +28,18 @@ import {
   DeleteObjectsCommand,
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
-import { createLogger, emitCounter, envStr, envInt } from '@pipeline-builder/api-core';
+import { createLogger, emitCounter } from '@pipeline-builder/api-core';
 import { ensureBucket, s3Client } from '@pipeline-builder/api-core/s3';
 import { Jimp } from 'jimp';
+import { config } from '../config.js';
 
 const logger = createLogger('attachment-storage');
 
 /** Resolved bucket name — the single bucket all attachment blobs live in. */
-const ATTACHMENT_BUCKET = envStr('S3_BUCKET', 'message-attachments');
+const ATTACHMENT_BUCKET = config.attachments.bucket;
 
 /** Max long-edge (px) of a generated thumbnail. Env-overridable. */
-const THUMB_MAX_DIM = Math.max(48, envInt('MESSAGE_THUMBNAIL_MAX_DIM', 320));
+const THUMB_MAX_DIM = config.attachments.thumbnailMaxDim;
 
 /**
  * The thumbnail sibling of a full storage key (`…/<file>` → `…/thumb`), and the

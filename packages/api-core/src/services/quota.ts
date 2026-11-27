@@ -7,6 +7,7 @@ import { currentAuditContext, sanitizeCorrelationId } from './audit-context.js';
 import { createSafeClient, type RequestOptions } from './http-client.js';
 import { batcherFor, type MeteredIncrementGroup } from './quota-increment-batcher.js';
 import { serviceIdentity } from './service-keys.js';
+import { apiCoreConfig } from '../config.js';
 import { onBehalfCaller } from '../middleware/on-behalf.js';
 import { getServiceAuthHeader, isServicePrincipal } from '../middleware/service-tokens.js';
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
@@ -14,7 +15,6 @@ import type { JwtPayload, PrincipalType, QuotaType, QuotaCheckResult, ServiceCon
 import { ErrorCode } from '../types/error-codes.js';
 import { DEFAULT_TIER, isValidTier, type PlanTier } from '../types/plan-tiers.js';
 import type { AiKeySource } from '../types/wire-vocabulary.js';
-import { envBool, envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage, sendError, sendQuotaExceeded } from '../utils/response.js';
@@ -50,7 +50,7 @@ const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRe
  * (the quota service walks the org's registry namespace on a cold cache) behind
  * the registry's fail-CLOSED push gate, where a premature timeout refuses a push.
  */
-export const QUOTA_CHECK_TIMEOUT_MS = envInt('QUOTA_CHECK_TIMEOUT_MS', 300, { min: 1 });
+export const QUOTA_CHECK_TIMEOUT_MS = apiCoreConfig.quota.checkTimeoutMs;
 
 /**
  * Counter checks also get their OWN circuit-breaker class. With a 300 ms budget
@@ -85,7 +85,7 @@ const logger = createLogger('quota');
 // fail-open with QUOTA_RESERVE_FAIL_OPEN=true. Both outcomes emit a counter
 // (`quota_fail_closed_total` / `quota_fail_open_total`) tagged with the reason.
 // `check` (a cheap read gate) stays fail-open; `increment` is fire-and-forget.
-const QUOTA_RESERVE_FAIL_OPEN = envBool('QUOTA_RESERVE_FAIL_OPEN', false);
+const QUOTA_RESERVE_FAIL_OPEN = apiCoreConfig.quota.reserveFailOpen;
 
 // USAGE ATTRIBUTION — who spent a unit.
 //

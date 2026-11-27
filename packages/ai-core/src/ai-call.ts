@@ -14,9 +14,10 @@
  * and no audit row).
  */
 
-import { envInt, type AiKeySource, type AiQuotaSettlement } from '@pipeline-builder/api-core';
+import type { AiKeySource, AiQuotaSettlement } from '@pipeline-builder/api-core';
 import type { LanguageModelUsage, SystemModelMessage } from 'ai';
 
+import { aiCoreConfig } from './config.js';
 import { getAvailableProviders, resolveModel, type ResolvedModelSelection } from './provider-registry.js';
 
 // -- Limits ------------------------------------------------------------------
@@ -26,7 +27,7 @@ import { getAvailableProviders, resolveModel, type ResolvedModelSelection } from
  * included. A provider that stalls must not hold a request — or a scheduled report
  * run, which has no client to disconnect — open indefinitely.
  */
-export const AI_REQUEST_TIMEOUT_MS = envInt('AI_REQUEST_TIMEOUT_MS', 120_000, { min: 1_000 });
+export const AI_REQUEST_TIMEOUT_MS = aiCoreConfig.requestTimeoutMs;
 
 /**
  * How long a route that makes ONE AI call may run before the server answers 503:
@@ -43,7 +44,7 @@ export const AI_ROUTE_TIMEOUT_MS = AI_REQUEST_TIMEOUT_MS + 15_000;
  * CEILING: a call may ask for less (the Ask assistant and report summaries do), never
  * more — so one `aiCalls` slot has a bounded cost whatever a prompt asks for.
  */
-export const AI_MAX_OUTPUT_TOKENS = envInt('AI_MAX_OUTPUT_TOKENS', 8192, { min: 64 });
+export const AI_MAX_OUTPUT_TOKENS = aiCoreConfig.maxOutputTokens;
 
 /**
  * SDK-level retries per call (`AI_MAX_RETRIES`, default 2 — the SDK's own default,
@@ -51,7 +52,7 @@ export const AI_MAX_OUTPUT_TOKENS = envInt('AI_MAX_OUTPUT_TOKENS', 8192, { min: 
  * 408/409/429/5xx and connection errors on the SAME provider; cross-provider failover
  * is {@link runWithFailover}'s job.
  */
-export const AI_MAX_RETRIES = envInt('AI_MAX_RETRIES', 2, { min: 0, max: 5 });
+export const AI_MAX_RETRIES = aiCoreConfig.maxRetries;
 
 /**
  * The signal for one AI call: aborts when the request's own signal does (client
@@ -202,7 +203,7 @@ export function isRetryableAIError(error: unknown): boolean {
  */
 export function platformFailoverChain(): string[] {
   const configured = getAvailableProviders().map((p) => p.id);
-  const raw = process.env.AI_FAILOVER_PROVIDERS;
+  const raw = aiCoreConfig.failoverProviders;
   if (!raw) return configured;
   return raw.split(',').map((s) => s.trim()).filter((id) => configured.includes(id));
 }

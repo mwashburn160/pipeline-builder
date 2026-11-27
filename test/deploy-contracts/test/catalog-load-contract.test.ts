@@ -230,7 +230,9 @@ describe('the registry can sign a vendored-SDK image', () => {
     // copies of a multi-megabyte string to move bytes already on disk.
     const src = read('api/image-registry/src/routes/internal.ts');
     expect(src).toContain('streamBodyToFile');
-    expect(src).toContain("envInt('REGISTRY_SBOM_MAX_BYTES'");
+    expect(src).toContain('tunables.sbomMaxBytes');
+    // The ceiling is read through image-registry's tunables (config.tunables).
+    expect(read('api/image-registry/src/config/tunables.ts')).toContain("envInt('REGISTRY_SBOM_MAX_BYTES'");
     // The metadata is in headers so the repository and digest can be refused
     // BEFORE a byte of the document is read. The header names live in the
     // internal contract (api-core contracts/image-registry.ts).
@@ -290,8 +292,11 @@ describe('the registry can sign a vendored-SDK image', () => {
     // It was the only tier-keyed build figure still a bare literal in a worker
     // file, which is how the docs drifted away from it.
     expect(read('packages/api-core/src/types/build-catalog.ts')).toContain('BUILD_TIER_CONCURRENCY');
+    // The worker asks plugin's config object, which reads the env var named by
+    // the catalog's key (the queue-status route uses the same method).
     const worker = read('api/plugin/src/queue/plugin-build-queue.ts');
-    expect(worker).toContain('buildConcurrencyEnvVar(tier)');
+    expect(worker).toContain('config.build.tierConcurrency(tier)');
+    expect(read('api/plugin/src/config.ts')).toContain('buildConcurrencyEnvVar(tier)');
     expect(worker).not.toMatch(/PLUGIN_BUILD_CONCURRENCY_DEVELOPER/);
   });
 });

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt } from '@pipeline-builder/api-core';
+import { config } from '../config.js';
 
 /**
  * Per-model-call output cap for every generation the Ask service itself pays for
@@ -9,7 +9,7 @@ import { envInt } from '@pipeline-builder/api-core';
  * cost one `aiCalls` slot can represent; a user-supplied prompt can't request an
  * unbounded answer.
  */
-export const ASK_MAX_OUTPUT_TOKENS = envInt('ASK_MAX_OUTPUT_TOKENS', 2048, { min: 64 });
+export const ASK_MAX_OUTPUT_TOKENS = config.model.maxOutputTokens;
 
 /**
  * Sampling temperature for the assistant's own calls. Low: answers are grounded in
@@ -28,4 +28,4 @@ export const ASK_TEMPERATURE = 0.2;
  * generating tool declines instead of generating. A claim is spent when the tool
  * starts, whether or not its generation then succeeds.
  */
-export const ASK_MAX_TURN_GENERATIONS = envInt('ASK_MAX_TURN_GENERATIONS', 2, { min: 1, max: 10 });
+export const ASK_MAX_TURN_GENERATIONS = config.model.maxTurnGenerations;

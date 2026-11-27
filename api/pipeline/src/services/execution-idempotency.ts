@@ -3,6 +3,7 @@
 
 import { randomUUID } from 'crypto';
 import { createEnvRedisClient, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { config } from '../config.js';
 
 const logger = createLogger('execution-idempotency');
 
@@ -21,14 +22,8 @@ const logger = createLogger('execution-idempotency');
  * a genuine re-run (a real second execution the user wants) isn't blocked for
  * long.
  */
-const DEFAULT_WINDOW_SECONDS = 10;
-
 function resolveWindowSeconds(): number {
-  const raw = process.env.PIPELINE_EXEC_IDEMPOTENCY_WINDOW_SECONDS;
-  if (!raw) return DEFAULT_WINDOW_SECONDS;
-  const parsed = parseInt(raw, 10);
-  if (Number.isNaN(parsed) || parsed < 1) return DEFAULT_WINDOW_SECONDS;
-  return parsed;
+  return config.execution.idempotencyWindowSeconds;
 }
 
 /**

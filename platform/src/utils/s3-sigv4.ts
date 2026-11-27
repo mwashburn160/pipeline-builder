@@ -20,10 +20,13 @@ export interface S3Target {
   region: string;
   accessKeyId: string;
   secretAccessKey: string;
+  /** Per-request deadline (ms); defaults to {@link DEFAULT_S3_TIMEOUT_MS}. */
+  timeoutMs?: number;
 }
 
 /**
- * Deadline for one S3 request.
+ * Default deadline for one S3 request — the caller passes the configured
+ * `AUDIT_HEAD_EXPORT_S3_TIMEOUT_MS` (config.audit.headExport.s3TimeoutMs).
  *
  * These calls publish and read back the AUDIT HASH-CHAIN HEAD — the anchor that makes the
  * trail tamper-evident off-box. They run inside a leader-locked background job, which is
@@ -31,7 +34,7 @@ export interface S3Target {
  * stops happening, and the next thing anyone notices is that the anchor is weeks old. A
  * bounded request fails, logs, and lets the next tick try again.
  */
-const S3_TIMEOUT_MS = Number(process.env.AUDIT_HEAD_EXPORT_S3_TIMEOUT_MS ?? 10_000) || 10_000;
+const DEFAULT_S3_TIMEOUT_MS = 10_000;
 
 const sha256Hex = (data: string | Buffer): string => createHash('sha256').update(data).digest('hex');
 const hmac = (key: string | Buffer, data: string): Buffer => createHmac('sha256', key).update(data).digest();
@@ -135,7 +138,7 @@ export async function s3PutObject(
     region: t.region,
   });
   delete headers.host; // fetch sets Host itself
-  const res = await fetch(url, { method: 'PUT', headers, body: payload, signal: AbortSignal.timeout(S3_TIMEOUT_MS) });
+  const res = await fetch(url, { method: 'PUT', headers, body: payload, signal: AbortSignal.timeout(t.timeoutMs ?? DEFAULT_S3_TIMEOUT_MS) });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`S3 PUT ${key} failed: ${res.status} ${text.slice(0, 200)}`);
@@ -155,7 +158,7 @@ export async function s3GetObject(t: S3Target, key: string): Promise<string | nu
     region: t.region,
   });
   delete headers.host;
-  const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(S3_TIMEOUT_MS) });
+  const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(t.timeoutMs ?? DEFAULT_S3_TIMEOUT_MS) });
   if (res.status === 404) return null;
   if (!res.ok) {
     const text = await res.text().catch(() => '');

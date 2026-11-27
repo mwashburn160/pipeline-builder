@@ -36,16 +36,12 @@ const COOKIE_NAME = 'pb_login_binding';
 /** Long enough to cover a person at their IdP (SAML handoff included). */
 const MAX_AGE_MS = 15 * 60_000;
 
-/** The PUBLIC path the cookie is scoped to: the callback, SAML completion and
- *  OAuth invitation-accept endpoints all live under `/api` as the browser sees it. */
-const COOKIE_PATH = process.env.AUTH_LOGIN_BINDING_COOKIE_PATH || '/api';
-
 function cookieAttributes() {
   return {
     httpOnly: true,
     secure: envLite.authCookieSecure,
     sameSite: 'lax' as const,
-    path: COOKIE_PATH,
+    path: envLite.loginBindingCookiePath,
   };
 }
 

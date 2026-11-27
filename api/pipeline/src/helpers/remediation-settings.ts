@@ -16,9 +16,7 @@
 
 import {
   createLogger,
-  envStr,
   errorMessage,
-  parseRemediationEnabled,
   normalizePluginRemediationSettings,
   pipelineElectionAllowed,
   resolveRemediationRollout,
@@ -30,6 +28,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { inArray } from 'drizzle-orm';
+import { config } from '../config.js';
 
 const logger = createLogger('remediation-settings');
 
@@ -111,5 +110,5 @@ export async function electionRefusal(election: PipelineRemediationElection, org
  * pipeline page shows "turned off by the operator".
  */
 export function remediationEnabled(): boolean {
-  return parseRemediationEnabled(envStr('PLUGIN_REMEDIATION_ENABLED', 'true'));
+  return config.remediation.enabled;
 }

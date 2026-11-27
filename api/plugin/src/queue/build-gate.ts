@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { BUILD_LADDER_CONCURRENCY_SUM, buildWorkerConcurrencyFor, createKeyedConcurrencyGate, createLogger, envInt, VALID_TIERS } from '@pipeline-builder/api-core';
+import { buildWorkerConcurrencyFor, createKeyedConcurrencyGate, createLogger, VALID_TIERS } from '@pipeline-builder/api-core';
 import type { PlanTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge } from '@pipeline-builder/api-server';
+import { config } from '../config.js';
 
 const logger = createLogger('build-gate');
 
@@ -26,7 +27,7 @@ const logger = createLogger('build-gate');
  * silently quadrupled in-flight builds and OOMKilled the image registry.
  */
 export function maxBuildsPerReplica(): number {
-  return envInt('PLUGIN_MAX_BUILDS_PER_REPLICA', BUILD_LADDER_CONCURRENCY_SUM, { min: 1 });
+  return config.build.maxPerReplica;
 }
 
 /**
@@ -70,7 +71,7 @@ export function maxBuildsPerReplica(): number {
  * fleet whose pods are stable, not one that is churning.
  */
 export function buildBorrowMax(): number {
-  return envInt('PLUGIN_BUILD_BORROW_MAX', 0, { min: 0 });
+  return config.build.borrowMax;
 }
 
 /** A tier's GUARANTEED floor on this replica — the ladder row, unchanged. */

@@ -4,9 +4,9 @@
 // Must run before any z.* schema creation — Zod 4 requires eager extension
 import '../openapi/extend-zod.js';
 import { z } from 'zod';
+import { apiCoreConfig } from '../config.js';
 import { CRITICALITY_LEVELS, LIFECYCLE_STAGES, OWNER_TYPES } from '../types/catalog-metadata.js';
 import { VISIBILITIES } from '../types/visibility.js';
-import { envInt } from '../utils/env.js';
 
 /** The shared three-rung sharing ladder — see the `Visibility` type. */
 export const VisibilitySchema = z.enum(VISIBILITIES);
@@ -57,11 +57,11 @@ export const SortOrderSchema = z.enum(['asc', 'desc']);
  * across the monorepo — pipeline-core's `CoreConstants` and pipeline-data's
  * `CrudService` import them from here instead of re-reading the env (which drifted).
  */
-export const MAX_PAGE_LIMIT = envInt('MAX_PAGE_LIMIT', 1000, { min: 1 });
-export const DEFAULT_PAGE_LIMIT = envInt('DEFAULT_PAGE_LIMIT', 100, { min: 1 });
+export const MAX_PAGE_LIMIT = apiCoreConfig.pagination.maxLimit;
+export const DEFAULT_PAGE_LIMIT = apiCoreConfig.pagination.defaultLimit;
 /** Ceiling on offset-based paging — beyond this, deep paging must use the cursor API
  *  (an unbounded offset is a scan-and-discard DoS amplifier on hot list routes). */
-export const MAX_PAGE_OFFSET = envInt('MAX_PAGE_OFFSET', 100000, { min: 0 });
+export const MAX_PAGE_OFFSET = apiCoreConfig.pagination.maxOffset;
 
 /**
  * Boolean query parameter schema

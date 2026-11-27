@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { setGauge } from '@pipeline-builder/api-server';
 import { mapWithConcurrency, type Limiter } from './concurrency.js';
 import { inPublicNamespace, inQuarantineNamespace, PUBLIC_PREFIX } from './namespaces.js';
@@ -13,6 +13,7 @@ import {
   headBlob,
   isNotFound,
 } from './registry-client.js';
+import { tunables } from '../config/tunables.js';
 
 const logger = createLogger('storage-usage');
 
@@ -24,10 +25,10 @@ const logger = createLogger('storage-usage');
  *
  * 60s is a deliberate trade-off: short enough that an admin running a
  * cleanup sees the freed-up bytes promptly, long enough that a noisy
- * dashboard auto-refresh doesn't hammer the registry.
+ * dashboard auto-refresh doesn't hammer the registry. Override via
+ * `REGISTRY_STORAGE_CACHE_TTL_MS`.
  */
-/** Override via `REGISTRY_STORAGE_CACHE_TTL_MS`. */
-const CACHE_TTL_MS = envInt('REGISTRY_STORAGE_CACHE_TTL_MS', 60_000, { min: 1 });
+const CACHE_TTL_MS = tunables.storage.cacheTtlMs;
 const cache = new Map<string, { bytes: number; repos: number; blobs: number; computedAt: number }>();
 
 export interface StorageUsage {
@@ -115,7 +116,7 @@ const breakdownCache = new Map<string, StorageBreakdown>();
  * meant the Storage page never loaded. Override via
  * `REGISTRY_STORAGE_BREAKDOWN_MAX_STALE_MS`.
  */
-const BREAKDOWN_MAX_STALE_MS = envInt('REGISTRY_STORAGE_BREAKDOWN_MAX_STALE_MS', 600_000, { min: 1 });
+const BREAKDOWN_MAX_STALE_MS = tunables.storage.breakdownMaxStaleMs;
 
 /** The one in-flight computation per org: concurrent views share it. */
 const breakdownInflight = new Map<string, Promise<StorageBreakdown>>();
@@ -433,7 +434,7 @@ const ORG_BREAKDOWN_KEY = 'org-breakdown:';
  * restart with a new value) picks it up.
  */
 export function storageScanConcurrency(): number {
-  return envInt('REGISTRY_STORAGE_SCAN_CONCURRENCY', 8, { min: 1, max: 64 });
+  return tunables.storage.scanConcurrency;
 }
 
 /**

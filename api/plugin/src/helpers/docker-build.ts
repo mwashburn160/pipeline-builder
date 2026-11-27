@@ -14,6 +14,7 @@ import type { BuildStreamOptions } from './build-process.js';
 import { imageRepository, writeAuthConfig } from './registry-auth.js';
 import type { RegistryInfo } from './registry-auth.js';
 import { attachSupplyChain, DIGEST_RE, SUPPLY_CHAIN_STEPS } from './supply-chain.js';
+import { config } from '../config.js';
 
 const logger = createLogger('docker-build');
 
@@ -23,7 +24,7 @@ const logger = createLogger('docker-build');
 // registry artifact still matches the runtime. Override PUBLISH_PLATFORM (e.g.
 // linux/arm64) for an all-Graviton stack — same env name
 // deploy/bin/build-plugin-images.sh uses.
-export const PUBLISH_PLATFORM = process.env.PUBLISH_PLATFORM || 'linux/amd64';
+export const PUBLISH_PLATFORM = config.build.publishPlatform;
 
 // -----------------------------------------------------------------------------
 // Types

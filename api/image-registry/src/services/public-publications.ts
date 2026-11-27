@@ -26,7 +26,7 @@
  */
 
 import { createHash } from 'crypto';
-import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { inPublicNamespace } from './namespaces.js';
 import {
   getManifest,
@@ -35,6 +35,7 @@ import {
   putManifest,
   uploadSmallBlob,
 } from './registry-client.js';
+import { tunables } from '../config/tunables.js';
 
 const logger = createLogger('public-publications');
 
@@ -54,7 +55,7 @@ const EMPTY_DESCRIPTOR = {
 };
 
 /** Override via `REGISTRY_PUBLICATION_CACHE_TTL_MS` (default 60s, like the storage rollup). */
-const CACHE_TTL_MS = envInt('REGISTRY_PUBLICATION_CACHE_TTL_MS', 60_000, { min: 1 });
+const CACHE_TTL_MS = tunables.publicationCacheTtlMs;
 let cache: { map: Map<string, string | null>; computedAt: number } | null = null;
 
 /** `public/<handle>/<name>` → its record repository. */

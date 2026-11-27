@@ -10,6 +10,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createRelayLimiter, relayClientError, REPORTING_STATE_HEADER } from '@/lib/error-report-relay';
+import { serverConfig } from '@/lib/server-config';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '64kb' } },
@@ -23,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(405).end();
     return;
   }
-  const endpoint = process.env.ERROR_REPORT_URL || undefined;
+  const endpoint = serverConfig.errorReportUrl;
   res.setHeader(REPORTING_STATE_HEADER, endpoint ? 'on' : 'off');
   // Always 204: the reporter is fire-and-forget, and the outcome (dropped,
   // rate-limited, collector down) is not the browser's to act on.

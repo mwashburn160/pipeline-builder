@@ -22,6 +22,7 @@ const headCfg = {
   lockMode: 'COMPLIANCE' as const,
   retentionDays: 400,
   intervalMs: 300_000,
+  s3TimeoutMs: 10_000,
 };
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ audit: { retentionDays: 90, headExport: headCfg } }));
 

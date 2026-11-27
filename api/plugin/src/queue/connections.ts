@@ -20,6 +20,7 @@ import { Queue } from 'bullmq';
 import type { ConnectionOptions, Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 
+import { config } from '../config.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 
 const logger = createLogger('plugin-build-queue');
@@ -249,7 +250,7 @@ export async function findFailedJobs(
 // Per-org tier cache
 // ---------------------------------------------------------------------------
 
-export const TIER_CACHE_TTL_MS = envInt('PLUGIN_TIER_CACHE_TTL_MS', 300000, { min: 1 });
+export const TIER_CACHE_TTL_MS = config.queue.tierCacheTtlMs;
 // Bounded (LRU) and process-local: a stale tier only routes a build to a
 // neighbouring queue until the TTL, so no cross-replica invalidation is needed.
 const tierCache = new CacheService({ prefix: 'plugin-tier:', defaultTtlSeconds: TIER_CACHE_TTL_MS / 1000, maxEntries: 5_000, invalidationBus: null });

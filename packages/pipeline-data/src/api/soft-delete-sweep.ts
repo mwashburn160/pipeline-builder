@@ -24,9 +24,10 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  createLogger, createScheduler, envBool, envInt, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
+  createLogger, createScheduler, type Scheduler, leaderLockKey,
   recordAudit, runWithAuditContext, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, type RemoteAuditAction,
 } from '@pipeline-builder/api-core';
+import { pipelineDataConfig } from '../config.js';
 import { runWithTenantContext } from '../database/tenancy.js';
 
 const logger = createLogger('soft-delete-sweep');
@@ -65,7 +66,7 @@ export interface SoftDeletePurgeOptions {
 /** Kill-switch: `SOFT_DELETE_PURGE_ENABLED=false` disables all hard-purging
  *  (tombstones still accumulate + stay restorable; nothing is destroyed). */
 export function isSoftDeletePurgeEnabled(): boolean {
-  return envBool('SOFT_DELETE_PURGE_ENABLED', true);
+  return pipelineDataConfig.softDelete.purgeEnabled;
 }
 
 /**
@@ -187,9 +188,9 @@ export function createSoftDeletePurgeScheduler(opts: SoftDeletePurgeSchedulerOpt
     return null;
   }
 
-  const intervalMs = envInt('SOFT_DELETE_PURGE_INTERVAL_HOURS', 6, { min: 1 }) * 60 * 60 * 1000;
-  const startupDelayMs = envInt('SOFT_DELETE_PURGE_STARTUP_DELAY_MS', 120_000, { min: 0 });
-  const lockTtlMs = envInt('SOFT_DELETE_PURGE_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1000 });
+  const intervalMs = pipelineDataConfig.softDelete.purgeIntervalHours * 60 * 60 * 1000;
+  const startupDelayMs = pipelineDataConfig.softDelete.purgeStartupDelayMs;
+  const lockTtlMs = pipelineDataConfig.softDelete.purgeLockTtlMs;
 
   logger.info('Soft-delete purge scheduler starting', {
     service: opts.service,

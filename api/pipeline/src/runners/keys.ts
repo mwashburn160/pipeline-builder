@@ -144,11 +144,6 @@ export async function resolveKeyContext(deps: RunnerDeps, orgId: string, now: Da
   };
 }
 
-/** The effective key org of `orgId`. */
-export async function effectiveKeyOrg(deps: RunnerDeps, orgId: string): Promise<string> {
-  return (await resolveKeyContext(deps, orgId)).effectiveOrgId;
-}
-
 // -- Signing --------------------------------------------------------------------
 
 /** Mark (or clear) an org's key as unreadable on this replica, keeping the alert gauge current. */

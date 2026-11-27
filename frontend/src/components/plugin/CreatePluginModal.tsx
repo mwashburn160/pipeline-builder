@@ -16,7 +16,7 @@ import AIPluginBuilderTab from './AIPluginBuilderTab';
 import WizardPluginTab from './WizardPluginTab';
 import { CatalogDetailsStep } from './CatalogDetailsStep';
 import api from '@/lib/api';
-import { PLUGIN_BUILD_TIMEOUT_MS } from '@/lib/constants';
+import { config } from '@/lib/config';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import { BuildFailureMessage } from './BuildFailureMessage';
 import { BuildShapeFields } from './BuildShapeFields';
@@ -97,7 +97,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
   const upload = useMutation({
     fn: async (f: File, a: Visibility, edits: PluginCatalogEdits, cls: BuildClass, size: BuildSize) => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), PLUGIN_BUILD_TIMEOUT_MS);
+      const timeoutId = setTimeout(() => controller.abort(), config.pluginBuildTimeoutMs);
       try {
         return await api.uploadPlugin(f, a, { signal: controller.signal, catalogEdits: edits, buildClass: cls, buildSize: size });
       } catch (err) {

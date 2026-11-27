@@ -17,7 +17,7 @@
  * purged by the existing soft-delete sweep 30 days later (N+60).
  */
 
-import { envStr, parseRemediationEnabled } from '@pipeline-builder/api-core';
+import { config } from '../../config.js';
 
 export const DAY_MS = 86_400_000;
 /** Days before N the owner is warned (and the least time between warning and deactivation). */
@@ -41,5 +41,5 @@ export const TIDY_USE_THROTTLE_MS = 60 * 60_000;
  * `PLUGIN_REMEDIATION_ENABLED`.
  */
 export function tidyOperatorEnabled(): boolean {
-  return parseRemediationEnabled(envStr('PLUGIN_AUTO_TIDY_ENABLED', 'true'));
+  return config.operator.autoTidyEnabled;
 }

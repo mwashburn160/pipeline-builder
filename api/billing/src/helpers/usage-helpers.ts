@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, getServiceAuthHeader, type BillingInterval, type PlanTier } from '@pipeline-builder/api-core';
+import { getServiceAuthHeader, type BillingInterval, type PlanTier } from '@pipeline-builder/api-core';
 import { fetchQuotaSnapshot, fetchSeatUsage, type QuotaSnapshot } from './downstream-client.js';
 import { BILLING_CURRENCY } from '../config/currency.js';
+import { tunables } from '../config/tunables.js';
 
 /** Per-quota-type usage entry returned by the rollup. */
 export interface UsageEntry {
@@ -114,7 +115,7 @@ export function buildUsageRollup(
   // against the developer-tier caps. Default 30 days either side gives free-tier
   // orgs a recognizable "this month / next month" shape. Override the fallback
   // width via `BILLING_USAGE_FALLBACK_DAYS`.
-  const fallbackDays = envInt('BILLING_USAGE_FALLBACK_DAYS', 30, { min: 1 });
+  const fallbackDays = tunables.usageFallbackDays;
   const MS_PER_DAY = 24 * 3600_000;
   const periodStart = periodOverride?.start ?? subscription?.currentPeriodStart ?? new Date(now.getTime() - fallbackDays * MS_PER_DAY);
   const periodEnd = periodOverride?.end ?? subscription?.currentPeriodEnd ?? new Date(now.getTime() + fallbackDays * MS_PER_DAY);

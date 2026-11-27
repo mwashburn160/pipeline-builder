@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envBool, envInt, envNameFragment, getTierLimits, VALID_QUOTA_TYPES, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
+import { DEFAULT_LEADER_LOCK_TTL_MS, envBool, envInt, envNameFragment, getTierLimits, VALID_QUOTA_TYPES, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 
 // Unprovisioned-org fallback = the developer-tier preset, sourced from api-core
@@ -45,6 +45,23 @@ interface AppConfig {
     /** TTL (ms) for a registry storage-usage reading (and for a failed one). */
     storageUsageCacheTtlMs: number;
   };
+  /**
+   * The leader-locked storage-notice sweep. GETTERS: read when the scheduler is
+   * built at boot (as they were when the sweep read them itself), not when this
+   * module is first imported.
+   */
+  storageSweep: {
+    /** `false` turns the sweep off (threshold notices must also be on for it to run). */
+    readonly enabled: boolean;
+    readonly intervalMs: number;
+    readonly startupDelayMs: number;
+    /** Crash-recovery window for the leader lock (it heartbeats while a pass runs). */
+    readonly lockTtlMs: number;
+    /** Orgs examined per pass. */
+    readonly maxOrgs: number;
+    /** How long before a still-crossed storage band is re-notified. */
+    readonly reminderMs: number;
+  };
 }
 
 if (!process.env.MONGODB_URI) {
@@ -87,5 +104,15 @@ export const config: AppConfig = {
     // Registry storage is measured by walking the org's namespace; the dashboard
     // read polls every minute, so one reading serves the whole window.
     storageUsageCacheTtlMs: envInt('QUOTA_STORAGE_USAGE_CACHE_TTL_MS', 60000, { min: 0 }),
+  },
+  storageSweep: {
+    get enabled() { return envBool('QUOTA_STORAGE_SWEEP_ENABLED', true); },
+    // Hours, not minutes. Each org costs one registry read (cached per org for
+    // QUOTA_STORAGE_USAGE_CACHE_TTL_MS), and storage moves slowly.
+    get intervalMs() { return envInt('QUOTA_STORAGE_SWEEP_INTERVAL_HOURS', 6, { min: 1 }) * 60 * 60 * 1000; },
+    get startupDelayMs() { return envInt('QUOTA_STORAGE_SWEEP_STARTUP_DELAY_MS', 120_000, { min: 0 }); },
+    get lockTtlMs() { return envInt('QUOTA_STORAGE_SWEEP_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1000 }); },
+    get maxOrgs() { return envInt('QUOTA_STORAGE_SWEEP_MAX_ORGS', 200, { min: 1 }); },
+    get reminderMs() { return envInt('QUOTA_STORAGE_NOTICE_REMINDER_DAYS', 7, { min: 1 }) * 86_400_000; },
   },
 };

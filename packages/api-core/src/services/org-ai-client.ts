@@ -29,12 +29,12 @@
 import type { NextFunction, Request, Response } from 'express';
 import { createSafeClient } from './http-client.js';
 import { serviceIdentity } from './service-keys.js';
+import { apiCoreConfig } from '../config.js';
 import { callInternal } from '../contracts/call.js';
 import { PLATFORM_INTERNAL } from '../contracts/platform.js';
 import { AIConfigurationError, AIDisabledError, AppError } from '../errors/app-errors.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { ErrorCode } from '../types/error-codes.js';
-import { envInt } from '../utils/env.js';
 import { sendError } from '../utils/response.js';
 import { serviceEndpoint } from '../utils/service-registry.js';
 
@@ -42,9 +42,9 @@ import { serviceEndpoint } from '../utils/service-registry.js';
 const { orgAIAccess: ACCESS, orgAIKey: KEY } = PLATFORM_INTERNAL;
 
 /** How long an org's switch + configured-provider list is reused (default 30s). */
-export const ORG_AI_ACCESS_TTL_MS = envInt('ORG_AI_ACCESS_TTL_MS', 30_000, { min: 0 });
+export const ORG_AI_ACCESS_TTL_MS = apiCoreConfig.orgAi.accessTtlMs;
 /** How long a decrypted org key is held in memory (default 60s; 0 disables caching). */
-export const ORG_AI_KEY_TTL_MS = envInt('ORG_AI_KEY_TTL_MS', 60_000, { min: 0, max: 300_000 });
+export const ORG_AI_KEY_TTL_MS = apiCoreConfig.orgAi.keyTtlMs;
 
 /** An org's AI posture, as platform reports it. */
 export interface OrgAIAccess {

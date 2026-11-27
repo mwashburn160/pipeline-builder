@@ -23,7 +23,6 @@ import {
   errorMessage,
   actorId,
   admitCaseSeverity,
-  envInt,
   recordAudit,
   refuseWeakSession,
   responseDueAt,
@@ -33,6 +32,7 @@ import type { RequestContext, SSEManager } from '@pipeline-builder/api-server';
 import { schema, countCasesInWindow, openSupportCase, findCaseByThread, isPremiumSupportContact, stampFirstResponse } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import type { Response } from 'express';
+import { config } from '../config.js';
 import { notifyNewMessage, validateRecipient } from '../helpers/new-message.js';
 import type { NewMessageNotification } from '../helpers/new-message.js';
 import { enrichOneWithOrgNames } from '../helpers/org-names.js';
@@ -55,8 +55,8 @@ const SUPPORT_CHANNEL = 'support';
  *  Verified service principals are exempt; unauthenticated falls back to per-IP. */
 const sendLimiter = rateLimitByOrg({
   name: 'message-send',
-  max: envInt('MESSAGE_SEND_RATE_MAX', 60, { min: 1 }),
-  windowMs: envInt('MESSAGE_SEND_RATE_WINDOW_MS', 60000, { min: 1000 }),
+  max: config.send.rateMax,
+  windowMs: config.send.rateWindowMs,
   message: 'Too many messages sent, please slow down.',
 });
 
@@ -491,8 +491,8 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
      */
     let overAllowance = false;
     if (bySeat && entitlement!.limit > 0) {
-      const perContact = envInt('SUPPORT_CASE_ALLOWANCE_PER_CONTACT', 5, { min: 0 });
-      const windowDays = envInt('SUPPORT_CASE_ALLOWANCE_WINDOW_DAYS', 30, { min: 1 });
+      const perContact = config.support.caseAllowancePerContact;
+      const windowDays = config.support.caseAllowanceWindowDays;
       if (perContact > 0) {
         const allowance = entitlement!.limit * perContact;
         // Own-org scope, matching where the cases live. A subtree count would

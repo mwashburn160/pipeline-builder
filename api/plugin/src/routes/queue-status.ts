@@ -3,14 +3,15 @@
 
 import {
   isoOrNull,
-  envInt, ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, parsePage, parseQueryInt, refuseWeakSession, requireStepUp, requireSystemOrgPermission, sendError, sendPaginatedNested, sendSuccess, actorId, tagRouteGate, userHasPermission,
-  recordAudit, recordAuthzDenial, SYSTEM_ORG_ID, VALID_TIERS, buildConcurrencyEnvVar, buildWorkerConcurrencyFor,
+  ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, parsePage, parseQueryInt, refuseWeakSession, requireStepUp, requireSystemOrgPermission, sendError, sendPaginatedNested, sendSuccess, actorId, tagRouteGate, userHasPermission,
+  recordAudit, recordAuthzDenial, SYSTEM_ORG_ID, VALID_TIERS,
 } from '@pipeline-builder/api-core';
 import type { PlanTier, QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import type { Job } from 'bullmq';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 
+import { config } from '../config.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { findFailedJobs, getAllTierQueues, getDeadLetterQueue } from '../queue/connections.js';
 import { purgeDlq } from '../queue/plugin-build-dlq.js';
@@ -120,7 +121,7 @@ interface TriageCacheEntry {
  * polls into one scan without letting the summary go meaningfully stale. Mirrors
  * the read-quotas at-risk cache pattern.
  */
-const TRIAGE_CACHE_TTL_MS = envInt('PLUGIN_TRIAGE_CACHE_TTL_MS', 5000, { min: 1 });
+const TRIAGE_CACHE_TTL_MS = config.queue.triageCacheTtlMs;
 
 /**
  * Hard cap on distinct triage cache keys. Unlike the operator-only read-quotas
@@ -130,7 +131,7 @@ const TRIAGE_CACHE_TTL_MS = envInt('PLUGIN_TRIAGE_CACHE_TTL_MS', 5000, { min: 1 
  * stale entry forever. Sweep expired entries on write and, if still over the
  * cap, evict the oldest (Map preserves insertion order) to bound memory.
  */
-const TRIAGE_CACHE_MAX_ENTRIES = envInt('PLUGIN_TRIAGE_CACHE_MAX_ENTRIES', 500, { min: 1 });
+const TRIAGE_CACHE_MAX_ENTRIES = config.queue.triageCacheMaxEntries;
 
 /** Jobs per source (tier failed set / DLQ) the triage summary buckets. */
 const TRIAGE_SOURCE_ROWS = 200;
@@ -152,7 +153,7 @@ function pruneTriageCache(cache: Map<string, TriageCacheEntry>, now: number): vo
  * `offset + limit` entries from every source queue (BullMQ ranges start at the
  * head of a set), so an unbounded offset would be an unbounded Redis range read.
  */
-const QUEUE_MAX_PAGE_DEPTH = envInt('PLUGIN_QUEUE_MAX_PAGE_DEPTH', 5000, { min: 1 });
+const QUEUE_MAX_PAGE_DEPTH = config.queue.maxPageDepth;
 
 /** Max rows per page on GET /failed and GET /dlq (parity with read routes). */
 const QUEUE_MAX_PAGE_LIMIT = 200;
@@ -173,7 +174,7 @@ const parseQueuePage = (query: Record<string, unknown>) => parsePage(query, {
  * keeping the caller's own jobs until it has enough or reaches this depth.
  * Older jobs of that tenant beyond it are not listed.
  */
-const TENANT_SCAN_MAX_ROWS = envInt('PLUGIN_QUEUE_TENANT_SCAN_MAX_ROWS', 10000, { min: 1 });
+const TENANT_SCAN_MAX_ROWS = config.queue.tenantScanMaxRows;
 
 /** Rows per BullMQ range read while scanning a source for a tenant. */
 const TENANT_SCAN_CHUNK = 500;
@@ -343,7 +344,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
        * all, so raising the cap for it changes nothing.
        */
       limits: Object.fromEntries(VALID_TIERS.map((tier) => [tier, {
-        workerConcurrency: envInt(buildConcurrencyEnvVar(tier), buildWorkerConcurrencyFor(tier), { min: 1 }),
+        workerConcurrency: config.build.tierConcurrency(tier),
         orgSlots: { standard: maxBuildsPerOrg(tier, 'standard'), flexible: maxBuildsPerOrg(tier, 'flexible') },
       }])),
     });

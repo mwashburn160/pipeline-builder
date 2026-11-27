@@ -26,6 +26,10 @@
  * - drizzleRows, drizzleCount — Drizzle result type helpers
  */
 
+// Typed configuration
+export { pipelineDataConfig } from './config.js';
+export type { PipelineDataConfig } from './config.js';
+
 // Database
 export * from './database/index.js';
 

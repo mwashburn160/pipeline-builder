@@ -20,7 +20,7 @@
  * that traffic.
  */
 
-import { attachmentDisposition, envInt, envBool, ErrorCode, PUBLISHER_TIERS, sendBadRequest, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { attachmentDisposition, ErrorCode, PUBLISHER_TIERS, sendBadRequest, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import {
@@ -32,6 +32,7 @@ import {
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 
+import { config } from '../config.js';
 import { normalizeSearchQuery } from '../helpers/search-query.js';
 import { fetchPublicImageSbom, ImageVerificationError, SbomBusyError } from '../helpers/supply-chain.js';
 
@@ -54,11 +55,11 @@ const SBOM_CACHE = 'public, max-age=3600, s-maxage=3600';
 
 /** Whether the directory can serve right now (flag on AND the reader login is configured). */
 export function isPublicDirectoryEnabled(): boolean {
-  return envBool('PUBLIC_DIRECTORY_ENABLED', true) && isPublicReaderConfigured();
+  return config.ecosystem.publicDirectoryEnabled && isPublicReaderConfigured();
 }
 
 function rateLimitPerMinute(): number {
-  return envInt('PUBLIC_DIRECTORY_RATE_LIMIT_PER_MIN', 120, { min: 1 });
+  return config.rateLimits.publicDirectoryPerMin;
 }
 
 const token = z.string().trim().min(1).max(MAX_SEGMENT).regex(TOKEN_RE);

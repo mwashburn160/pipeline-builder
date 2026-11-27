@@ -9,6 +9,7 @@
 import { randomBytes } from 'node:crypto';
 import slugify from 'slugify';
 import { K8S_NAMESPACE_MAX, ORG_NAMESPACE_PREFIX, ORG_SLUG_MAX, ORG_SLUG_MIN } from '../constants/org-slug.js';
+import { escapeRegex } from '../utils/regex.js';
 
 /** Room kept at the end of a generated base slug for a `-<n>` collision
  *  suffix (`-999999`), so `<base>-<n>` never exceeds ORG_SLUG_MAX. */
@@ -32,7 +33,7 @@ export function orgSlugBase(name: string): string {
 /** Build a regex matching `base` and `base-<n>` — the existing slugs that a
  *  new org deriving `base` must not collide with. */
 export function orgSlugCollisionPattern(base: string): RegExp {
-  return new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(-[0-9]+)?$`, 'i');
+  return new RegExp(`^${escapeRegex(base)}(-[0-9]+)?$`, 'i');
 }
 
 /** Pick `base`, or `base-<max existing suffix + 1>` when `base` is taken. */

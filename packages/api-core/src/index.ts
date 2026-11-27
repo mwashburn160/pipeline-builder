@@ -83,6 +83,10 @@
  * never this barrel.
  */
 
+// Import-time configuration (typed; read once from the environment)
+export { apiCoreConfig } from './config.js';
+export type { ApiCoreConfig } from './config.js';
+
 // Types
 export * from './types/index.js';
 

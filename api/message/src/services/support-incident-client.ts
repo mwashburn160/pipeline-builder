@@ -29,7 +29,6 @@ import {
   SYSTEM_ORG_ID,
   callInternal,
   createLogger,
-  envInt,
   errorMessage,
   getServiceAuthHeader,
   InternalHttpClient,
@@ -38,11 +37,12 @@ import {
   type InternalCallInput,
 } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
+import { config } from '../config.js';
 
 const logger = createLogger('support-incident-client');
 
 /** Bounded like the entitlement read: a slow billing must not hang a send. */
-const TIMEOUT_MS = envInt('SUPPORT_INCIDENT_TIMEOUT_MS', 3000, { min: 250, max: 30_000 });
+const TIMEOUT_MS = config.support.incidentTimeoutMs;
 
 const { consumeSupportIncident: CONSUME, refundSupportIncident: REFUND } = BILLING_INTERNAL;
 

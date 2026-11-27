@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomBytes } from 'node:crypto';
-import { createLogger, writeSseHeaders, type SseTicketStore, errorMessage, envInt, normalizeOrgId } from '@pipeline-builder/api-core';
+import { createLogger, writeSseHeaders, type SseTicketStore, errorMessage, normalizeOrgId } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
 import type { SSERelay, SSERelayMessage } from './sse-relay.js';
 import { normalizeRequestId, SseTicketBroker, type CreateTicketResult } from './sse-ticket-broker.js';
 import { incCounter, setGauge } from '../api/metrics.js';
+import { apiServerConfig } from '../config.js';
 
 const logger = createLogger('sse-manager');
 
@@ -178,9 +179,9 @@ export class SSEManager {
   private readonly nodeId = randomBytes(8).toString('hex');
 
   constructor(options: SSEManagerOptions = {}) {
-    this.maxClientsPerRequest = options.maxClientsPerRequest ?? envInt('SSE_MAX_CLIENTS_PER_REQUEST', 10, { min: 1 });
-    this.maxTotalClients = options.maxTotalClients ?? envInt('SSE_MAX_TOTAL_CLIENTS', 1000, { min: 1 });
-    this.maxClientsPerOrg = options.maxClientsPerOrg ?? envInt('SSE_MAX_CLIENTS_PER_ORG', 50, { min: 1 });
+    this.maxClientsPerRequest = options.maxClientsPerRequest ?? apiServerConfig.sse.maxClientsPerRequest;
+    this.maxTotalClients = options.maxTotalClients ?? apiServerConfig.sse.maxTotalClients;
+    this.maxClientsPerOrg = options.maxClientsPerOrg ?? apiServerConfig.sse.maxClientsPerOrg;
     this.tickets = new SseTicketBroker({
       store: options.ticketStore,
       maxTotal: options.maxTotalTickets,
@@ -189,9 +190,9 @@ export class SSEManager {
       ownerTtlMs: options.streamOwnerTtlMs,
     });
     this.logStreamEnabled = options.logStream ?? false;
-    this.clientTimeoutMs = options.clientTimeoutMs ?? envInt('SSE_CLIENT_TIMEOUT_MS', 1_800_000, { min: 1 }); // 30 minutes
+    this.clientTimeoutMs = options.clientTimeoutMs ?? apiServerConfig.sse.clientTimeoutMs; // 30 minutes
 
-    const cleanupIntervalMs = options.cleanupIntervalMs ?? envInt('SSE_CLEANUP_INTERVAL_MS', 300_000, { min: 1 }); // 5 minutes
+    const cleanupIntervalMs = options.cleanupIntervalMs ?? apiServerConfig.sse.cleanupIntervalMs; // 5 minutes
     this.startCleanupInterval(cleanupIntervalMs);
 
     // Wire the cross-pod relay: subscribe once on startup so frames PUBLISHED by

@@ -1,12 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, envInt, errorMessage, type NotificationMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, type NotificationMessage } from '@pipeline-builder/api-core';
 import { isBatchedDigestMode } from './compliance-vocabulary.js';
 import {
   getNotificationChannel,
   type ChannelTarget,
 } from './notification-channels.js';
+import { config } from '../config.js';
 import type { Violation } from '../engine/rule-engine.js';
 import {
   getNotificationPreference,
@@ -20,7 +21,7 @@ const logger = createLogger('compliance-notifier');
 /** Per-channel delivery timeout. Tight on purpose — a slow webhook receiver
  *  shouldn't hold up the (fire-and-forget) notification. Guarded parse: a NaN
  *  override would make `setTimeout` fire after ~1ms and abort every delivery. */
-const DELIVERY_TIMEOUT_MS = envInt('COMPLIANCE_NOTIFY_TIMEOUT_MS', 5000, { min: 1 });
+const DELIVERY_TIMEOUT_MS = config.notifyTimeoutMs;
 
 type NotificationKind = 'block' | 'warning';
 

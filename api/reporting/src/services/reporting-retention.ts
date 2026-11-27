@@ -12,7 +12,7 @@
  * `reportingService.purgeExpiredReportingData` (pipeline-data); this file only
  * schedules it, owns the leader-lock lifecycle, and applies the kill-switch.
  *
- * Env config:
+ * Env config (read via `config.retention`, when the scheduler is built):
  *   REPORTING_RETENTION_ENABLED            (default true; false ⇒ no sweep)
  *   REPORTING_RETENTION_INTERVAL_HOURS     (default 12)
  *   REPORTING_RETENTION_STARTUP_DELAY_MS   (default 120000 — 2 min settle)
@@ -30,16 +30,15 @@
 import {
   createLogger,
   createScheduler,
-  envInt,
-  envBool,
   fetchParentOrgId,
   isBillingEnabled,
   resolveRootOrgIdStrict,
   type Scheduler,
   errorMessage,
-  SYSTEM_ORG_ID, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
+  SYSTEM_ORG_ID, leaderLockKey,
 } from '@pipeline-builder/api-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
+import { config } from '../config.js';
 import { REPORTING_HTTP_TIMEOUT_MS } from '../helpers/report-helpers.js';
 
 const logger = createLogger('reporting-retention');
@@ -101,7 +100,7 @@ export function createRetentionRootResolver(
 /** Kill-switch: `REPORTING_RETENTION_ENABLED=false` disables the sweep (rows
  *  accumulate; nothing is purged). */
 export function isReportingRetentionEnabled(): boolean {
-  return envBool('REPORTING_RETENTION_ENABLED', true);
+  return config.retention.enabled;
 }
 
 let scheduler: Scheduler | null = null;
@@ -124,14 +123,7 @@ export function createReportingRetentionScheduler(): Scheduler | null {
     return null;
   }
 
-  const intervalMs = envInt('REPORTING_RETENTION_INTERVAL_HOURS', 12, { min: 1 }) * 60 * 60 * 1000;
-  const startupDelayMs = envInt('REPORTING_RETENTION_STARTUP_DELAY_MS', 120_000, { min: 0 });
-  // A CRASH-RECOVERY window, not a run-duration cover — withLeaderLock heartbeats
-  // for as long as the sweep runs. It was 30 min, which is how long a dead pod
-  // parked the sweep for.
-  const lockTtlMs = envInt('REPORTING_RETENTION_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1000 });
-  const batchSize = envInt('REPORTING_RETENTION_BATCH_SIZE', 1000, { min: 1 });
-  const maxBatchesPerTable = envInt('REPORTING_RETENTION_MAX_BATCHES', 50, { min: 1 });
+  const { intervalMs, startupDelayMs, lockTtlMs, batchSize, maxBatchesPerTable } = config.retention;
 
   logger.info('Reporting retention scheduler starting', {
     intervalHours: intervalMs / 3_600_000,

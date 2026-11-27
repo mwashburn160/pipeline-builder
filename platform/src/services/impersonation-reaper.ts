@@ -29,9 +29,6 @@ const logger = createLogger('impersonation-reaper');
  *  so this de-duplicates work rather than guarding correctness). */
 const LOCK_KEY = leaderLockKey('platform', 'impersonation-reaper');
 
-/** Requests live an hour, so a five-minute sweep keeps status at most minutes stale. */
-const IMPERSONATION_REAPER_INTERVAL_MS = 5 * 60 * 1000;
-
 /** Requests expired per pass — bounds the per-row audit fan-out; a backlog
  *  drains over successive sweeps. */
 const REAP_BATCH = 500;
@@ -83,8 +80,13 @@ export async function sweepExpiredImpersonationRequests(now: Date = new Date()):
   return modified;
 }
 
-/** The reaper as a background sweep (see services/background-sweeps.ts). */
-export function impersonationReaperSweep(intervalMs: number = IMPERSONATION_REAPER_INTERVAL_MS): IntervalSweepDefinition {
+/**
+ * The reaper as a background sweep (see services/background-sweeps.ts). The
+ * interval is `config.impersonation.reaperIntervalMs`
+ * (`IMPERSONATION_REAPER_INTERVAL_MS`, default 5 min), passed in by the caller
+ * so this module stays out of the config graph.
+ */
+export function impersonationReaperSweep(intervalMs: number): IntervalSweepDefinition {
   return {
     name: 'impersonation-reaper',
     lockKey: LOCK_KEY,

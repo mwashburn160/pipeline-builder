@@ -20,7 +20,8 @@
  * a week, early on Sunday UTC.
  */
 
-import { envInt, pushFreezeEndIfOverlapping } from '@pipeline-builder/api-core';
+import { pushFreezeEndIfOverlapping } from '@pipeline-builder/api-core';
+import { config } from '../config.js';
 
 /** How long a build may run before its push: the hold starts this long before the freeze. */
 export const BUILD_PUSH_LEAD_MS = 30 * 60_000;
@@ -34,7 +35,7 @@ export const HOLD_JITTER_MS = 2 * 60_000;
  * where the freeze begins); every deploy tree leaves it at the default.
  */
 export function blobGcHoldUntil(nowMs: number = Date.now(), random: () => number = Math.random): number | null {
-  const tokenTtlSeconds = envInt('REGISTRY_TOKEN_EXPIRES_IN', 300, { min: 1 });
+  const tokenTtlSeconds = config.registry.tokenExpiresInSeconds;
   const end = pushFreezeEndIfOverlapping(nowMs, tokenTtlSeconds, BUILD_PUSH_LEAD_MS);
   return end === null ? null : end + Math.floor(random() * HOLD_JITTER_MS);
 }

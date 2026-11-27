@@ -44,7 +44,7 @@ import * as os from 'os';
 import path from 'path';
 
 import {
-  envInt, createLogger, errorMessage, scanFindingKey, SCAN_SUMMARY_MAX_BINARIES, SCAN_SUMMARY_MAX_FINDINGS,
+  createLogger, errorMessage, scanFindingKey, SCAN_SUMMARY_MAX_BINARIES, SCAN_SUMMARY_MAX_FINDINGS,
   GRYPE_PACKAGE_TYPES, toGrypePackageType,
   type GrypePackageType, type PluginScanFinding, type PluginScanFindingLocation, type PluginScanSummary,
 } from '@pipeline-builder/api-core';
@@ -57,6 +57,7 @@ import { imageRepository, writeAuthConfig } from './registry-auth.js';
 import type { RegistryInfo } from './registry-auth.js';
 import { DIGEST_RE, fetchImageSbom } from './supply-chain.js';
 import type { PluginImageRef } from './supply-chain.js';
+import { config } from '../config.js';
 
 const logger = createLogger('vuln-scan');
 
@@ -119,16 +120,14 @@ export interface ScanColumns {
 // Config
 // -----------------------------------------------------------------------------
 
-const envMs = (name: string, def: number): number => envInt(name, def, { min: 1 });
-
-const SCAN_TIMEOUT_MS = envMs('PLUGIN_VULN_SCAN_TIMEOUT_MS', 300_000);
-const DB_UPDATE_TIMEOUT_MS = envMs('PLUGIN_GRYPE_DB_UPDATE_TIMEOUT_MS', 600_000);
-const DB_UPDATE_INTERVAL_MS = envMs('PLUGIN_GRYPE_DB_UPDATE_INTERVAL_MS', 3_600_000);
+const SCAN_TIMEOUT_MS = config.vulnScan.scanTimeoutMs;
+const DB_UPDATE_TIMEOUT_MS = config.vulnScan.dbUpdateTimeoutMs;
+const DB_UPDATE_INTERVAL_MS = config.vulnScan.dbUpdateIntervalMs;
 /** The fallback `grype db status` (it reads the whole DB — see builtAtFromMetadata). */
 const DB_STATUS_TIMEOUT_MS = 30_000;
 
 function dbAutoUpdate(): boolean {
-  return (process.env.PLUGIN_GRYPE_DB_AUTO_UPDATE ?? 'true').toLowerCase() !== 'false';
+  return config.vulnScan.dbAutoUpdate;
 }
 
 /**
@@ -137,12 +136,12 @@ function dbAutoUpdate(): boolean {
  * the same budget PluginVulnRescanStale gives the rescan itself.
  */
 export function vulnDbMaxAgeMs(): number {
-  return envInt('PLUGIN_VULN_DB_MAX_AGE_HOURS', 36, { min: 1 }) * 3_600_000;
+  return config.vulnScan.dbMaxAgeMs;
 }
 
 /** Where grype keeps its DB: the deploy's mount, else a temp dir. */
 function dbCacheDir(): string {
-  return process.env.GRYPE_DB_CACHE_DIR || path.join(os.tmpdir(), 'grype-db');
+  return config.vulnScan.dbCacheDir || path.join(os.tmpdir(), 'grype-db');
 }
 
 /** Env for every grype run: no self-update checks, DB where the deploy mounted it. */
@@ -375,8 +374,8 @@ export function dirAllocatedBytes(dir: string): number {
  */
 function recordDbCacheSize(cacheDir: string): void {
   setGauge('plugin_vuln_db_cache_bytes', {}, dirAllocatedBytes(cacheDir));
-  const limit = Number(process.env.PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES);
-  if (Number.isFinite(limit) && limit > 0) setGauge('plugin_vuln_db_cache_limit_bytes', {}, limit);
+  const limit = config.vulnScan.dbCacheLimitBytes;
+  if (limit > 0) setGauge('plugin_vuln_db_cache_limit_bytes', {}, limit);
 }
 
 // -----------------------------------------------------------------------------
@@ -709,7 +708,7 @@ export function isRootUser(user: unknown): boolean {
  *
  * @internal exported for tests.
  */
-export function vexArgs(dir: string | undefined = process.env.PLUGIN_VULN_VEX_DIR): string[] {
+export function vexArgs(dir: string | undefined = config.vulnScan.vexDir): string[] {
   if (!dir?.trim()) return [];
   let names: string[];
   try {

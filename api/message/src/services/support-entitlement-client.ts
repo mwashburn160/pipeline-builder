@@ -40,7 +40,6 @@ import {
   callInternal,
   createCacheService,
   createLogger,
-  envInt,
   errorMessage,
   getServiceAuthHeader,
   InternalHttpClient,
@@ -49,11 +48,12 @@ import {
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
+import { config } from '../config.js';
 
 const logger = createLogger('support-entitlement-client');
 
 /** Bounded so a hung platform cannot wedge the support send behind it. */
-const TIMEOUT_MS = envInt('SUPPORT_ENTITLEMENT_TIMEOUT_MS', 3000, { min: 1 });
+const TIMEOUT_MS = config.support.entitlementTimeoutMs;
 
 /** The entitlement is a handful of fields; anything larger is not an answer. */
 const MAX_RESPONSE_BYTES = 64 * 1024;
@@ -73,7 +73,7 @@ const MAX_RESPONSE_BYTES = 64 * 1024;
  */
 const entitlementCache = createCacheService(
   'support-entitlement:',
-  envInt('SUPPORT_ENTITLEMENT_CACHE_TTL_SECONDS', 900, { min: 1 }),
+  config.support.entitlementCacheTtlSeconds,
 );
 
 /** Platform's answer. Mirrors `SupportEntitlement` in platform's helper. */

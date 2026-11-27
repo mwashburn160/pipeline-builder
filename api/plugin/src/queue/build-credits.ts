@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemOrgId, buildSizeMultiplier, envInt, createLogger, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { isSystemOrgId, buildSizeMultiplier, createLogger, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { BuildSize, QuotaService } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { Job } from 'bullmq';
 
+import { config } from '../config.js';
 import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers.js';
 
 const logger = createLogger('build-credits');
@@ -21,7 +22,7 @@ const logger = createLogger('build-credits');
  * Expressed in MILLI-vCPU so it stays an integer env var, matching how
  * Kubernetes spells it.
  */
-const BUILDKIT_MILLI_VCPU = envInt('PLUGIN_BUILDKIT_MILLI_VCPU', 1500, { min: 1 });
+const BUILDKIT_MILLI_VCPU = config.build.buildkitMilliVcpu;
 
 /** The vCPU figure the ladder is derived from, for callers that report it. */
 export const BUILDKIT_VCPU = BUILDKIT_MILLI_VCPU / 1000;

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'node:crypto';
-import { envInt } from '@pipeline-builder/api-core';
 import mongoose, { Schema, type Document } from 'mongoose';
+import { tunables } from '../config/tunables.js';
 import { WEBHOOK_DONE_TTL_SECONDS } from '../config/webhook-retention.js';
 
 /**
@@ -58,7 +58,7 @@ const DONE_TTL_SECONDS = WEBHOOK_DONE_TTL_SECONDS;
  * event concurrently, short enough that a crashed handler's event is retried
  * promptly. Overridable for tuning; falls back to 15 minutes.
  */
-const IN_PROGRESS_TTL_SECONDS = envInt('BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS', 15 * 60, { min: 1 });
+const IN_PROGRESS_TTL_SECONDS = tunables.webhookInProgressTtlSeconds;
 
 const webhookDedupeSchema = new Schema<WebhookDedupeDocument>(
   {

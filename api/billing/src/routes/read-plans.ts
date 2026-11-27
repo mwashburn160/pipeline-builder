@@ -9,18 +9,17 @@ import {
   getParam,
   errorMessage,
   createCacheService,
-  envInt,
-  CACHE_TTL_BILLING_PLANS_SECS,
   MAX_PAGE_LIMIT,
 } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
 import { BILLING_CURRENCY } from '../config/currency.js';
+import { tunables } from '../config/tunables.js';
 import { Plan, type PlanDocument } from '../models/plan.js';
 
 const logger = createLogger('billing-plans');
 
 /** Plans rarely change — cache TTL configurable via CACHE_TTL_BILLING_PLANS_SECONDS (default 4 hours). */
-const planCache = createCacheService('billing:plans:', envInt('CACHE_TTL_BILLING_PLANS_SECONDS', CACHE_TTL_BILLING_PLANS_SECS, { min: 1 }));
+const planCache = createCacheService('billing:plans:', tunables.plansCacheTtlSeconds);
 
 /**
  * Drop every cached plan projection (the `active` list + any `id:<planId>`

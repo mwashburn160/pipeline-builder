@@ -25,7 +25,6 @@ import {
   parseQueryString,
   sendError,
   sendSuccess,
-  envInt,
 } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import {
@@ -39,6 +38,7 @@ import {
 } from './log-query.js';
 import * as loki from './loki-client.js';
 import { sendUpstreamFailure } from './upstream.js';
+import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { ensureAuthenticated, withController } from '../helpers/controller-helper.js';
 import { listLiveOrgIds } from '../services/platform-client.js';
@@ -58,7 +58,7 @@ import { listLiveOrgIds } from '../services/platform-client.js';
  * Hours rather than days: `h` is the suffix already proven to parse in that
  * config, and a config Loki cannot read is a Loki that does not start.
  */
-const LOG_RETENTION_HOURS = envInt('LOG_RETENTION_HOURS', 720, { min: 1 });
+const LOG_RETENTION_HOURS = config.observability.logRetentionHours;
 const MAX_WINDOW_MS = LOG_RETENTION_HOURS * 60 * 60 * 1000;
 const MAX_LIMIT = 1000;
 const DEFAULT_LIMIT = 100;

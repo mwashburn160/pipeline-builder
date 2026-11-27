@@ -11,6 +11,7 @@ import * as os from 'os';
 import path from 'path';
 
 import { signServiceToken, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { config } from '../config.js';
 
 export interface RegistryInfo {
   host: string;
@@ -106,8 +107,7 @@ export function writeDockerConfig(registry: RegistryInfo, username: string, pass
   // localhost:8443 is not routable from inside the plugin container.
   // Prefer the explicit env var so the plugin stays in lockstep with the
   // registry's advertised realm regardless of which deploy this is.
-  const realmUrl = process.env.IMAGE_REGISTRY_TOKEN_REALM
-    || (process.env.PLATFORM_BASE_URL ? `${process.env.PLATFORM_BASE_URL}/image-registry/token` : undefined);
+  const realmUrl = config.registry.tokenRealmUrl;
   if (realmUrl) {
     try {
       const realmHost = new URL(realmUrl).host;

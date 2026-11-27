@@ -59,6 +59,7 @@ export function headExportTarget(cfg: HeadExportConfig = config.audit.headExport
     region: cfg.region,
     accessKeyId: cfg.accessKeyId,
     secretAccessKey: cfg.secretAccessKey,
+    timeoutMs: cfg.s3TimeoutMs,
   };
 }
 

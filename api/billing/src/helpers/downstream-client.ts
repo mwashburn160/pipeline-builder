@@ -218,11 +218,6 @@ export async function fetchQuotaTypeUsage(orgId: string, quotaType: string, auth
   return asNumber(body?.data?.status?.used);
 }
 
-/**
- * Fetch enforced seat figures from platform's GET /organization/:orgId/seat-usage.
- * Returns `null` on read failure; individual fields are `null` when absent or
- * non-numeric (`data.limit` / `data.used`).
- */
 /** One quota dimension as the offers profile read returns it. */
 export interface ProfileDimensionRead {
   used: number;
@@ -312,6 +307,11 @@ export async function fetchFrustrationSignal(orgId: string, auth: string): Promi
   return data?.signal ?? null;
 }
 
+/**
+ * Fetch enforced seat figures from platform's GET /organization/:orgId/seat-usage.
+ * Returns `null` on read failure; individual fields are `null` when absent or
+ * non-numeric (`data.limit` / `data.used`).
+ */
 export async function fetchSeatUsage(orgId: string, auth: string): Promise<SeatUsageSnapshot | null> {
   const body = await getJson<{ data?: { limit?: unknown; used?: unknown } }>(
     config.platformService, `/organization/${encodeURIComponent(orgId)}/seat-usage`, orgId, auth,
