@@ -84,7 +84,7 @@ It emits `commitTimestamp` (oldest unshipped commit) and `commitCount`. Results 
 After a **successful** batch POST, the forwarder (throttled per warm container, best-effort, never failing the batch):
 
 1. POSTs a delivery-health signal to `POST /api/reports/ingest-health` `{ forwarded, dropped, lastEventAt }` so the Reports UI can show flowing / stale / dropping. `forwarded` accumulates across batches between health posts; `dropped` is the current DLQ depth snapshot; `lastEventAt` is the newest event timestamp seen.
-2. If the dead-letter queue is non-empty **and** no message-move task is already running, starts an SQS `StartMessageMoveTask` (DLQ → main queue) so retryable failures self-heal without a new AWS service. Guarded: success-gated, one-at-a-time (`ListMessageMoveTasks`), and throttled. Idempotent ingest (`idempotencyKey`) prevents double-counting on redelivery. The DLQ ARN defaults to `<main-queue-arn>-dlq` (derived from the SQS trigger ARN) and can be overridden with `EVENT_DLQ_ARN`.
+2. If the dead-letter queue is non-empty **and** no message-move task is already running, starts an SQS `StartMessageMoveTask` (DLQ → main queue) so retryable failures self-heal without a new AWS service. Guarded: success-gated, one-at-a-time (`ListMessageMoveTasks`), and throttled. Idempotent ingest (`idempotencyKey`) prevents double-counting on redelivery. The DLQ ARN defaults to `<main-queue-arn>-dlq` (derived from the SQS trigger ARN) and can be overridden with `EVENT_DLQ_ARN`. A poison-age ceiling (6 h) skips the redrive when the DLQ's oldest message is older than that, so a message that always fails can't loop. The age is read from the CloudWatch `AWS/SQS ApproximateAgeOfOldestMessage` metric; while no datapoint is available the redrive is deferred to a later batch.
 
 ## Key exports
 
@@ -94,7 +94,7 @@ After a **successful** batch POST, the forwarder (throttled per warm container, 
 
 ## Runtime
 
-- Lambda Node.js runtime, using the runtime-provided `@aws-sdk` clients (`client-codepipeline`, `client-secrets-manager`, and — loaded lazily only when needed — `client-codecommit` and `client-sqs`).
+- Lambda Node.js runtime, using the runtime-provided `@aws-sdk` clients (`client-codepipeline`, `client-secrets-manager`, and — loaded lazily only when needed — `client-codecommit`, `client-sqs` and `client-cloudwatch`).
 - Triggered by an SQS queue fed by an EventBridge rule matching the `aws.codepipeline` source; processes events in batches and POSTs them in a single request per invocation.
 - Requires `PLATFORM_BASE_URL` (set by `setup-events`). Optional: `EVENT_DLQ_ARN` (self-healing redrive; defaults to `<main-queue-arn>-dlq`).
 - Authenticates with either `PLATFORM_TOKEN` (a JWT set directly) or `PLATFORM_SECRET_NAME` (a Secrets Manager secret holding the JWT in `password`, created via `pipeline-manager infra store-token`); the resolved token is cached across invocations.
@@ -111,6 +111,7 @@ The execution role (granted on the events stack — `pipeline-manager/src/templa
 | `codecommit:GetCommit` | the CodeCommit source repositories | CodeCommit commit resolution (Phase 4). Best-effort. |
 | `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes` | the main queue | SQS trigger + DLQ depth check. |
 | `sqs:GetQueueAttributes`, `sqs:ListMessageMoveTasks`, `sqs:StartMessageMoveTask` | the **dead-letter queue** | Self-healing redrive (Phase 3). |
+| `cloudwatch:GetMetricStatistics` | `*` (no resource-level scoping) | The DLQ's oldest-message age (`AWS/SQS ApproximateAgeOfOldestMessage`) for the redrive's poison-age ceiling. It is a CloudWatch metric, not a queue attribute. Missing/denied ⇒ redrive skipped. |
 
 > The Phase 3/4 actions (`codecommit:GetCommit`, the `github-token` secret read, and the three DLQ `sqs:*` actions) are new grants required by this code — the events-stack IAM owner must add them. All Phase 3/4 paths are best-effort: a missing grant degrades gracefully (fields omitted / redrive skipped) and never fails the batch.
 

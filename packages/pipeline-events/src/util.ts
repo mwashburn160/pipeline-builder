@@ -83,7 +83,7 @@ export function dnsSuffixForPartition(partition: string): string {
 export const CACHE_MAX_ENTRIES = 5000;
 
 // Variable-specifier loader for SDK clients that are NOT devDependencies of this
-// package (`@aws-sdk/client-codecommit`, `@aws-sdk/client-sqs` — present only in
+// package (`@aws-sdk/client-codecommit`, `@aws-sdk/client-sqs`, `@aws-sdk/client-cloudwatch` — present only in
 // the Lambda runtime / jest mocks). A `string` specifier keeps `tsc` from
 // resolving them at build time, and the bundle leaves `@aws-sdk/*` external.
 export async function loadSdk<T>(pkg: string): Promise<T> {

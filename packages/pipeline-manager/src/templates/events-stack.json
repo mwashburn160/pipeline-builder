@@ -108,6 +108,11 @@
               },
               {
                 "Effect": "Allow",
+                "Action": "cloudwatch:GetMetricStatistics",
+                "Resource": "*"
+              },
+              {
+                "Effect": "Allow",
                 "Action": "secretsmanager:GetSecretValue",
                 "Resource": [
                   { "Fn::Sub": "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/platform-*" },

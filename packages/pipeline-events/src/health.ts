@@ -20,6 +20,7 @@ import { arnRef, BoundedMap, CACHE_MAX_ENTRIES, dnsSuffixForPartition, fetchWith
 //
 // IAM required (document only — granted on the events stack):
 //   sqs:GetQueueAttributes, sqs:ListMessageMoveTasks, sqs:StartMessageMoveTask (on the DLQ)
+//   cloudwatch:GetMetricStatistics (resource "*") — the DLQ's oldest-message age
 
 interface SqsClientLike { send(command: unknown): Promise<unknown> }
 interface SqsModule {
@@ -28,7 +29,31 @@ interface SqsModule {
   ListMessageMoveTasksCommand: new (input: { SourceArn: string }) => unknown;
   StartMessageMoveTaskCommand: new (input: { SourceArn: string; DestinationArn?: string }) => unknown;
 }
+interface CloudWatchModule {
+  CloudWatchClient: new (config: { region: string }) => SqsClientLike;
+  GetMetricStatisticsCommand: new (input: {
+    Namespace: string;
+    MetricName: string;
+    Dimensions: Array<{ Name: string; Value: string }>;
+    StartTime: Date;
+    EndTime: Date;
+    Period: number;
+    Statistics: string[];
+  }) => unknown;
+}
 let sqsMod: SqsModule | undefined;
+let cwMod: CloudWatchModule | undefined;
+let cwClientsByRegion: Map<string, SqsClientLike> | undefined;
+async function cwClient(region: string): Promise<SqsClientLike> {
+  if (!cwMod) cwMod = await loadSdk<CloudWatchModule>('@aws-sdk/client-cloudwatch');
+  if (!cwClientsByRegion) cwClientsByRegion = new Map();
+  let client = cwClientsByRegion.get(region);
+  if (!client) {
+    client = new cwMod.CloudWatchClient({ region });
+    cwClientsByRegion.set(region, client);
+  }
+  return client;
+}
 let sqsClientsByRegion: Map<string, SqsClientLike> | undefined;
 async function sqsClient(region: string): Promise<SqsClientLike> {
   if (!sqsMod) sqsMod = await loadSdk<SqsModule>('@aws-sdk/client-sqs');
@@ -58,7 +83,7 @@ const REDRIVE_THROTTLE_MS = 5 * 60 * 1000;
 const MAX_DLQ_REDRIVE_AGE_SEC = 6 * 60 * 60; // 6 hours
 
 /** Parse the SQS trigger ARN and derive the main + DLQ ARNs and the DLQ URL. */
-function deriveQueues(mainQueueArn: string | undefined): { region: string; mainArn: string; dlqArn: string; dlqUrl: string } | undefined {
+function deriveQueues(mainQueueArn: string | undefined): { region: string; mainArn: string; dlqArn: string; dlqName: string; dlqUrl: string } | undefined {
   if (!mainQueueArn) return undefined;
   // arn:{partition}:sqs:{region}:{account}:{name} — the partition comes from the
   // trigger's own ARN, so GovCloud / China queues resolve to their real DLQ.
@@ -68,24 +93,45 @@ function deriveQueues(mainQueueArn: string | undefined): { region: string; mainA
   const dlqArn = process.env.EVENT_DLQ_ARN || `arn:${partition}:sqs:${region}:${account}:${name}-dlq`;
   const dlqName = dlqArn.split(':').pop() ?? `${name}-dlq`;
   const dlqUrl = `https://sqs.${region}.${dnsSuffixForPartition(partition!)}/${account}/${dlqName}`;
-  return { region, mainArn: mainQueueArn, dlqArn, dlqUrl };
+  return { region, mainArn: mainQueueArn, dlqArn, dlqName, dlqUrl };
 }
 
-/** Snapshot the DLQ depth + the age (seconds) of its oldest message (for the
- *  poison-message redrive ceiling). Missing/NaN attributes fall back to 0. */
-async function dlqStats(region: string, dlqUrl: string): Promise<{ depth: number; oldestAgeSec: number }> {
+/** The DLQ depth. Missing/NaN falls back to 0.
+ *  Only `ApproximateNumberOfMessages` is requested: the oldest-message age is NOT a
+ *  queue attribute (asking for it makes SQS reject the whole call with
+ *  InvalidAttributeName, which left depth stuck at 0 and the redrive never ran). */
+async function dlqDepth(region: string, dlqUrl: string): Promise<number> {
   if (!sqsMod) sqsMod = await loadSdk<SqsModule>('@aws-sdk/client-sqs');
   const client = await sqsClient(region);
   const out = await client.send(new sqsMod.GetQueueAttributesCommand({
     QueueUrl: dlqUrl,
-    AttributeNames: ['ApproximateNumberOfMessages', 'ApproximateAgeOfOldestMessage'],
-  })) as { Attributes?: { ApproximateNumberOfMessages?: string; ApproximateAgeOfOldestMessage?: string } };
+    AttributeNames: ['ApproximateNumberOfMessages'],
+  })) as { Attributes?: { ApproximateNumberOfMessages?: string } };
   const n = Number(out.Attributes?.ApproximateNumberOfMessages ?? '0');
-  const age = Number(out.Attributes?.ApproximateAgeOfOldestMessage ?? '0');
-  return {
-    depth: Number.isFinite(n) ? n : 0,
-    oldestAgeSec: Number.isFinite(age) ? age : 0,
-  };
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Age (seconds) of the DLQ's oldest message, from the CloudWatch AWS/SQS
+ *  `ApproximateAgeOfOldestMessage` metric (the latest 1-minute Maximum in the last
+ *  15 minutes). `undefined` when there is no datapoint yet (SQS publishes with a
+ *  short delay) — the caller treats an unknown age as "don't redrive". */
+async function dlqOldestAgeSec(region: string, dlqName: string): Promise<number | undefined> {
+  if (!cwMod) cwMod = await loadSdk<CloudWatchModule>('@aws-sdk/client-cloudwatch');
+  const client = await cwClient(region);
+  const end = new Date();
+  const out = await client.send(new cwMod.GetMetricStatisticsCommand({
+    Namespace: 'AWS/SQS',
+    MetricName: 'ApproximateAgeOfOldestMessage',
+    Dimensions: [{ Name: 'QueueName', Value: dlqName }],
+    StartTime: new Date(end.getTime() - 15 * 60 * 1000),
+    EndTime: end,
+    Period: 60,
+    Statistics: ['Maximum'],
+  })) as { Datapoints?: Array<{ Timestamp?: Date | string; Maximum?: number }> };
+  const latest = (out.Datapoints ?? [])
+    .filter(d => Number.isFinite(d.Maximum))
+    .sort((a, b) => new Date(b.Timestamp ?? 0).getTime() - new Date(a.Timestamp ?? 0).getTime())[0];
+  return latest?.Maximum;
 }
 
 async function hasActiveMoveTask(region: string, dlqArn: string): Promise<boolean> {
@@ -139,12 +185,9 @@ export async function reportHealthAndRedrive(baseUrl: string, mainQueueArn: stri
   try {
     const q = deriveQueues(mainQueueArn);
     let depth = 0;
-    let oldestAgeSec = 0;
     if (q) {
       try {
-        const stats = await dlqStats(q.region, q.dlqUrl);
-        depth = stats.depth;
-        oldestAgeSec = stats.oldestAgeSec;
+        depth = await dlqDepth(q.region, q.dlqUrl);
       } catch (err) {
         log.warn('DLQ stats check failed (ignored)', { error: (err as { name?: string })?.name ?? String(err) });
       }
@@ -172,7 +215,18 @@ export async function reportHealthAndRedrive(baseUrl: string, mainQueueArn: stri
     if (q && depth > 0 && now - lastRedriveAt >= REDRIVE_THROTTLE_MS) {
       // Poison-message ceiling: never redrive a DLQ whose oldest message has aged
       // past the ceiling — that message keeps failing and would loop DLQ→main→DLQ.
-      if (oldestAgeSec > MAX_DLQ_REDRIVE_AGE_SEC) {
+      // An UNKNOWN age (no metric datapoint yet, or the read failed) also skips:
+      // the guard must fail safe. The next tick retries, since lastRedriveAt is
+      // only set when a move task actually starts.
+      let oldestAgeSec: number | undefined;
+      try {
+        oldestAgeSec = await dlqOldestAgeSec(q.region, q.dlqName);
+      } catch (err) {
+        log.warn('DLQ oldest-message age read failed — skipping redrive (ignored)', { error: (err as { name?: string })?.name ?? String(err) });
+      }
+      if (oldestAgeSec === undefined) {
+        log.info('DLQ oldest-message age not available yet — redrive deferred', { dlq: arnRef(q.dlqArn), dropped: depth });
+      } else if (oldestAgeSec > MAX_DLQ_REDRIVE_AGE_SEC) {
         log.warn('DLQ oldest message exceeds poison-age ceiling — skipping redrive (needs manual attention)', {
           dlq: arnRef(q.dlqArn), dropped: depth, oldestAgeSec, ceilingSec: MAX_DLQ_REDRIVE_AGE_SEC,
         });

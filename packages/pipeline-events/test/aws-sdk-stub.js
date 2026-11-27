@@ -3,7 +3,7 @@
 
 // Test stub for the AWS SDK clients that the handler dynamic-imports but that are
 // NOT devDependencies of this package (they exist only in the Lambda runtime):
-//   @aws-sdk/client-sqs, @aws-sdk/client-codecommit
+//   @aws-sdk/client-sqs, @aws-sdk/client-codecommit, @aws-sdk/client-cloudwatch
 // jest's moduleNameMapper points both specifiers here (see package.json). The
 // `send` implementations are read from globalThis so the test file can install
 // jest.fn() mocks and assert on the commands the handler issues. Each command
@@ -15,6 +15,11 @@ export class SQSClient {
 export function GetQueueAttributesCommand(input) { return { __type: 'GetQueueAttributes', ...input }; }
 export function ListMessageMoveTasksCommand(input) { return { __type: 'ListMessageMoveTasks', ...input }; }
 export function StartMessageMoveTaskCommand(input) { return { __type: 'StartMessageMoveTask', ...input }; }
+
+export class CloudWatchClient {
+  send(command) { return globalThis.__cwSend(command); }
+}
+export function GetMetricStatisticsCommand(input) { return { __type: 'GetMetricStatistics', ...input }; }
 
 export class CodeCommitClient {
   send(command) { return globalThis.__ccSend(command); }
