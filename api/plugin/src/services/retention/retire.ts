@@ -48,7 +48,7 @@
  */
 
 import {
-  createLogger, createScheduler, DEFAULT_LEADER_LOCK_TTL_MS, errorMessage, leaderLockKey, recordAudit, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID,
+  createLogger, createScheduler, DEFAULT_LEADER_LOCK_TTL_MS, errorMessage, leaderLockKey, recordAudit, runConcurrent, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID,
   type LockRedis, type Scheduler,
 } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
@@ -385,6 +385,16 @@ async function declaredHold(name: string): Promise<string | null> {
 // -----------------------------------------------------------------------------
 
 /**
+ * Plugins planned at once. Planning one plugin reads only its own rows (and
+ * refreshes only its own pipelines' resolutions), each read in its own
+ * transaction, so plugins plan independently; a serial walk took ~27s at 129
+ * plugins and grew with the catalogue. 4 keeps most of the service's 20-connection
+ * pool free for live traffic. Acting stays serial: the per-pass batch budget is
+ * shared and the notices are grouped.
+ */
+export const RETENTION_PLAN_CONCURRENCY = 4;
+
+/**
  * One retention pass over every system plugin. `dryRun` (the plan route, the
  * measurement) decides and reports without acting; `refresh: false` also skips
  * the declared-resolution refresh, making it strictly read-only.
@@ -402,8 +412,11 @@ export async function runRetentionPass(opts: { dryRun: boolean; refresh?: boolea
     const book = new NoticeBook();
     let budget = cfg.batch;
     let failedPlans = 0;
-    for (const name of names) {
-      if (opts.signal?.aborted) break;
+    // Plan every plugin (bounded concurrency, results kept in `names` order),
+    // then act on them one at a time in that order.
+    type Planned = { plan: PluginPlan; notify: Array<[string, string[]]> } | null;
+    const planned = await runConcurrent<string, Planned>(names, RETENTION_PLAN_CONCURRENCY, async (name) => {
+      if (opts.signal?.aborted) return null;
       let plan: PluginPlan;
       try {
         plan = await planPlugin(name, cfg, now, { refresh: opts.refresh ?? true });
@@ -411,13 +424,22 @@ export async function runRetentionPass(opts: { dryRun: boolean; refresh?: boolea
         failedPlans++;
         incCounter(FAILED_COUNTER, { stage: 'select' });
         logger.warn('Retention plan failed; the plugin is skipped this pass', { plugin: name, error: errorMessage(err) });
-        continue;
+        return null;
       }
+      const toNotify: Array<[string, string[]]> = [];
       for (const d of plan.decision.decisions) {
-        if ((d.state === 'deprecate' && !d.deferred) || d.state === 'yank') notify.set(d.pluginId, await orgsToNotify(plan, d.pluginId, d.version));
+        if ((d.state === 'deprecate' && !d.deferred) || d.state === 'yank') toNotify.push([d.pluginId, await orgsToNotify(plan, d.pluginId, d.version)]);
       }
-      if (!opts.dryRun) budget = await actOn(plan, cfg, now, budget, book, actions, notify);
-      plans.push(plan);
+      return { plan, notify: toNotify };
+    });
+    for (const p of planned) {
+      if (!p) continue;
+      for (const [pluginId, orgs] of p.notify) notify.set(pluginId, orgs);
+      if (!opts.dryRun) {
+        if (opts.signal?.aborted) break;
+        budget = await actOn(p.plan, cfg, now, budget, book, actions, notify);
+      }
+      plans.push(p.plan);
     }
     const collected = opts.dryRun ? [] : await collectRetiredImages({ now, limit: cfg.batch, signal: opts.signal });
     if (!opts.dryRun) await book.send();
