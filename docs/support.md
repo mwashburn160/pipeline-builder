@@ -64,7 +64,8 @@ root, and a case opened from any team in the account spends from it. A case open
 this way is always filed at level `support_incident`, which carries **no** response
 target, even when the account holds a baseline it could not open against from that
 team. Members read the remaining balance with `GET /billing/support-incidents`
-(`messages:read`); staff grant them with `POST /billing/admin/orgs/:orgId/support-incidents`
+(`messages:read`); staff grant them from the operator org page (Entitlements →
+**Support incidents**), which calls `POST /billing/admin/orgs/:orgId/support-incidents`
 (`support_cases:write` in the system org, step-up, audited as
 `billing.support-incident.grant`).
 

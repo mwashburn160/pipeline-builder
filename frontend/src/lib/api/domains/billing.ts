@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, AddonPriceBreakdown, BillingEvent, BillingInterval, CrossoverVerdict, PlanChangePreview, UsageRollup, Discount, Campaign, AccountOffer, OfferState, AdminOfferSummary, AdminOfferDecision, OfferExclusion } from '@/types';
+import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, AddonPriceBreakdown, BillingEvent, BillingInterval, CrossoverVerdict, PlanChangePreview, UsageRollup, Discount, Campaign, AccountOffer, OfferState, AdminOfferSummary, AdminOfferDecision, OfferExclusion, SupportFloorAgreement } from '@/types';
 
 /** Itemized, display-only price breakdown returned by a discount preview/apply.
  *  Concrete mirror of the billing service's `DiscountBreakdown`
@@ -124,6 +124,20 @@ export function billingApi(core: ApiCore) {
     getSupportIncidentBalance: async (opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ balance: number; accountOrgId: string }>>(
         '/api/billing/support-incidents', { signal: opts?.signal },
+      );
+    },
+
+    /**
+     * GRANT one-time support incidents to an org's account — a concession,
+     * never a sale. A team id lands on its account root, which `accountOrgId`
+     * names; `balance` is the root's new total. 404 when the account has no
+     * manageable subscription; 503 when its root cannot be resolved. System org
+     * + `support_cases:write` + aal2 + step-up; audited `billing.support-incident.grant`.
+     */
+    grantSupportIncidents: async (orgId: string, body: SupportIncidentGrant, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ balance: number; accountOrgId: string }>>(
+        `/api/billing/admin/orgs/${encodeURIComponent(orgId)}/support-incidents`,
+        { method: 'POST', headers: core.stepUpHeader(stepUpToken), body: JSON.stringify(body) },
       );
     },
 
@@ -644,6 +658,19 @@ export function billingApi(core: ApiCore) {
       });
     },
 
+    /**
+     * Set (`{ seats, floorCents, note? }`) or clear (`{ floorCents: null }`) a
+     * subscription's NEGOTIATED support floor, replacing the computed ramp.
+     * System org + `subscriptions:manage` + aal2 + step-up; audited
+     * `billing.support-floor.override`. 400 on a bad body, 404 on an unknown id.
+     */
+    setSupportFloor: async (id: string, body: SupportFloorUpdate, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ supportFloorOverride: SupportFloorAgreement | null }>>(
+        `/api/billing/admin/subscriptions/${encodeURIComponent(id)}/support-floor`,
+        { method: 'PUT', headers: core.stepUpHeader(stepUpToken), body: JSON.stringify(body) },
+      );
+    },
+
     /** Cross-account finance aggregate (totals + per-org impact). `orgId` narrows to one account. */
     getAdminBillingSummary: async (params?: { from?: string; to?: string; orgId?: string }, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<AdminBillingSummary>>(`/api/billing/admin/summary${buildQuery(params)}`, { signal: opts?.signal });
@@ -671,6 +698,31 @@ export function billingApi(core: ApiCore) {
     },
   };
 }
+
+/** Upper bound on one incident grant (api/billing helpers/support-incidents.ts MAX_INCIDENT_GRANT). */
+export const MAX_INCIDENT_GRANT = 100;
+
+/** POST /billing/admin/orgs/:orgId/support-incidents body (IncidentGrantSchema, strict). */
+export interface SupportIncidentGrant {
+  /** Whole number, 1..MAX_INCIDENT_GRANT. */
+  count: number;
+  /** Recorded (trimmed, first 500 characters) in the audit row. */
+  note?: string;
+}
+
+/**
+ * PUT /billing/admin/subscriptions/:id/support-floor body. `seats` is the count
+ * the price was agreed AT (required with a price: an account that grows past it
+ * is reported stale), `floorCents` the MONTHLY floor, both non-negative
+ * integers; `note` is kept trimmed, first 500 characters. `{ floorCents: null }`
+ * drops the agreement and returns the account to the computed ramp.
+ */
+export type SupportFloorUpdate =
+  | { seats: number; floorCents: number; note?: string }
+  | { floorCents: null };
+
+/** The agreement on file, as the support-floor PUT answers it (declared with `Subscription`). */
+export type { SupportFloorAgreement } from '@/types';
 
 /** Admin override body for PUT /billing/admin/subscriptions/:id (AdminSubscriptionUpdateSchema). */
 export interface AdminSubscriptionUpdate {

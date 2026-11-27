@@ -69,6 +69,8 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['ErrorEntry', 'frontend/src/components/reports/types.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['StageBottleneck', 'frontend/src/components/reports/types.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['StageFailure', 'frontend/src/components/reports/types.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
+  // The negotiated support floor on the admin subscription read (api/billing, not importable).
+  ['SupportFloorAgreement', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/support-floor-agreement.ts'],
   // The past-due lapse window on a subscription response (api/billing, not importable).
   ['SubscriptionDunning', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/subscription-response.ts'],
   ['ComposedSection', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],

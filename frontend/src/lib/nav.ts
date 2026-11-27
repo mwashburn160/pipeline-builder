@@ -44,6 +44,7 @@ import {
   BadgeCheck,
   LifeBuoy,
   Sparkles,
+  Workflow,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { Permission } from '@pipeline-builder/api-core/permissions';
@@ -401,6 +402,18 @@ export const NAV_SECTIONS: NavSection[] = [
         requiredPermission: 'orgs:read',
         systemOrgOnly: true,
         keywords: 'runner signing key rotation jwks pause runs deliveries kill switch over age unreadable',
+      },
+      // The cascade outbox: every downstream leg of an org purge or a user
+      // erasure, and the Redrive for a dead or stuck one (the
+      // PlatformCascadeLegDead runbook step). System org only: the routes are
+      // requireSystemOrgPermission('platform:read'), the redrive 'orgs:manage'.
+      {
+        title: 'Cascade outbox',
+        href: '/dashboard/admin/cascade',
+        icon: Workflow,
+        requiredPermission: 'platform:read',
+        systemOrgOnly: true,
+        keywords: 'cascade outbox org purge user erasure gdpr dead leg redrive redeliver stuck',
       },
       // Plugin-ecosystem governance console (moderation, publisher verification,
       // Ecosystem Manager roster). System org only, and only for Ecosystem

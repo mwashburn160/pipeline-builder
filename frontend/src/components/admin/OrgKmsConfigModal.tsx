@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useState, useId } from 'react';
-import { KeyRound, AlertTriangle } from 'lucide-react';
+import { KeyRound, AlertTriangle, RotateCw } from 'lucide-react';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
 import { useMutation } from '@/hooks/useMutation';
@@ -15,6 +15,7 @@ import { Modal } from '@/components/ui/Modal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import type { Organization } from '@/types';
 import { formatError } from '@/lib/constants';
+import { ApiError } from '@/lib/api/errors';
 import type { KmsConfigChangeResult } from '@/lib/api/domains/admin';
 
 interface Props {
@@ -36,6 +37,11 @@ interface Props {
  * DELETE clears the binding and reverts the org to the shared
  * SECRET_ENCRYPTION_KEY master. Same re-encryption flow runs in reverse
  * if `reencrypt=true` (default).
+ *
+ * A change saves the outgoing config on the org until its runner signing keys
+ * are re-wrapped; while that is pending (`runnerRewrapPending` on the GET)
+ * every save / clear is refused with 409, so the modal holds them back and
+ * offers "Retry runner-key re-wrap" (same strong-factor step-up) instead.
  */
 export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   const uid = useId();
@@ -48,16 +54,19 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   // Secrets the last change could not move (written under the OLD key by a
   // replica mid-migration): the change landed, but these must be re-entered.
   const [unreadable, setUnreadable] = useState<string[]>([]);
-  // Gate destructive ops (save/clear) on a step-up password reverify.
-  const [pendingOp, setPendingOp] = useState<'save' | 'clear' | null>(null);
+  // The last retry's outcome, when it is not an error.
+  const [retryNotice, setRetryNotice] = useState<string | null>(null);
+  // Gate destructive ops (save/clear/retry) on a strong-factor step-up.
+  const [pendingOp, setPendingOp] = useState<'save' | 'clear' | 'retry' | null>(null);
 
   // `data` may be omitted on a not-yet-configured org: that is "not
   // configured", not an error.
   const { data: loaded, loading, error: loadError, refetch: reloadBinding } = useFetch(async () => {
     const res = await api.getOrgKmsConfig(org.id);
     if (!res.success) throw new Error(res.message || 'Failed to load KMS config');
-    return { configured: res.data?.configured ?? false, keyId: res.data?.keyId };
+    return { configured: res.data?.configured ?? false, keyId: res.data?.keyId, runnerRewrapPending: res.data?.runnerRewrapPending ?? false };
   }, [org.id]);
+  const rewrapPending = loaded?.runnerRewrapPending ?? false;
   const configured = written?.configured ?? loaded?.configured ?? false;
   const currentKeyId = written ? written.keyId : loaded?.keyId;
 
@@ -68,6 +77,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   const startChange = () => {
     setError(null);
     setUnreadable([]);
+    setRetryNotice(null);
   };
 
   /** A failed save / clear: some 500s answer AFTER the config changed ("saved
@@ -141,23 +151,56 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
     onError: failChange,
   });
 
-  const submitting = saveM.pending || clearM.pending;
+  /** Retry the pending runner-key re-wrap. A 409 means nothing was pending (a
+   *  retry elsewhere finished it); a 500 means the cause is still there and the
+   *  record is kept. Either way the binding is re-read for the pending flag. */
+  const retryM = useMutation({
+    fn: async (stepUpToken: string) => {
+      startChange();
+      const res = await api.retryRunnerKeyReencrypt(org.id, stepUpToken);
+      if (!res.success) throw new Error(res.message || 'Runner-key re-wrap failed');
+      return res.data;
+    },
+    scopeKey: org.id,
+    onSuccess: (data) => {
+      setRetryNotice(data
+        ? `Re-wrapped ${data.runnerKeysReencrypted} of ${data.runnerKeysScanned} runner signing keys. KMS changes are allowed again.`
+        : 'Runner signing keys re-wrapped. KMS changes are allowed again.');
+      void reloadBinding();
+      onSaved?.();
+    },
+    onError: (err, message) => {
+      if (err instanceof ApiError && err.statusCode === 409) {
+        setRetryNotice('Nothing to retry: no runner-key re-wrap is pending for this organization.');
+      } else {
+        setError(`Runner-key re-wrap failed again, so its cause is still present: ${message}`);
+      }
+      void reloadBinding();
+    },
+  });
+
+  const submitting = saveM.pending || clearM.pending || retryM.pending;
   const testing = testM.pending;
   const { run: executeSave } = saveM;
   const { run: executeClear } = clearM;
+  const { run: executeRetry } = retryM;
   const { run: runTest } = testM;
   const handleTest = useCallback(() => { void runTest(); }, [runTest]);
 
   // Public actions just gate on step-up; the executeXxx fns run after.
   const handleSave = useCallback(() => setPendingOp('save'), []);
   const handleClear = useCallback(() => setPendingOp('clear'), []);
+  const handleRetry = useCallback(() => setPendingOp('retry'), []);
 
   const onStepUpConfirmed = useCallback(async (stepUpToken: string) => {
     const op = pendingOp;
     setPendingOp(null);
     if (op === 'save') await executeSave(stepUpToken);
     if (op === 'clear') await executeClear(stepUpToken);
-  }, [pendingOp, executeSave, executeClear]);
+    if (op === 'retry') await executeRetry(stepUpToken);
+  }, [pendingOp, executeSave, executeClear, executeRetry]);
+
+  const pendingTitle = rewrapPending ? 'Retry the pending runner-key re-wrap first' : undefined;
 
   return (
     <>
@@ -169,7 +212,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
         footer={
           <div className="flex items-center justify-end gap-2">
             {configured && (
-              <Button variant="danger-outline" onClick={handleClear} disabled={submitting || testing}>
+              <Button variant="danger-outline" onClick={handleClear} disabled={submitting || testing || rewrapPending} title={pendingTitle}>
                 Clear
               </Button>
             )}
@@ -184,7 +227,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
             <Button variant="secondary" onClick={onClose} disabled={submitting || testing}>
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={submitting || testing || !keyId || !ciphertextBase64}>
+            <Button onClick={handleSave} disabled={submitting || testing || rewrapPending || !keyId || !ciphertextBase64} title={pendingTitle}>
               {submitting ? <LoadingSpinner size="sm" /> : 'Save & re-encrypt'}
             </Button>
           </div>
@@ -194,6 +237,32 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
           {loading && <LoadingSpinner size="sm" />}
 
           <ErrorAlert message={error ?? (loadError ? formatError(loadError) : null)} />
+
+          {rewrapPending && (
+            <div
+              role="alert"
+              aria-label="Runner-key re-wrap pending"
+              className="flex gap-2 rounded-lg bg-warning-bg px-3 py-2 text-sm text-warning-strong"
+            >
+              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+              <div className="space-y-2">
+                <p>
+                  An earlier change&apos;s runner signing key re-wrap has not finished. Until it does, this org&apos;s
+                  pipeline runners cannot sign and the KMS config cannot be changed. Fix the cause the failure named
+                  (pipeline service reachable, CMK grant in place), then retry. Safe to repeat.
+                </p>
+                <Button size="sm" variant="secondary" onClick={handleRetry} disabled={submitting || testing}>
+                  {retryM.pending ? <LoadingSpinner size="sm" /> : <><RotateCw className="w-3.5 h-3.5 mr-1.5" />Retry runner-key re-wrap</>}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {retryNotice && (
+            <div role="status" className="rounded-lg bg-info-bg px-3 py-2 text-sm text-info-strong">
+              {retryNotice}
+            </div>
+          )}
 
           {unreadable.length > 0 && (
             <div
@@ -273,7 +342,9 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
         <StepUpModal
           action={pendingOp === 'save'
             ? `Rotate KMS binding for ${org.name} (re-encrypts AI keys + IdP secret)`
-            : `Clear KMS binding for ${org.name} (fall back to shared master)`}
+            : pendingOp === 'clear'
+              ? `Clear KMS binding for ${org.name} (fall back to shared master)`
+              : `Retry the runner signing key re-wrap for ${org.name}`}
           /* The KMS routes accept only a SECOND FACTOR: pointing an org at
              another key is close to "read every secret this org has", so a
              password re-prompt — which an attacker holding the session may

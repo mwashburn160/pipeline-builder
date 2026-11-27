@@ -1,6 +1,6 @@
 // GENERATED FROM docs/support.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 06e388c9d0c3b02698f0e4c36fb06817ca6664ee427d34e810cf7bc28c76b203
+// SOURCE-SHA256: 7dba403f6095689b1eb1ec2250027c40201e8179c33be4e9efd4ae21e5dd2f77
 // SPDX-License-Identifier: Apache-2.0
 import { LifeBuoy } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -129,7 +129,7 @@ export const supportTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "One-time incidents are the second door: a concession the support desk grants (never sold) that lets an organisation with no contact of its own open one case. The balance belongs to the account — a grant typed against a team lands on its root, and a case opened from any team in the account spends from it. A case opened this way is always filed at level support_incident, which carries no response target, even when the account holds a baseline it could not open against from that team. Members read the remaining balance with GET /billing/support-incidents (messages:read); staff grant them with POST /billing/admin/orgs/:orgId/support-incidents (support_cases:write in the system org, step-up, audited as billing.support-incident.grant)."
+          "content": "One-time incidents are the second door: a concession the support desk grants (never sold) that lets an organisation with no contact of its own open one case. The balance belongs to the account — a grant typed against a team lands on its root, and a case opened from any team in the account spends from it. A case opened this way is always filed at level support_incident, which carries no response target, even when the account holds a baseline it could not open against from that team. Members read the remaining balance with GET /billing/support-incidents (messages:read); staff grant them from the operator org page (Entitlements → Support incidents), which calls POST /billing/admin/orgs/:orgId/support-incidents (support_cases:write in the system org, step-up, audited as billing.support-incident.grant)."
         }
       ]
     },

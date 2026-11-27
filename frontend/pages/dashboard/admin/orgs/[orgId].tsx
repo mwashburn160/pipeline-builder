@@ -7,7 +7,8 @@
  * Consolidates everything a sysadmin needs about a single org onto one
  * surface: identity (name, slug, description), tier, its place in the org →
  * team hierarchy (parent, teams, move), the member roster, KMS
- * binding, IdP / SSO config, seats, entitlements and quotas, and the
+ * binding, IdP / SSO config, seats, entitlements, quotas and support-incident
+ * grants, and the
  * namespace-YAML / export / delete operations. Each card owns its own writes
  * (and their step-up); this shell owns the reads, each through `useFetch`, so a
  * card that changes something re-reads exactly what it changed.
@@ -35,6 +36,8 @@ import { OrgHierarchyCard } from '@/components/admin/org-detail/OrgHierarchyCard
 import { OrgMemberRoster } from '@/components/admin/org-detail/OrgMemberRoster';
 import { OrgSeatsCard } from '@/components/admin/org-detail/OrgSeatsCard';
 import { OrgOperationsCard } from '@/components/admin/org-detail/OrgOperationsCard';
+import { OrgSupportIncidentsCard } from '@/components/admin/org-detail/OrgSupportIncidentsCard';
+import { useBillingEnabled } from '@/hooks/useBillingEnabled';
 import { redactString } from '@/lib/redact';
 import api, { ApiError } from '@/lib/api';
 import type { OrganizationDetail } from '@/lib/api/domains/organizations';
@@ -96,6 +99,7 @@ export default function OrgDetailPage() {
 function OrgDetail({ orgId }: { orgId: string }) {
   const router = useRouter();
   const { accessDenied, isReady, user, can } = useAuthGuard();
+  const billingEnabled = useBillingEnabled();
   const enabled = isReady && !!orgId;
 
   // Grouped into tabs so the page isn't one long scroll. Deep-linkable via
@@ -190,10 +194,16 @@ function OrgDetail({ orgId }: { orgId: string }) {
                   </div>
                   {can('org_kms:write') && (
                     <button type="button" onClick={() => setShowKms(true)} className="action-link text-sm">
-                      {kms?.configured ? 'Rotate / clear' : 'Configure'}
+                      {kms?.runnerRewrapPending ? 'Retry re-wrap' : kms?.configured ? 'Rotate / clear' : 'Configure'}
                     </button>
                   )}
                 </div>
+                {kms?.runnerRewrapPending && (
+                  <p className="mb-2 text-sm">
+                    <Badge color="yellow">Runner-key re-wrap pending</Badge>{' '}
+                    <span className="text-fg-muted">KMS changes are refused until it is retried.</span>
+                  </p>
+                )}
                 {kmsQ.error ? (
                   <RetryError message="Failed to load the KMS binding" onRetry={kmsQ.refetch} />
                 ) : kms?.configured ? (
@@ -330,6 +340,10 @@ function OrgDetail({ orgId }: { orgId: string }) {
                 )}
                 {org.parentOrgId && <PooledAtParent org={org} what="Limits" />}
               </Card>
+
+              {/* The grant route is billing's (absent when billing is off) and
+                  gates on `support_cases:write` in the system org. */}
+              {billingEnabled && can('support_cases:write') && <OrgSupportIncidentsCard org={org} />}
             </div>
           )}
 

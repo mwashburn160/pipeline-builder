@@ -892,10 +892,11 @@ asymmetries worth stating:
   backoff — so once that leg is dead-lettered the count is the only evidence the data
   was left behind. The panel groups it by `service`. The same counter covers org purges
   and is alerted, for every kind, as `PlatformCascadeLegDead`. It is per platform pod
-  and resets on restart, so `GET /api/admin/cascade?status=dead` is the durable list.
+  and resets on restart, so `GET /api/admin/cascade?status=dead` (the dashboard's
+  **Platform → Cascade outbox** page, filtered to Dead) is the durable list.
   Once the owning service is fixed, a dead leg is
-  put back in the queue with `POST /api/admin/cascade/:id/redrive` (find it with
-  `GET /api/admin/cascade?status=dead`) rather than by editing `cascade_outbox` in Mongo.
+  put back in the queue with **Redrive** on that page, or `POST /api/admin/cascade/:id/redrive`,
+  rather than by editing `cascade_outbox` in Mongo.
 - **The *Alert delivery* row answers a question no other panel can**: whether
   anyone would hear any of them. `alert_delivery_enabled` and
   `alert_delivery_configured` are deliberately separate — the first is what a

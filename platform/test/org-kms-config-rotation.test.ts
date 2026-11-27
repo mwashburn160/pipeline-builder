@@ -61,7 +61,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   },
 }));
 
-const { putOrgKmsConfig, deleteOrgKmsConfig, retryRunnerKeyReencrypt } = await import('../src/controllers/org-kms-config.js');
+const { getOrgKmsConfig, putOrgKmsConfig, deleteOrgKmsConfig, retryRunnerKeyReencrypt } = await import('../src/controllers/org-kms-config.js');
 
 const ORG = 'aaaaaaaaaaaaaaaaaaaaaaaa';
 const SYSADMIN = { sub: 'sa-1', isSuperAdmin: true };
@@ -619,5 +619,36 @@ describe('kms-config: the pending re-wrap marker is written with the save', () =
     expect(mockRunnerReencrypt).toHaveBeenCalledTimes(1);
     expect(current.kmsRunnerRewrapFrom).toBeUndefined();
     expect(current.kmsConfig).toEqual(NEW);
+  });
+});
+
+describe('GET kms-config: a pending runner-key re-wrap is visible', () => {
+  /** The GET reads `findById(...).select(...).lean()`. */
+  const get = async (doc: unknown) => {
+    const select = jest.fn(() => ({ lean: async () => doc }));
+    mockOrgFindById.mockReturnValue({ select });
+    const res = mockRes();
+    await (getOrgKmsConfig as any)({ params: { orgId: ORG }, query: {}, user: SYSADMIN, headers: {} }, res);
+    return { res, select };
+  };
+
+  it('reads the marker alongside the config', async () => {
+    const { select } = await get(orgDoc({ ...NEW }));
+    expect(String((select.mock.calls as unknown[][])[0]?.[0])).toMatch(/kmsRunnerRewrapFrom/);
+  });
+
+  it('a configured org with a pending re-wrap says so (never the recorded outgoing config itself)', async () => {
+    const { res } = await get({ ...orgDoc({ ...NEW }), kmsRunnerRewrapFrom: { ...OLD, pendingSince: new Date() } });
+    expect(res.body.data).toEqual({ configured: true, keyId: NEW.keyId, runnerRewrapPending: true });
+  });
+
+  it('a cleared org (shared provider) can still have a re-wrap pending', async () => {
+    const { res } = await get({ ...orgDoc(undefined), kmsRunnerRewrapFrom: { ...OLD, pendingSince: new Date() } });
+    expect(res.body.data).toEqual({ configured: false, runnerRewrapPending: true });
+  });
+
+  it('nothing pending answers false', async () => {
+    const { res } = await get(orgDoc({ ...NEW }));
+    expect(res.body.data).toEqual({ configured: true, keyId: NEW.keyId, runnerRewrapPending: false });
   });
 });

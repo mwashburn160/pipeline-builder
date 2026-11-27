@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/Badge';
 import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
 import { Modal } from '@/components/ui/Modal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { SupportFloorModal } from '@/components/billing/SupportFloorModal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -215,6 +216,8 @@ export default function BillingAdminPage() {
   // StepUpModal is open; the purge runs only after step-up succeeds, and sends
   // the modal's token — the endpoint verifies it for a user caller.
   const [purgeSub, setPurgeSub] = useState<Subscription | null>(null);
+  // The negotiated support floor editor (its own step-up).
+  const [floorSub, setFloorSub] = useState<Subscription | null>(null);
 
   const handlePurge = async (stepUpToken: string) => {
     if (!purgeSub) return;
@@ -290,6 +293,9 @@ export default function BillingAdminPage() {
             title="Override plan / status / interval"
           >
             <Pencil className="w-3.5 h-3.5" /> Edit
+          </button>
+          <button onClick={() => setFloorSub(s)} className="action-link" title="Set or clear a negotiated support floor">
+            Support floor
           </button>
           <button onClick={() => setPurgeSub(s)} className="action-link-danger">Purge</button>
         </div>
@@ -498,6 +504,10 @@ export default function BillingAdminPage() {
           onConfirmed={executeEdit}
           onClose={() => { if (!editForm.loading) setPendingEdit(null); }}
         />
+      )}
+
+      {floorSub && (
+        <SupportFloorModal subscription={floorSub} onClose={() => setFloorSub(null)} onSaved={() => { list.refresh(); void loadSummary(); }} />
       )}
 
       {/* Purge confirm — step-up gated (fleet-level destructive). The purge runs

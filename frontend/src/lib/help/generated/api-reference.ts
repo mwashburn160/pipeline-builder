@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4f11b3a332093944316e406fa60466a525a959d1fc337ce5cbdd3fcb1f2bc903
+// SOURCE-SHA256: 2df7c973e883fc4bcf51417ce335d3b6e49b81c09fbcacfad56f8f1d159fa2f5
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1584,7 +1584,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/admin/orgs/:orgId/kms-config",
-              "Whether the org has its own per-org KMS config (configured, keyId); the wrapped master is never returned",
+              "Whether the org has its own per-org KMS config (configured, keyId), and whether an earlier change's runner-key re-wrap is still pending (runnerRewrapPending); the wrapped master is never returned",
               "org_kms:write + system admin"
             ],
             [

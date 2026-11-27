@@ -2029,6 +2029,91 @@ const CONTROLS: Control[] = [
       find: button(/^edit$/i),
     },
   },
+  {
+    control: 'Grant one-time support incidents (operator drill-down → Entitlements → Support incidents)',
+    file: 'pages/dashboard/admin/orgs/[orgId].tsx',
+    gateFiles: ['src/components/admin/org-detail/OrgSupportIncidentsCard.tsx'],
+    // `support_cases:write` in the system org — the Support Agent Role's
+    // permission, the same the support queue reads with. A concession, never a
+    // sale; a team's grant lands on its account root.
+    permissions: ['support_cases:write'],
+    // aal2: requireSystemOrgPermission pairs the permission with requireSystemOrg
+    // + an MFA-grade session.
+    minAssurance: 2,
+    page: '/dashboard/admin/orgs/[orgId]',
+    stepUp: true,
+    routes: ['billing POST /billing/admin/orgs/:orgId/support-incidents'],
+    behaviour: {
+      mount: page('../pages/dashboard/admin/orgs/[orgId]'),
+      router: { query: { orgId: 'org-2', tab: 'entitlements' }, pathname: '/dashboard/admin/orgs/[orgId]' },
+      guard: { isSuperAdmin: true },
+      api: { getOrganization: { organization: ORG_DETAIL } },
+      find: button(/^grant incidents$/i),
+    },
+  },
+  {
+    control: 'Redrive a dead or stuck cascade leg (Platform → Cascade outbox)',
+    file: 'pages/dashboard/admin/cascade.tsx',
+    // `orgs:manage`, like the org purge the redrive finishes; the page reads
+    // with `platform:read` (its nav gate). Both system-org only, so aal2 too.
+    permissions: ['orgs:manage'],
+    pagePermissions: ['platform:read'],
+    page: '/dashboard/admin/cascade',
+    minAssurance: 2,
+    stepUp: true,
+    routes: ['platform POST /admin/cascade/:id/redrive'],
+    behaviour: {
+      mount: page('../pages/dashboard/admin/cascade'),
+      router: { pathname: '/dashboard/admin/cascade' },
+      api: {
+        listCascadeLegs: {
+          legs: [{
+            id: 'leg-1', kind: 'org.deleted', subjectId: 'org-gone', service: 'pipeline', status: 'dead', attempts: 12,
+            nextAttemptAt: '2026-11-20T00:00:00Z', lastError: 'connect ECONNREFUSED', lastStatusCode: null,
+            completedAt: '2026-11-20T00:00:00Z', createdAt: '2026-11-19T00:00:00Z', updatedAt: '2026-11-20T00:00:00Z',
+          }],
+          pagination: { total: 1, limit: 50, offset: 0, hasMore: false },
+        },
+      },
+      find: button(/^redrive$/i),
+      // Shown but inert with the reason, like the sibling runner-key revoke.
+      absence: 'disabled',
+    },
+  },
+  {
+    control: 'Set / clear a subscription\'s negotiated support floor (Billing admin → Support floor)',
+    file: 'pages/dashboard/admin/billing.tsx',
+    gateFiles: ['src/components/billing/SupportFloorModal.tsx'],
+    // `subscriptions:manage`, the same check that shows Edit and Purge — the
+    // page's own gate (`billing:operate`) does not imply it.
+    permissions: ['subscriptions:manage'],
+    pagePermissions: ['billing:operate'],
+    page: '/dashboard/admin/billing',
+    implicitPermissions: [{
+      permission: 'subscriptions:read',
+      why: 'The subscriptions table the row action sits on only loads with subscriptions:read; every Role that holds subscriptions:manage (Account Manager, superadmin) holds it too.',
+    }],
+    minAssurance: 2,
+    stepUp: true,
+    routes: ['billing PUT /billing/admin/subscriptions/:id/support-floor'],
+    behaviour: {
+      mount: page('../pages/dashboard/admin/billing'),
+      router: { pathname: '/dashboard/admin/billing' },
+      api: {
+        listAdminSubscriptions: {
+          subscriptions: [{
+            id: 'sub-1', orgId: 'org-acme', planId: 'pro', planName: 'Pro', status: 'active', interval: 'monthly',
+            currentPeriodStart: '2026-11-01T00:00:00Z', currentPeriodEnd: '2026-12-01T00:00:00Z', cancelAtPeriodEnd: false,
+            addons: [], recurringDiscount: null, creditRemainingCents: 0, currency: 'usd', dunning: null,
+            createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-11-01T00:00:00Z',
+          }],
+          total: 1, limit: 25, offset: 0,
+        },
+        getAdminBillingSummary: { totalsByCurrency: [], byOrg: [], invoiceCount: 0 },
+      },
+      find: button(/^support floor$/i),
+    },
+  },
   // ── Entitlement-gated controls ─────────────────────────────────────────────
   // Every route below carries a `requireFeature(...)` gate, so the control has to
   // render a lock (not hide, and not 403 on click). `features` here must cover
@@ -2930,12 +3015,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     why: 'getAdminSummary in pages/dashboard/admin/settings.tsx and src/components/dashboard/SysadminHome.tsx, gated on platform:read.',
   },
   'platform GET /admin/cascade': {
-    category: 'no-ui',
-    why: 'Operator runbook surface for the cascade outbox (org purge / user erasure legs): the PlatformCascadeLegDead alert points at `GET /api/admin/cascade?status=dead`. No dashboard page lists legs yet; system-org + platform:read + aal2, read with curl or the API.',
-  },
-  'platform POST /admin/cascade/:id/redrive': {
-    category: 'no-ui',
-    why: 'The PlatformCascadeLegDead runbook step: once the owning service is fixed, an operator redrives the dead leg through the API (system-org + orgs:manage + aal2 + step-up; audited admin.cascade.redrive). No dashboard control drives it yet — it replaced hand-editing cascade_outbox in Mongo.',
+    category: 'sysadmin-console',
+    why: 'listCascadeLegs in pages/dashboard/admin/cascade.tsx (Platform → Cascade outbox; nav: systemOrgOnly + platform:read, the route\'s requireSystemOrgPermission, which also demands aal2). The PlatformCascadeLegDead alert points here.',
   },
   'platform GET /organizations': {
     category: 'sysadmin-console',
@@ -3475,14 +3556,6 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: 'The canned-reply library. src/components/message/CannedResponseManager.tsx on pages/dashboard/admin/support.tsx authors, edits and retires templates; src/components/message/CannedResponsePicker.tsx inserts one into the staff reply box (never sends it — the value of a canned reply is the part the staff member then changes). The manager is not optional: without it nothing could CREATE a template, so the library stayed empty and the picker, which hides itself on an empty list, made the whole feature invisible. System-wide rather than per-tenant, so the table has no `org_id` and no RLS underneath, which is why even the READ is sysadmin-gated.',
   }),
-  'billing POST /billing/admin/orgs/:orgId/support-incidents': {
-    category: 'no-ui',
-    why: 'GRANTING a one-time support incident — a commercial CONCESSION, never a sale (monthly support cancels freely, so an incident priced above a month is dominated and one below it loses money). Deliberately has no UI: a concession is agreed in a conversation and then applied, so the operator path is an authenticated API call (there is no CLI command) rather than a button somebody might click speculatively. A grant typed against a team id lands on its account root, where every case in the account spends from. It is nonetheless the half whose absence made the whole mechanism pointless — a concession nobody can grant is not a concession. System-org + step-up because it hands a customer something of value.',
-  },
-  'billing PUT /billing/admin/subscriptions/:id/support-floor': {
-    category: 'no-ui',
-    why: 'A NEGOTIATED support size floor replacing the computed ramp. No UI by design, for the same reason as the incident grant: the number comes out of a signed agreement, not a form. System-org only for the reason the floor exists — a negotiated price is a vendor decision, and a control a customer\'s own admin could reach would make the floor advisory rather than a floor. Step-up because it sets what an account pays, cross-tenant.',
-  },
   ...group('billing', [
     'POST /billing/internal/support-incidents/:orgId/consume',
     'POST /billing/internal/support-incidents/:orgId/refund',
@@ -3529,8 +3602,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console', why: 'Sysadmin per-org KMS modal; systemAdmin + step-up with a strong factor.',
   }),
   'platform POST /admin/orgs/:orgId/kms-config/runner-keys/reencrypt': {
-    category: 'no-ui',
-    why: 'Operator recovery API named in the 500 a KMS change returns when its runner-signing-key re-wrap failed (docs/runbooks/secret-rotation.md, Per-org KMS): no button, because the retry is only meaningful once the cause the message names is fixed. systemAdmin + aal2 + strong step-up, the same gates as the PUT.',
+    category: 'sysadmin-console',
+    why: '"Retry runner-key re-wrap" in src/components/admin/OrgKmsConfigModal.tsx, shown while GET .../kms-config reports `runnerRewrapPending` (every PUT / DELETE answers 409 until it succeeds). The modal opens from the sysadmin org pages behind `can(\'org_kms:write\')`, and the retry is confirmed in a requireStrongFactor StepUpModal whose token it forwards — systemAdmin + aal2 + strong step-up, the same gates as the PUT.',
   },
   ...group('platform', ['POST /admin/users/:id/grants', 'DELETE /admin/users/:id/grants'], {
     category: 'sysadmin-console', why: 'Sysadmin superadmin-grant editor; systemAdmin + step-up with a strong factor.',

@@ -4,7 +4,7 @@
 /**
  * Per-org KMS configuration admin endpoints.
  *
- *   GET    /api/admin/orgs/:orgId/kms-config  read current config
+ *   GET    /api/admin/orgs/:orgId/kms-config  read current config (+ runnerRewrapPending)
  *   PUT    /api/admin/orgs/:orgId/kms-config  upsert (set keyId + ciphertextBase64)
  *   DELETE /api/admin/orgs/:orgId/kms-config  clear (org falls back to shared master)
  *
@@ -82,16 +82,20 @@ function runnerKeyDetails(result: RunnerKeyReencryptResult): Record<string, unkn
 export const getOrgKmsConfig = withController('Get org KMS config', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
   const orgId = String(req.params.orgId);
-  const org = await Organization.findById(toOrgId(orgId)).select('kmsConfig').lean();
+  const org = await Organization.findById(toOrgId(orgId)).select('kmsConfig kmsRunnerRewrapFrom').lean();
   if (!org) return sendError(res, 404, 'Organization not found');
 
+  // Whether an earlier change's runner-key re-wrap is still pending: while it
+  // is, every PUT / DELETE answers 409, so the console offers the retry route.
+  // Only the flag — the recorded outgoing config stays server-side.
+  const runnerRewrapPending = !!org.kmsRunnerRewrapFrom;
   const cfg = activeKmsConfig(org.kmsConfig);
   if (!cfg) {
-    return sendSuccess(res, 200, { configured: false });
+    return sendSuccess(res, 200, { configured: false, runnerRewrapPending });
   }
   // Return only the keyId — the ciphertext is intentionally elided. See
   // module docstring for rationale.
-  sendSuccess(res, 200, { configured: true, keyId: cfg.keyId });
+  sendSuccess(res, 200, { configured: true, keyId: cfg.keyId, runnerRewrapPending });
 });
 
 type ProposedKmsConfig = { keyId: string; ciphertextBase64: string };

@@ -56,6 +56,26 @@ export interface Subscription {
   dunning: SubscriptionDunning | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The negotiated support floor on file — on the ADMIN list read only
+   * (GET /billing/admin/subscriptions), null when there is none; absent on the
+   * customer's own read.
+   */
+  supportFloorOverride?: SupportFloorAgreement | null;
+}
+
+/**
+ * A negotiated support-floor agreement (api/billing
+ * helpers/support-floor-agreement.ts, not importable). `floorCents` is per
+ * month; `seats` is the count the price was agreed at. Dates are ISO strings.
+ */
+export interface SupportFloorAgreement {
+  seats: number;
+  floorCents: number;
+  agreedAt: string;
+  /** The operator's user id. */
+  agreedBy: string;
+  note?: string;
 }
 
 /** api/billing `SubscriptionDunning`. */

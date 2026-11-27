@@ -41,6 +41,71 @@ export interface KmsConfigChangeResult {
   idpSecretReencrypted?: boolean;
   concurrentlyChanged?: string[];
   unreadableConcurrentWrites?: string[];
+  /** The org's runner signing keys the pipeline service re-wrapped, of those it scanned. */
+  runnerKeysReencrypted?: number;
+  runnerKeysScanned?: number;
+}
+
+/**
+ * GET .../kms-config. `runnerRewrapPending` is true while an earlier change's
+ * runner-key re-wrap has not succeeded: every PUT / DELETE then answers 409
+ * until the retry route (`retryRunnerKeyReencrypt`) clears it.
+ */
+export interface OrgKmsConfigStatus {
+  configured: boolean;
+  keyId?: string;
+  runnerRewrapPending: boolean;
+}
+
+/** What a successful POST .../kms-config/runner-keys/reencrypt reports. */
+export interface RunnerKeyRewrapResult {
+  runnerKeysReencrypted: number;
+  runnerKeysScanned: number;
+}
+
+/** What a cascade leg propagates (platform models/cascade-outbox.ts CASCADE_KINDS). */
+export type CascadeKind = 'org.deleted' | 'user.erased';
+/** A cascade leg's state (CASCADE_LEG_STATUSES). `dead` = retries exhausted. */
+export type CascadeLegStatus = 'pending' | 'done' | 'dead';
+
+/**
+ * One downstream leg of an org purge or a user erasure, as GET /admin/cascade
+ * lists it (platform services/cascade-outbox.ts `CascadeLegAdminView`; dates
+ * are ISO strings on the wire).
+ */
+export interface CascadeLeg {
+  id: string;
+  kind: CascadeKind;
+  /** The org id (`org.deleted`) or user id (`user.erased`). */
+  subjectId: string;
+  /** The owning service the leg is delivered to. */
+  service: string;
+  status: CascadeLegStatus;
+  attempts: number;
+  nextAttemptAt: string;
+  lastError: string | null;
+  lastStatusCode: number | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /admin/cascade filters — every one optional, all ANDed. */
+export interface CascadeLegQuery {
+  status?: CascadeLegStatus;
+  kind?: CascadeKind;
+  subjectId?: string;
+  service?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** POST /admin/cascade/:id/redrive body (platform `cascadeRedriveSchema`). */
+export interface CascadeRedriveBody {
+  /** Default true: the full retry budget. False keeps the count — one probe delivery for a dead leg. */
+  resetAttempts?: boolean;
+  /** 1-500 characters, recorded in the audit row. */
+  reason?: string;
 }
 
 export function adminApi(core: ApiCore) {
@@ -161,12 +226,35 @@ export function adminApi(core: ApiCore) {
     },
 
     // ============================================
+    // Cascade outbox (system org)
+    // ============================================
+    /** Every org-purge / user-erasure leg matching the filters, newest first.
+     *  System org + `platform:read` + aal2. */
+    listCascadeLegs: async (params: CascadeLegQuery = {}, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{
+        legs: CascadeLeg[];
+        pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+      }>>(`/api/admin/cascade${buildQuery({ ...params })}`, { signal: opts?.signal });
+    },
+
+    /** Put a dead or stuck pending leg back in the queue. 409 when it was already
+     *  delivered, 404 when it does not exist. System org + `orgs:manage` + aal2 +
+     *  step-up; audited `admin.cascade.redrive`. */
+    redriveCascadeLeg: async (id: string, body: CascadeRedriveBody, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ leg: CascadeLeg }>>(`/api/admin/cascade/${encodeURIComponent(id)}/redrive`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+        body: JSON.stringify(body),
+      });
+    },
+
+    // ============================================
     // Per-org KMS config (sysadmin only)
     // ============================================
     /** Get the org's KMS config status. Returns only the keyId — ciphertext
      *  is intentionally elided server-side. */
     getOrgKmsConfig: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ configured: boolean; keyId?: string }>>(
+      return core.request<ApiResponse<OrgKmsConfigStatus>>(
         `/api/admin/orgs/${orgId}/kms-config`,
         { signal: opts?.signal },
       );
@@ -192,6 +280,16 @@ export function adminApi(core: ApiCore) {
       return core.request<ApiResponse<KmsConfigChangeResult>>(
         `/api/admin/orgs/${orgId}/kms-config`,
         { method: 'DELETE', headers: core.stepUpHeader(stepUpToken) },
+      );
+    },
+
+    /** Retry a KMS change's failed runner-signing-key re-wrap, from the outgoing
+     *  config the change recorded on the org. Safe to repeat. 409 when nothing is
+     *  pending; 500 (record kept) when it fails again. aal2 + strong step-up. */
+    retryRunnerKeyReencrypt: async (orgId: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<RunnerKeyRewrapResult>>(
+        `/api/admin/orgs/${orgId}/kms-config/runner-keys/reencrypt`,
+        { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
       );
     },
 

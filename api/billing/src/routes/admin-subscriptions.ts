@@ -30,6 +30,7 @@ import { syncEntitlements } from '../helpers/entitlement-sync.js';
 import { purgeOrgBilling } from '../helpers/org-purge.js';
 import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status.js';
+import { supportFloorAgreementView } from '../helpers/support-floor-agreement.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -81,7 +82,7 @@ function toBillingEventResponse(event: {
  * Create the admin-only billing router (system admin required).
  *
  * Registers:
- * - GET /admin/subscriptions      -- list all subscriptions (paginated)
+ * - GET /admin/subscriptions      -- list all subscriptions (paginated), each with its support-floor agreement
  * - PUT /admin/subscriptions/:id/support-floor -- negotiated support floor (set / clear)
  * - PUT /admin/subscriptions/:id  -- admin override on a subscription
  * - GET /subscriptions/by-org/:orgId/billable -- org-move guard (sysadmin / service token)
@@ -119,7 +120,9 @@ export function createAdminSubscriptionRoutes(): Router {
       const byId = new Map(plans.map((p) => [String(p._id), p]));
       const result = subscriptions.map((sub) => {
         const p = byId.get(sub.planId);
-        return buildSubscriptionResponse(sub, p?.name ?? sub.planId, p?.tier);
+        // Admin-only: the negotiated support floor on file, so the console can
+        // show and prefill it (never on the customer's own read).
+        return { ...buildSubscriptionResponse(sub, p?.name ?? sub.planId, p?.tier), supportFloorOverride: supportFloorAgreementView(sub) };
       });
 
       ctx.log('COMPLETED', 'Listed all subscriptions', { total, limit, offset });

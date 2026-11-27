@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5ea31f8dd88a63ccd09ba25f17bcfb3524290cecaea9a40e697a50177adab4f4
+// SOURCE-SHA256: a53f0a166e4c86bcb3c70e7d9870b9c5a72552238a9cb3fc284d42353c229e8d
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1768,7 +1768,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "have no panel.** A user deletion whose erasure leg failed still deleted the user — the erasure is a cascade-outbox leg delivered after the deletion commits, retried with backoff — so once that leg is dead-lettered the count is the only evidence the data was left behind. The panel groups it by service. The same counter covers org purges and is alerted, for every kind, as PlatformCascadeLegDead. It is per platform pod and resets on restart, so GET /api/admin/cascade?status=dead is the durable list. Once the owning service is fixed, a dead leg is put back in the queue with POST /api/admin/cascade/:id/redrive (find it with GET /api/admin/cascade?status=dead) rather than by editing cascade_outbox in Mongo."
+          "content": "have no panel. A user deletion whose erasure leg failed still deleted the user — the erasure is a cascade-outbox leg delivered after the deletion commits, retried with backoff — so once that leg is dead-lettered the count is the only evidence the data was left behind. The panel groups it by service. The same counter covers org purges and is alerted, for every kind, as PlatformCascadeLegDead. It is per platform pod and resets on restart, so GET /api/admin/cascade?status=dead (the dashboard's Platform → Cascade outbox page, filtered to Dead) is the durable list. Once the owning service is fixed, a dead leg is put back in the queue with Redrive** on that page, or POST /api/admin/cascade/:id/redrive, rather than by editing cascade_outbox in Mongo."
         },
         {
           "type": "list",

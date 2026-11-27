@@ -291,6 +291,32 @@ describe('GET /admin/subscriptions', () => {
     expect(mockBuildSubscriptionResponse).toHaveBeenNthCalledWith(2, subs[1], 'gone', undefined);
   });
 
+  it('carries each subscription\'s negotiated support-floor agreement (null when none is on file)', async () => {
+    const agreed = makeSubscription({
+      supportFloorOverride: { seats: 2500, floorCents: 800000, agreedAt: new Date('2026-11-27T00:00:00Z'), agreedBy: 'op-1', note: 'MSA 2026' },
+    });
+    const subs = [agreed, makeSubscription()];
+    mockSubscriptionFind.mockReturnValue({
+      sort: jest.fn<AnyFn>().mockReturnValue({
+        skip: jest.fn<AnyFn>().mockReturnValue({
+          limit: jest.fn<AnyFn>().mockReturnValue({
+            lean: jest.fn<AnyFn>().mockResolvedValue(subs),
+          }),
+        }),
+      }),
+    });
+    mockSubscriptionCountDocuments.mockResolvedValue(2);
+
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    const body = mockSendSuccess.mock.calls[0]![2] as { subscriptions: Array<Record<string, unknown>> };
+    expect(body.subscriptions[0]!.supportFloorOverride).toEqual({
+      seats: 2500, floorCents: 800000, agreedAt: '2026-11-27T00:00:00.000Z', agreedBy: 'op-1', note: 'MSA 2026',
+    });
+    expect(body.subscriptions[1]!.supportFloorOverride).toBeNull();
+  });
+
   it('returns 500 on database error', async () => {
     mockSubscriptionFind.mockReturnValue({
       sort: jest.fn<AnyFn>().mockReturnValue({

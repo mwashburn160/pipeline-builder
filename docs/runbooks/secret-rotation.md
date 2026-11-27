@@ -441,7 +441,9 @@ failure **mid-flight** — the config already saved, the re-encrypt partly done 
 answers 500 and is audited as a failure: the change is NOT rolled back, so
 re-enter the affected secrets through their admin endpoints. If the message
 names the runner signing keys, the outgoing config is recorded on the org: once
-the cause is fixed (pipeline service reachable, CMK grant restored), call
+the cause is fixed (pipeline service reachable, CMK grant restored), use
+**Retry runner-key re-wrap** in the org's KMS config dialog (System admin org
+page → Per-org KMS, which shows the pending re-wrap), or call
 `POST /api/admin/orgs/:orgId/kms-config/runner-keys/reencrypt` (system admin,
 MFA session, step-up by passkey or authenticator code). It re-wraps the org's
 runner keys reading them under the current config, then the recorded outgoing
