@@ -22,8 +22,6 @@ interface GroupedTabsProps<G extends string, S extends string> {
   idPrefix: string;
   /** Accessible name of the top-level row (e.g. "Plugin sections"). */
   ariaLabel: string;
-  /** Sub-tabs shown but not selectable (e.g. locked for a missing permission). */
-  disabledSectionIds?: readonly S[];
   className?: string;
   /** The active tab's (and sub-tab's) content. */
   children: ReactNode;
@@ -36,7 +34,7 @@ interface GroupedTabsProps<G extends string, S extends string> {
  * tabpanel of the innermost level shown.
  */
 export function GroupedTabs<G extends string, S extends string>({
-  items, tab, section, onSelect, idPrefix, ariaLabel, disabledSectionIds, className = 'mb-4', children,
+  items, tab, section, onSelect, idPrefix, ariaLabel, className = 'mb-4', children,
 }: GroupedTabsProps<G, S>) {
   const active = items.find((item) => item.id === tab);
   const sections = active?.sections ?? [];
@@ -61,7 +59,6 @@ export function GroupedTabs<G extends string, S extends string>({
               items={sections}
               activeId={section}
               onSelect={(id) => onSelect(tab, id as S)}
-              disabledIds={disabledSectionIds}
               idPrefix={subPrefix}
               ariaLabel={`${active?.name ?? ''} sections`}
               className="mb-4"

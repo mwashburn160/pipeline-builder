@@ -93,6 +93,25 @@ describe('OrgSupportIncidentsCard', () => {
     expect(first).not.toBe(second);
   });
 
+  it('a resubmit after a failed answer reuses the key (the server may have applied it); an edited grant gets a new one', async () => {
+    api.grantSupportIncidents.mockRejectedValueOnce(new ApiError('Bad gateway', 502));
+    render(<OrgSupportIncidentsCard org={ORG} />);
+    fill('2', 'make-good');
+    fireEvent.click(within(await screen.findByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
+    await screen.findByText('Bad gateway');
+    fireEvent.click(screen.getByRole('button', { name: /grant incidents/i }));
+    fireEvent.click(within(await screen.findByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
+    await waitFor(() => expect(api.grantSupportIncidents).toHaveBeenCalledTimes(2));
+    await screen.findByText(/granted 2 incidents\./i);
+    api.grantSupportIncidents.mockRejectedValueOnce(new ApiError('Bad gateway', 502));
+    fill('3', 'make-good');
+    fireEvent.click(within(await screen.findByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
+    await waitFor(() => expect(api.grantSupportIncidents).toHaveBeenCalledTimes(3));
+    const keys = api.grantSupportIncidents.mock.calls.map((c) => (c[1] as { idempotencyKey: string }).idempotencyKey);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[1]);
+  });
+
   it('a repeated grant the server recognised says nothing new was granted', async () => {
     api.grantSupportIncidents.mockResolvedValueOnce({ success: true, data: { balance: 5, accountOrgId: 'org-2', duplicate: true } });
     render(<OrgSupportIncidentsCard org={ORG} />);

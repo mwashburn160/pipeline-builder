@@ -21,6 +21,10 @@ import type { Subscription } from '@/types';
 
 /** What the route keeps of a note. */
 const NOTE_MAX = 500;
+/** The route's ceilings (api/billing admin-subscriptions MAX_NEGOTIATED_FLOOR_SEATS / _CENTS),
+ *  checked here so an out-of-range value never spends a step-up on a certain 400. */
+const MAX_SEATS = 10_000_000;
+const MAX_FLOOR_CENTS = 1_000_000_000;
 
 interface Props {
   subscription: Subscription;
@@ -72,10 +76,10 @@ export function SupportFloorModal({ subscription, onClose, onSaved }: Props) {
     save.reset();
     const s = seats.trim() === '' ? NaN : Number(seats);
     const f = floor.trim() === '' ? NaN : Number(floor);
-    const badSeats = !Number.isInteger(s) || s < 0;
-    const badFloor = !Number.isFinite(f) || f < 0;
-    setSeatsError(badSeats ? 'Enter the seat count this price was agreed at (a whole number, 0 or more).' : null);
-    setFloorError(badFloor ? 'Enter a monthly floor of 0 or more.' : null);
+    const badSeats = !Number.isInteger(s) || s < 0 || s > MAX_SEATS;
+    const badFloor = !Number.isFinite(f) || f < 0 || Math.round(f * 100) > MAX_FLOOR_CENTS;
+    setSeatsError(badSeats ? `Enter the seat count this price was agreed at (a whole number from 0 to ${MAX_SEATS.toLocaleString('en-US')}).` : null);
+    setFloorError(badFloor ? `Enter a monthly floor of 0 or more, up to ${formatCents(MAX_FLOOR_CENTS, currency)}.` : null);
     if (badSeats || badFloor) return;
     const trimmed = note.trim();
     setPending({ seats: s, floorCents: Math.round(f * 100), ...(trimmed ? { note: trimmed } : {}) });

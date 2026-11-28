@@ -8,9 +8,11 @@
  * without ACTIVITY, and only the browser can tell activity from a background
  * poll: a visible tab keeps calling the API (and so refreshing its token) with
  * nobody at the keyboard. This tracker is the one source of "somebody is
- * here": pointer, key, touch, wheel and scroll input — never a request, a
- * timer or a visibility change. The API client reads it to mark a refresh
- * `activity: 'user' | 'passive'`; the idle guard reads it to time the warning.
+ * here": pointer, key, touch and wheel input — never a request, a timer, a
+ * visibility change or a scroll (code scrolls too: a live log tail, a
+ * streaming answer; a person's own scroll arrives as one of the inputs).
+ * The API client reads it to mark a refresh `activity: 'user' | 'passive'`;
+ * the idle guard reads it to time the warning.
  *
  * Input in ANY tab counts, so activity is shared over a BroadcastChannel —
  * falling back to the `storage` event where there is none — and the latest
@@ -19,7 +21,7 @@
  */
 
 /** DOM input that proves a person is present. */
-export const ACTIVITY_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll'] as const;
+export const ACTIVITY_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'touchstart', 'wheel'] as const;
 
 /** At most one recorded activity per window: pointer moves fire dozens of times a second. */
 export const ACTIVITY_THROTTLE_MS = 5_000;

@@ -3,16 +3,12 @@
 
 /**
  * The org Scorecard roll-up is served on `reports:read` (the page's own read
- * gate). It used to be served on `pipelines:read`, and the tab locked without
- * it; a custom role with `reports:read` but no pipeline read must now open it.
- * The tab still locks, in place and with the reason, for a viewer without
- * `reports:read` (a link to `?tab=quality&section=scorecard` must never render a blank tab
- * under a refresh control that spins for ever).
+ * gate), so a custom role with `reports:read` but no pipeline read opens it.
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
@@ -38,16 +34,6 @@ describe('Reports — Scorecard gate', () => {
     expect(await screen.findByText('scorecard-body')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^quality$/i })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: /^scorecard$/i })).toBeEnabled();
-    expect(screen.queryByText('The Scorecard needs report read access')).not.toBeInTheDocument();
   });
 
-  it('a deep link without reports:read lands on the reason, with the tab locked', async () => {
-    mockAuthGuard({ can: (p: string) => p !== 'reports:read' });
-    render(<ReportsPage />);
-    expect(await screen.findByText('The Scorecard needs report read access')).toBeInTheDocument();
-    const tab = screen.getByRole('tab', { name: /^scorecard$/i });
-    expect(tab).toBeDisabled();
-    expect(within(tab).getByTitle('Requires the reports:read permission')).toBeInTheDocument();
-    expect(screen.queryByText('scorecard-body')).not.toBeInTheDocument();
-  });
 });

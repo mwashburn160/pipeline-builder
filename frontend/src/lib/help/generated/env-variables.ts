@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c5a48621e11da1ea2f4ffcf140a4ca9c68c731d222a16e0e5a2a49a786c200a7
+// SOURCE-SHA256: d1be7b57dec839c31d5f3813a12df95bdf60c12d38a6d10640992d6da87e5f6c
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -289,7 +289,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "SESSION_IDLE_TIMEOUT_MINUTES",
               "15",
-              "Platform ceiling (minutes) on how long an INTERACTIVE session may go without real activity before it is signed out. Only real activity counts: a /auth/refresh the client marks activity: \"user\" (input since its last refresh — pointer, key, touch, scroll; every CLI renewal), a switch-org, or the sign-in itself. A background poll's refresh (passive, or no signal) renews the token but never moves the idle clock, so an unattended open tab still times out; past the deadline /auth/refresh answers 401 SESSION_EXPIRED (details.reason: \"idle\"). The browser warns 2 minutes before the deadline and then signs every tab out. An org may only shorten it (PATCH /organization/:id/session-policy idleTimeoutMinutes). Not applied to machine credentials, which renew unattended. Minimum 5. See Session validity."
+              "Platform ceiling (minutes) on how long an INTERACTIVE session may go without real activity before it is signed out. Only real activity counts: a /auth/refresh the client marks activity: \"user\" (input since its last refresh — pointer, key, touch, wheel; every CLI renewal), a switch-org, or the sign-in itself. A background poll's refresh (passive, or no signal) renews the token but never moves the idle clock, so an unattended open tab still times out; past the deadline /auth/refresh answers 401 SESSION_EXPIRED (details.reason: \"idle\"). The browser warns 2 minutes before the deadline and then signs every tab out. An org may only shorten it (PATCH /organization/:id/session-policy idleTimeoutMinutes). Not applied to machine credentials, which renew unattended. Minimum 5. See Session validity."
             ],
             [
               "AUTH_REFRESH_COOKIE_PATH",

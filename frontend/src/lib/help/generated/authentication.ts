@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a988cdd961819317a1c4d687fa8ef059f5af5f3bdabb51225d954c8dfb9b9037
+// SOURCE-SHA256: f1d402c88a4a044e5c866bc7260811b37783c726a0bfc006a543552c86eafb16
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -4601,7 +4601,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "restarts at this refresh. The browser sends it when there was pointer, key, touch, wheel or scroll input in any of its tabs; the CLI sends it on every renewal (a renewal only happens because someone ran a command)."
+          "content": "restarts at this refresh. The browser sends it when there was pointer, key, touch or wheel input in any of its tabs (a scroll is not counted: code scrolls too); the CLI sends it on every renewal (a renewal only happens because someone ran a command)."
         },
         {
           "type": "list",

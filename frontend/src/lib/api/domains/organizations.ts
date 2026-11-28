@@ -111,7 +111,7 @@ export function organizationsApi(core: ApiCore) {
     },
 
     deleteOrganization: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ deletedAt: string; purgeAfter: string; snapshotId: string }>>(`/api/organization/${id}`, {
+      return core.request<ApiResponse<{ deletedAt: string; purgeAfter: string; snapshotId: string }>>(`/api/organization/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -123,7 +123,7 @@ export function organizationsApi(core: ApiCore) {
      *  of the org / a managing parent (controller `canAdministerOrg`). 404 if the
      *  org was already purged or was never deleted. */
     restoreOrganization: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ organization: { id: string; name: string; membersInvalidated: number } }>>(`/api/organization/${id}/restore`, {
+      return core.request<ApiResponse<{ organization: { id: string; name: string; membersInvalidated: number } }>>(`/api/organization/${encodeURIComponent(id)}/restore`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -137,7 +137,7 @@ export function organizationsApi(core: ApiCore) {
      *  Step-up gated (a bulk read of every row the org owns): pass the token
      *  the caller's StepUpModal returned. */
     exportOrganization: async (id: string, stepUpToken?: string): Promise<string> => {
-      return core.requestText(`/api/organization/${id}/export`, {
+      return core.requestText(`/api/organization/${encodeURIComponent(id)}/export`, {
         headers: core.stepUpHeader(stepUpToken),
         timeoutMs: null,
         errorMessage: 'Failed to export organization',
@@ -153,7 +153,7 @@ export function organizationsApi(core: ApiCore) {
       stepUpToken?: string,
     ) => {
       return core.request<ApiResponse<{ id: string; previousTier?: string; tier: string }>>(
-        `/api/organization/${id}/tier`,
+        `/api/organization/${encodeURIComponent(id)}/tier`,
         {
           method: 'PATCH',
           body: JSON.stringify({ tier }),
@@ -167,7 +167,7 @@ export function organizationsApi(core: ApiCore) {
      *  make the org top-level. The backend refuses (400) moves that would break
      *  the one-level hierarchy, e.g. nesting a root that still has teams. */
     moveOrganization: async (id: string, parentOrgId: string | null, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ organization: Organization }>>(`/api/organization/${id}/move`, {
+      return core.request<ApiResponse<{ organization: Organization }>>(`/api/organization/${encodeURIComponent(id)}/move`, {
         method: 'POST',
         body: JSON.stringify({ parentOrgId }),
         headers: core.stepUpHeader(stepUpToken),
@@ -184,7 +184,7 @@ export function organizationsApi(core: ApiCore) {
       params?: { membersLimit?: number; membersOffset?: number },
       opts?: { signal?: AbortSignal },
     ) => {
-      return core.request<ApiResponse<OrganizationDetail>>(`/api/organization/${id}${buildQuery(params)}`, { signal: opts?.signal });
+      return core.request<ApiResponse<OrganizationDetail>>(`/api/organization/${encodeURIComponent(id)}${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** PUT /organization/:id — sysadmin edit of an org's name, slug and/or
@@ -192,7 +192,7 @@ export function organizationsApi(core: ApiCore) {
      *  the caller confirms in a `StepUpModal` and forwards its token. */
     updateOrganization: async (id: string, data: { name?: string; slug?: string; description?: string }, stepUpToken?: string) => {
       return core.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string } }>>(
-        `/api/organization/${id}`,
+        `/api/organization/${encodeURIComponent(id)}`,
         { method: 'PUT', body: JSON.stringify(data), headers: core.stepUpHeader(stepUpToken) },
       );
     },
@@ -208,7 +208,7 @@ export function organizationsApi(core: ApiCore) {
      *  sysadmin-only PUT /organization/:id. Provide at least one of name/slug. */
     updateOrganizationIdentity: async (id: string, data: { name?: string; slug?: string }) => {
       return core.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string } }>>(
-        `/api/organization/${id}/identity`,
+        `/api/organization/${encodeURIComponent(id)}/identity`,
         {
           method: 'PATCH',
           body: JSON.stringify(data),
@@ -239,11 +239,11 @@ export function organizationsApi(core: ApiCore) {
       return core.request<ApiResponse<{
         members: OrganizationMember[];
         pagination: { total: number; offset: number; limit: number; hasMore: boolean };
-      }>>(`/api/organization/${orgId}/members${buildQuery(params)}`, { signal: opts?.signal });
+      }>>(`/api/organization/${encodeURIComponent(orgId)}/members${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     addMemberToOrganization: async (orgId: string, data: { userId?: string; email?: string }) => {
-      return core.request<ApiResponse<undefined>>(`/api/organization/${orgId}/members`, {
+      return core.request<ApiResponse<undefined>>(`/api/organization/${encodeURIComponent(orgId)}/members`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -252,20 +252,20 @@ export function organizationsApi(core: ApiCore) {
     /** Descendant team roster for `orgId` (no member context) — for the
      *  "also add to teams" picker when adding a member. */
     getOrganizationTeams: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ teams: Array<{ orgId: string; orgName: string; parentOrgId?: string }> }>>(`/api/organization/${orgId}/teams`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ teams: Array<{ orgId: string; orgName: string; parentOrgId?: string }> }>>(`/api/organization/${encodeURIComponent(orgId)}/teams`, { signal: opts?.signal });
     },
 
     /** GET /organization/:id/teams/deleted — the org's soft-deleted teams still
      *  inside their retention window (`org_settings:write`). Live listings exclude them. */
     listDeletedTeams: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ teams: DeletedTeam[] }>>(`/api/organization/${orgId}/teams/deleted`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ teams: DeletedTeam[] }>>(`/api/organization/${encodeURIComponent(orgId)}/teams/deleted`, { signal: opts?.signal });
     },
 
     /** DELETE /organization/:id/teams/:teamId — a parent admin soft-deletes one
      *  of its teams (`org_settings:write` + step-up). Restorable with
      *  {@link restoreOrganization} on the team id until its purge date. */
     deleteTeam: async (orgId: string, teamId: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/organization/${orgId}/teams/${teamId}`, {
+      return core.request<ApiResponse<undefined>>(`/api/organization/${encodeURIComponent(orgId)}/teams/${encodeURIComponent(teamId)}`, {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -275,7 +275,7 @@ export function organizationsApi(core: ApiCore) {
      *  invites across the whole subtree vs the root's seat limit. Account admin or
      *  service principal only. `limit === -1` means unlimited seats. */
     getOrganizationSeatUsage: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ limit: number; used: number; tier?: string }>>(`/api/organization/${orgId}/seat-usage`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ limit: number; used: number; tier?: string }>>(`/api/organization/${encodeURIComponent(orgId)}/seat-usage`, { signal: opts?.signal });
     },
 
     /** PUT /organization/:id/seat-limit — set the account (root) seat limit.
@@ -284,7 +284,7 @@ export function organizationsApi(core: ApiCore) {
      *  ADMIN (not a plain org-admin) — this is normally billing's entitlement
      *  sync, exposed here for sysadmin override. Returns the resolved root id. */
     setOrganizationSeatLimit: async (id: string, seats: number) => {
-      return core.request<ApiResponse<{ rootOrgId: string }>>(`/api/organization/${id}/seat-limit`, {
+      return core.request<ApiResponse<{ rootOrgId: string }>>(`/api/organization/${encodeURIComponent(id)}/seat-limit`, {
         method: 'PUT',
         body: JSON.stringify({ seats }),
       });
@@ -295,25 +295,25 @@ export function organizationsApi(core: ApiCore) {
      *  principal or an admin reading their OWN account. Feature FLAGS, not
      *  secrets. Fail-soft: an org with none yields an empty array. */
     getOrganizationFeatureEntitlements: async (id: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ featureEntitlements: string[] }>>(`/api/organization/${id}/feature-entitlements`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ featureEntitlements: string[] }>>(`/api/organization/${encodeURIComponent(id)}/feature-entitlements`, { signal: opts?.signal });
     },
 
     /** Descendant teams of `orgId` annotated with whether `memberId` belongs to
      *  each — powers the admin "manage teams" view (a member can be on many teams). */
     getMemberTeams: async (orgId: string, memberId: string) => {
-      return core.request<ApiResponse<{ teams: MemberTeam[] }>>(`/api/organization/${orgId}/member/${memberId}/teams`);
+      return core.request<ApiResponse<{ teams: MemberTeam[] }>>(`/api/organization/${encodeURIComponent(orgId)}/member/${encodeURIComponent(memberId)}/teams`);
     },
 
     /** Add one user (by id or email) to several teams in `orgId`'s subtree at once. */
     bulkAddMemberToTeams: async (orgId: string, data: { userId?: string; email?: string; orgIds: string[]; role?: OrgRole }) => {
-      return core.request<ApiResponse<{ results: Array<{ orgId: string; status: 'added' | 'already_member' }> }>>(`/api/organization/${orgId}/members/bulk-add`, {
+      return core.request<ApiResponse<{ results: Array<{ orgId: string; status: 'added' | 'already_member' }> }>>(`/api/organization/${encodeURIComponent(orgId)}/members/bulk-add`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
     },
 
     removeMemberFromOrganization: async (orgId: string, userId: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/members/${userId}`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`, {
         method: 'DELETE',
       });
     },
@@ -323,7 +323,7 @@ export function organizationsApi(core: ApiCore) {
      *  the caller obtains a token via `stepUpVerify` and forwards it here, exactly
      *  like `deleteOrganization`. Only the current owner or a system admin may call. */
     transferOrgOwnership: async (orgId: string, newOwnerUserId: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/organization/${orgId}/transfer-owner`, {
+      return core.request<ApiResponse<undefined>>(`/api/organization/${encodeURIComponent(orgId)}/transfer-owner`, {
         method: 'PATCH',
         body: JSON.stringify({ newOwnerId: newOwnerUserId }),
         headers: core.stepUpHeader(stepUpToken),
@@ -347,12 +347,12 @@ export function organizationsApi(core: ApiCore) {
       return core.request<ApiResponse<{
         roles: OrganizationRole[];
         pagination: { total: number; offset: number; limit: number; hasMore: boolean };
-      }>>(`/api/organization/${orgId}/roles${buildQuery(params)}`, { signal: opts?.signal });
+      }>>(`/api/organization/${encodeURIComponent(orgId)}/roles${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Create a custom permission role (name + optional description + permissions). */
     createRole: async (orgId: string, data: { name: string; description?: string; permissions?: string[] }) => {
-      return core.request<ApiResponse<{ role: OrganizationRole }>>(`/api/organization/${orgId}/roles`, {
+      return core.request<ApiResponse<{ role: OrganizationRole }>>(`/api/organization/${encodeURIComponent(orgId)}/roles`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -360,7 +360,7 @@ export function organizationsApi(core: ApiCore) {
 
     /** Update a custom role's name/description/permissions (built-in roles are immutable). */
     updateRole: async (orgId: string, roleId: string, data: { name?: string; description?: string; permissions?: string[] }) => {
-      return core.request<ApiResponse<{ role: OrganizationRole }>>(`/api/organization/${orgId}/roles/${roleId}`, {
+      return core.request<ApiResponse<{ role: OrganizationRole }>>(`/api/organization/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(roleId)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
@@ -368,14 +368,14 @@ export function organizationsApi(core: ApiCore) {
 
     /** Delete a custom role (built-in roles can't be deleted). */
     deleteRole: async (orgId: string, roleId: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/roles/${roleId}`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(roleId)}`, {
         method: 'DELETE',
       });
     },
 
     /** Add an existing org member (by id or email) to a role. */
     addRoleMember: async (orgId: string, roleId: string, data: { userId?: string; email?: string }) => {
-      return core.request<ApiResponse<{ userId: string }>>(`/api/organization/${orgId}/roles/${roleId}/members`, {
+      return core.request<ApiResponse<{ userId: string }>>(`/api/organization/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(roleId)}/members`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -384,7 +384,7 @@ export function organizationsApi(core: ApiCore) {
     /** Remove a user from a role. Recomputes their role; leaving Superadmins
      *  (system org) also clears their platform-admin flag. */
     removeRoleMember: async (orgId: string, roleId: string, userId: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/roles/${roleId}/members/${userId}`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(roleId)}/members/${encodeURIComponent(userId)}`, {
         method: 'DELETE',
       });
     },
@@ -398,7 +398,7 @@ export function organizationsApi(core: ApiCore) {
     /** List the org's service accounts (each with its roles + key metadata). */
     listServiceAccounts: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ serviceAccounts: ServiceAccount[]; billing: ServiceAccountBilling }>>(
-        `/api/organization/${orgId}/service-accounts`,
+        `/api/organization/${encodeURIComponent(orgId)}/service-accounts`,
         { signal: opts?.signal },
       );
     },
@@ -407,7 +407,7 @@ export function organizationsApi(core: ApiCore) {
      *  roles, usage and key metadata (never a secret). */
     getServiceAccount: async (orgId: string, accountId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ serviceAccount: ServiceAccount }>>(
-        `/api/organization/${orgId}/service-accounts/${accountId}`,
+        `/api/organization/${encodeURIComponent(orgId)}/service-accounts/${encodeURIComponent(accountId)}`,
         { signal: opts?.signal },
       );
     },
@@ -418,7 +418,7 @@ export function organizationsApi(core: ApiCore) {
       data: { name: string; description?: string; roleIds?: string[]; tokenBudget?: number },
       stepUpToken?: string,
     ) => {
-      return core.request<ApiResponse<{ serviceAccount: ServiceAccount }>>(`/api/organization/${orgId}/service-accounts`, {
+      return core.request<ApiResponse<{ serviceAccount: ServiceAccount }>>(`/api/organization/${encodeURIComponent(orgId)}/service-accounts`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(data),
@@ -433,14 +433,14 @@ export function organizationsApi(core: ApiCore) {
       stepUpToken?: string,
     ) => {
       return core.request<ApiResponse<{ serviceAccount: ServiceAccount }>>(
-        `/api/organization/${orgId}/service-accounts/${accountId}`,
+        `/api/organization/${encodeURIComponent(orgId)}/service-accounts/${encodeURIComponent(accountId)}`,
         { method: 'PATCH', headers: core.stepUpHeader(stepUpToken), body: JSON.stringify(data) },
       );
     },
 
     /** Delete an account and every key it holds. */
     deleteServiceAccount: async (orgId: string, accountId: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/organization/${orgId}/service-accounts/${accountId}`, {
+      return core.request<ApiResponse<undefined>>(`/api/organization/${encodeURIComponent(orgId)}/service-accounts/${encodeURIComponent(accountId)}`, {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -461,7 +461,7 @@ export function organizationsApi(core: ApiCore) {
       stepUpToken?: string,
     ) => {
       return core.request<ApiResponse<{ key: string; accessKey: AccessKeyMeta }>>(
-        `/api/organization/${orgId}/service-accounts/${accountId}/keys`,
+        `/api/organization/${encodeURIComponent(orgId)}/service-accounts/${encodeURIComponent(accountId)}/keys`,
         // The key is shown once: never replayed by the global dialog.
         { method: 'POST', replayOnStepUp: false, headers: core.stepUpHeader(stepUpToken), body: JSON.stringify(data) },
       );
@@ -470,21 +470,21 @@ export function organizationsApi(core: ApiCore) {
     /** Revoke one key immediately — it stops working everywhere within 5 minutes. */
     revokeServiceAccountKey: async (orgId: string, accountId: string, keyId: string) => {
       return core.request<ApiResponse<{ revoked: boolean }>>(
-        `/api/organization/${orgId}/service-accounts/${accountId}/keys/${keyId}`,
+        `/api/organization/${encodeURIComponent(orgId)}/service-accounts/${encodeURIComponent(accountId)}/keys/${encodeURIComponent(keyId)}`,
         { method: 'DELETE' },
       );
     },
 
     /** Deactivate a member (soft removal — keeps record, revokes access). */
     deactivateMember: async (orgId: string, userId: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/members/${userId}/deactivate`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}/deactivate`, {
         method: 'PATCH',
       });
     },
 
     /** Reactivate a previously deactivated member. */
     activateMember: async (orgId: string, userId: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/members/${userId}/activate`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}/activate`, {
         method: 'PATCH',
       });
     },
@@ -578,7 +578,7 @@ export function organizationsApi(core: ApiCore) {
     },
 
     revokeInvitation: async (invitationId: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/invitation/${invitationId}`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/invitation/${encodeURIComponent(invitationId)}`, {
         method: 'DELETE',
       });
     },
@@ -589,7 +589,7 @@ export function organizationsApi(core: ApiCore) {
      *  `delivery: 'not-configured'` is a 200 too: the invitation was renewed but
      *  NO email went out (a refused transport is the 500). */
     resendInvitation: async (invitationId: string) => {
-      return core.request<ApiResponse<{ expiresAt: string; delivery: InvitationDelivery; acceptUrl?: string }>>(`/api/invitation/${invitationId}/resend`, {
+      return core.request<ApiResponse<{ expiresAt: string; delivery: InvitationDelivery; acceptUrl?: string }>>(`/api/invitation/${encodeURIComponent(invitationId)}/resend`, {
         method: 'POST',
       });
     },
@@ -613,7 +613,7 @@ export function organizationsApi(core: ApiCore) {
      *  `org_idp:write` permission and own-org only; `sso` entitlement enforced
      *  server-side. `config` is null when no IdP is configured (a normal 200). */
     getOwnOrgIdpConfig: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/organization/${orgId}/idp`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/organization/${encodeURIComponent(orgId)}/idp`, { signal: opts?.signal });
     },
 
     /** PUT /organization/:id/idp — CREATE the caller's own org IdP config (the
@@ -623,7 +623,7 @@ export function organizationsApi(core: ApiCore) {
      *  (`requireStrongFactor`) and forwards its token here. */
     putOwnOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>, stepUpToken?: string) => {
       // `warnings` rides only when there are any (see IdpSaveWarning).
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/organization/${orgId}/idp`, {
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/organization/${encodeURIComponent(orgId)}/idp`, {
         method: 'PUT',
         body: JSON.stringify(data),
         headers: core.stepUpHeader(stepUpToken),
@@ -635,7 +635,7 @@ export function organizationsApi(core: ApiCore) {
      *  stored one. */
     patchOwnOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>, stepUpToken?: string) => {
       // `warnings` rides only when there are any (see IdpSaveWarning).
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/organization/${orgId}/idp`, {
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/organization/${encodeURIComponent(orgId)}/idp`, {
         method: 'PATCH',
         body: JSON.stringify(data),
         headers: core.stepUpHeader(stepUpToken),
@@ -645,7 +645,7 @@ export function organizationsApi(core: ApiCore) {
     /** DELETE /organization/:id/idp — disconnect the org's SSO entirely. Members
      *  fall back to their other sign-in methods; group → Role mappings stop firing. */
     deleteOwnOrgIdpConfig: async (orgId: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<Record<string, never>>>(`/api/organization/${orgId}/idp`, {
+      return core.request<ApiResponse<Record<string, never>>>(`/api/organization/${encodeURIComponent(orgId)}/idp`, {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -655,14 +655,14 @@ export function organizationsApi(core: ApiCore) {
      *  (SAML entity ID / ACS / metadata / SLO URLs, OIDC redirect URI, SP
      *  certificates), computed by the server from its public URL. */
     getOwnOrgIdpSpInfo: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ sp: SsoSpInfo }>>(`/api/organization/${orgId}/idp/sp-info`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ sp: SsoSpInfo }>>(`/api/organization/${encodeURIComponent(orgId)}/idp/sp-info`, { signal: opts?.signal });
     },
 
     /** POST /organization/:id/idp/metadata/import — parse an IdP metadata
      *  document (pasted/uploaded XML, or an https URL the server fetches under its
      *  SSRF guard) into SAML form fields. Saves nothing. */
     importIdpMetadata: async (orgId: string, source: { xml: string } | { url: string }) => {
-      return core.request<ApiResponse<{ metadata: ParsedIdpMetadata }>>(`/api/organization/${orgId}/idp/metadata/import`, {
+      return core.request<ApiResponse<{ metadata: ParsedIdpMetadata }>>(`/api/organization/${encodeURIComponent(orgId)}/idp/metadata/import`, {
         method: 'POST', body: JSON.stringify(source),
       });
     },
@@ -670,13 +670,13 @@ export function organizationsApi(core: ApiCore) {
     /** POST /organization/:id/idp/test — start a TEST CONNECTION (dry run):
      *  `{ url, state }`; open `url` in a popup. Works before SSO is enabled. */
     startSsoTest: async (orgId: string) => {
-      return core.request<ApiResponse<{ url: string; state: string }>>(`/api/organization/${orgId}/idp/test`, { method: 'POST' });
+      return core.request<ApiResponse<{ url: string; state: string }>>(`/api/organization/${encodeURIComponent(orgId)}/idp/test`, { method: 'POST' });
     },
 
     /** POST /organization/:id/idp/test/complete — collect the dry-run report.
      *  OIDC passes the IdP's `code` (or `error`); SAML only the `state`. */
     completeSsoTest: async (orgId: string, params: { state: string; code?: string; error?: string }) => {
-      return core.request<ApiResponse<{ report: SsoTestReport }>>(`/api/organization/${orgId}/idp/test/complete`, {
+      return core.request<ApiResponse<{ report: SsoTestReport }>>(`/api/organization/${encodeURIComponent(orgId)}/idp/test/complete`, {
         method: 'POST', body: JSON.stringify(params),
       });
     },
@@ -688,19 +688,19 @@ export function organizationsApi(core: ApiCore) {
     /** GET /organization/:id/idp/group-mappings — this org's mapping rules,
      *  each hydrated with the Roles it grants. */
     listIdpGroupMappings: async (orgId: string) => {
-      return core.request<ApiResponse<{ mappings: IdpGroupMappingDto[] }>>(`/api/organization/${orgId}/idp/group-mappings`);
+      return core.request<ApiResponse<{ mappings: IdpGroupMappingDto[] }>>(`/api/organization/${encodeURIComponent(orgId)}/idp/group-mappings`);
     },
 
     /** POST /organization/:id/idp/group-mappings — map one group to a Role set. */
     createIdpGroupMapping: async (orgId: string, data: { group: string; roleIds: string[] }) => {
-      return core.request<ApiResponse<{ mapping: IdpGroupMappingDto }>>(`/api/organization/${orgId}/idp/group-mappings`, {
+      return core.request<ApiResponse<{ mapping: IdpGroupMappingDto }>>(`/api/organization/${encodeURIComponent(orgId)}/idp/group-mappings`, {
         method: 'POST', body: JSON.stringify(data),
       });
     },
 
     /** PUT /organization/:id/idp/group-mappings/:mappingId — edit group/Roles. */
     updateIdpGroupMapping: async (orgId: string, mappingId: string, data: { group?: string; roleIds?: string[] }) => {
-      return core.request<ApiResponse<{ mapping: IdpGroupMappingDto }>>(`/api/organization/${orgId}/idp/group-mappings/${mappingId}`, {
+      return core.request<ApiResponse<{ mapping: IdpGroupMappingDto }>>(`/api/organization/${encodeURIComponent(orgId)}/idp/group-mappings/${encodeURIComponent(mappingId)}`, {
         method: 'PUT', body: JSON.stringify(data),
       });
     },
@@ -708,7 +708,7 @@ export function organizationsApi(core: ApiCore) {
     /** DELETE /organization/:id/idp/group-mappings/:mappingId — drop a rule.
      *  Roles it granted fall away at each member's next sign-in. */
     deleteIdpGroupMapping: async (orgId: string, mappingId: string) => {
-      return core.request<ApiResponse<Record<string, never>>>(`/api/organization/${orgId}/idp/group-mappings/${mappingId}`, {
+      return core.request<ApiResponse<Record<string, never>>>(`/api/organization/${encodeURIComponent(orgId)}/idp/group-mappings/${encodeURIComponent(mappingId)}`, {
         method: 'DELETE',
       });
     },
@@ -716,18 +716,18 @@ export function organizationsApi(core: ApiCore) {
     // -- Domain-based join (P2b): admin domain management + join-request review --
 
     listOrgDomains: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ domains: OrgDomainDto[]; entitled: boolean }>>(`/api/organization/${orgId}/domains`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ domains: OrgDomainDto[]; entitled: boolean }>>(`/api/organization/${encodeURIComponent(orgId)}/domains`, { signal: opts?.signal });
     },
     addOrgDomain: async (orgId: string, domain: string) => {
-      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${orgId}/domains`, {
+      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${encodeURIComponent(orgId)}/domains`, {
         method: 'POST', body: JSON.stringify({ domain }),
       });
     },
     verifyOrgDomain: async (orgId: string, domainId: string) => {
-      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${orgId}/domains/${domainId}/verify`, { method: 'POST' });
+      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}/verify`, { method: 'POST' });
     },
     setOrgDomainMode: async (orgId: string, domainId: string, autoJoin: 'off' | 'request' | 'auto') => {
-      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${orgId}/domains/${domainId}`, {
+      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}`, {
         method: 'PATCH', body: JSON.stringify({ autoJoin }),
       });
     },
@@ -741,7 +741,7 @@ export function organizationsApi(core: ApiCore) {
      * `DOMAIN_SHARE_UNVERIFIED` when turning it on for an unverified domain.
      */
     setOrgDomainSharing: async (orgId: string, domainId: string, sharedWithTeams: boolean, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${orgId}/domains/${domainId}/team-sharing`, {
+      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}/team-sharing`, {
         method: 'PATCH',
         replayOnStepUp: false,
         headers: core.stepUpHeader(stepUpToken),
@@ -749,7 +749,7 @@ export function organizationsApi(core: ApiCore) {
       });
     },
     deleteOrgDomain: async (orgId: string, domainId: string) => {
-      return core.request<ApiResponse<{ deleted: boolean }>>(`/api/organization/${orgId}/domains/${domainId}`, { method: 'DELETE' });
+      return core.request<ApiResponse<{ deleted: boolean }>>(`/api/organization/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}`, { method: 'DELETE' });
     },
     /**
      * The org's own support contacts, plus the ACCOUNT's allowance.
@@ -761,13 +761,13 @@ export function organizationsApi(core: ApiCore) {
      */
     listSupportContacts: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<SupportContactsDto>>(
-        `/api/organization/${orgId}/support-contacts`,
+        `/api/organization/${encodeURIComponent(orgId)}/support-contacts`,
         { signal: opts?.signal },
       );
     },
     addSupportContact: async (orgId: string, userId: string, premium = false) => {
       return core.request<ApiResponse<{ userId: string; isPremium: boolean }>>(
-        `/api/organization/${orgId}/support-contacts`,
+        `/api/organization/${encodeURIComponent(orgId)}/support-contacts`,
         { method: 'POST', body: JSON.stringify({ userId, premium }) },
       );
     },
@@ -782,7 +782,7 @@ export function organizationsApi(core: ApiCore) {
      */
     setSupportContactLevel: async (orgId: string, userId: string, premium: boolean) => {
       return core.request<ApiResponse<{ userId: string; isPremium: boolean }>>(
-        `/api/organization/${orgId}/support-contacts/${userId}`,
+        `/api/organization/${encodeURIComponent(orgId)}/support-contacts/${encodeURIComponent(userId)}`,
         { method: 'PATCH', body: JSON.stringify({ premium }) },
       );
     },
@@ -796,7 +796,7 @@ export function organizationsApi(core: ApiCore) {
      */
     removeSupportContact: async (orgId: string, userId: string) => {
       return core.request<ApiResponse<{ userId: string; openCases: SupportContactOpenCase[] }>>(
-        `/api/organization/${orgId}/support-contacts/${userId}`,
+        `/api/organization/${encodeURIComponent(orgId)}/support-contacts/${encodeURIComponent(userId)}`,
         { method: 'DELETE' },
       );
     },
@@ -813,24 +813,24 @@ export function organizationsApi(core: ApiCore) {
       if (opts?.offset) qs.set('offset', String(opts.offset));
       const query = qs.toString();
       return core.request<ApiResponse<{ requests: OrgJoinRequestDto[]; hasMore: boolean }>>(
-        `/api/organization/${orgId}/join-requests${query ? `?${query}` : ''}`,
+        `/api/organization/${encodeURIComponent(orgId)}/join-requests${query ? `?${query}` : ''}`,
         { signal: opts?.signal },
       );
     },
     /** DELETE /organization/:id/join-requests/:reqId — clear a DENIED request so
      *  the person may ask again (404 unless it is a denial). */
     clearOrgJoinRequest: async (orgId: string, reqId: string) => {
-      return core.request<ApiResponse<{ userId: string }>>(`/api/organization/${orgId}/join-requests/${reqId}`, { method: 'DELETE' });
+      return core.request<ApiResponse<{ userId: string }>>(`/api/organization/${encodeURIComponent(orgId)}/join-requests/${encodeURIComponent(reqId)}`, { method: 'DELETE' });
     },
     decideOrgJoinRequest: async (orgId: string, reqId: string, decision: 'approve' | 'deny') => {
-      return core.request<ApiResponse<{ userId: string; status: 'approved' | 'denied' }>>(`/api/organization/${orgId}/join-requests/${reqId}/${decision}`, { method: 'POST' });
+      return core.request<ApiResponse<{ userId: string; status: 'approved' | 'denied' }>>(`/api/organization/${encodeURIComponent(orgId)}/join-requests/${encodeURIComponent(reqId)}/${encodeURIComponent(decision)}`, { method: 'POST' });
     },
 
     /** The org's impersonation policy: its OWN setting and the EFFECTIVE one. A
      *  team's policy can be tightened by its parent (strictest wins), so the UI
      *  must show both or an admin who set `open` can't tell why it isn't. */
     getImpersonationPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<EffectiveImpersonationPolicyDto>>(`/api/organization/${orgId}/impersonation-policy`, { signal: opts?.signal });
+      return core.request<ApiResponse<EffectiveImpersonationPolicyDto>>(`/api/organization/${encodeURIComponent(orgId)}/impersonation-policy`, { signal: opts?.signal });
     },
     /** Change the policy. Step-up gated: loosening it widens who can see the org's data. */
     updateImpersonationPolicy: async (
@@ -838,7 +838,7 @@ export function organizationsApi(core: ApiCore) {
       body: { impersonationPolicy?: ImpersonationPolicy; allowSelfApproval?: boolean },
       stepUpToken?: string,
     ) => {
-      return core.request<ApiResponse<EffectiveImpersonationPolicyDto>>(`/api/organization/${orgId}/impersonation-policy`, {
+      return core.request<ApiResponse<EffectiveImpersonationPolicyDto>>(`/api/organization/${encodeURIComponent(orgId)}/impersonation-policy`, {
         method: 'PATCH',
         body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),
@@ -848,18 +848,18 @@ export function organizationsApi(core: ApiCore) {
     /** The org's two-factor requirement: its OWN setting and what actually
      *  governs, since a parent org's requirement also applies to its teams. */
     getMfaPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${orgId}/mfa-policy`, { signal: opts?.signal });
+      return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${encodeURIComponent(orgId)}/mfa-policy`, { signal: opts?.signal });
     },
 
     /** GET /organization/:id/setup-guide — whether an admin has dismissed the
      *  "finish setting up" popup for this org (`org_settings:write`). */
     getSetupGuide: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<OrgSetupGuideState>>(`/api/organization/${orgId}/setup-guide`, { signal: opts?.signal });
+      return core.request<ApiResponse<OrgSetupGuideState>>(`/api/organization/${encodeURIComponent(orgId)}/setup-guide`, { signal: opts?.signal });
     },
     /** PATCH — `dismissed: true` stops the popup for every admin of the org;
      *  `false` re-arms it. A UI preference, so no step-up. */
     updateSetupGuide: async (orgId: string, body: { dismissed: boolean }) => {
-      return core.request<ApiResponse<OrgSetupGuideState>>(`/api/organization/${orgId}/setup-guide`, {
+      return core.request<ApiResponse<OrgSetupGuideState>>(`/api/organization/${encodeURIComponent(orgId)}/setup-guide`, {
         method: 'PATCH',
         body: JSON.stringify(body),
       });
@@ -868,12 +868,12 @@ export function organizationsApi(core: ApiCore) {
     /** GET /organization/:id/password-policy — the org's minimum password length
      *  (own and effective, with the platform floor and ceiling). */
     getPasswordPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<OrgPasswordPolicy>>(`/api/organization/${orgId}/password-policy`, { signal: opts?.signal });
+      return core.request<ApiResponse<OrgPasswordPolicy>>(`/api/organization/${encodeURIComponent(orgId)}/password-policy`, { signal: opts?.signal });
     },
     /** PATCH — `minLength: null` clears the org's own minimum. Step-up gated;
      *  LOWERING it also needs a session opened with a second factor. */
     updatePasswordPolicy: async (orgId: string, body: { minLength: number | null }, stepUpToken?: string) => {
-      return core.request<ApiResponse<OrgPasswordPolicy>>(`/api/organization/${orgId}/password-policy`, {
+      return core.request<ApiResponse<OrgPasswordPolicy>>(`/api/organization/${encodeURIComponent(orgId)}/password-policy`, {
         method: 'PATCH',
         body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),
@@ -884,7 +884,7 @@ export function organizationsApi(core: ApiCore) {
      *  (maximum age in days / idle timeout in minutes): effective, the org's own, the
      *  platform ceiling, and any stricter ancestor. */
     getSessionPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<OrgSessionPolicy>>(`/api/organization/${orgId}/session-policy`, { signal: opts?.signal });
+      return core.request<ApiResponse<OrgSessionPolicy>>(`/api/organization/${encodeURIComponent(orgId)}/session-policy`, { signal: opts?.signal });
     },
     /** PATCH — `maxAgeDays` 1–365 days, `idleTimeoutMinutes` whole minutes from
      *  5 up to the platform ceiling; `null` clears a field, absent = unchanged (at
@@ -895,7 +895,7 @@ export function organizationsApi(core: ApiCore) {
       body: { maxAgeDays?: number | null; idleTimeoutMinutes?: number | null },
       stepUpToken?: string,
     ) => {
-      return core.request<ApiResponse<OrgSessionPolicy>>(`/api/organization/${orgId}/session-policy`, {
+      return core.request<ApiResponse<OrgSessionPolicy>>(`/api/organization/${encodeURIComponent(orgId)}/session-policy`, {
         method: 'PATCH',
         body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),
@@ -905,12 +905,12 @@ export function organizationsApi(core: ApiCore) {
     /** GET /organization/:id/authenticator-policy — the passkey-model allowlist,
      *  the FIDO MDS catalog for naming models, and members' compliance. */
     getAuthenticatorPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<OrgAuthenticatorPolicy>>(`/api/organization/${orgId}/authenticator-policy`, { signal: opts?.signal });
+      return core.request<ApiResponse<OrgAuthenticatorPolicy>>(`/api/organization/${encodeURIComponent(orgId)}/authenticator-policy`, { signal: opts?.signal });
     },
     /** PATCH — an empty list clears it (any model). Step-up gated; WIDENING or
      *  clearing an existing list also needs a session opened with a second factor. */
     updateAuthenticatorPolicy: async (orgId: string, body: { allowedAaguids: string[] }, stepUpToken?: string) => {
-      return core.request<ApiResponse<OrgAuthenticatorPolicy>>(`/api/organization/${orgId}/authenticator-policy`, {
+      return core.request<ApiResponse<OrgAuthenticatorPolicy>>(`/api/organization/${encodeURIComponent(orgId)}/authenticator-policy`, {
         method: 'PATCH',
         body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),
@@ -933,7 +933,7 @@ export function organizationsApi(core: ApiCore) {
       body: { requireMfa?: boolean; graceDays?: number; idpEnforcesMfa?: boolean; adminActionsRequireMfa?: boolean },
       stepUpToken?: string,
     ) => {
-      return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${orgId}/mfa-policy`, {
+      return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${encodeURIComponent(orgId)}/mfa-policy`, {
         method: 'PATCH',
         body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),
@@ -945,12 +945,12 @@ export function organizationsApi(core: ApiCore) {
     /** Pending (first) and recently decided MFA reset requests for the org and
      *  its teams. Owner/admin only. */
     listMfaResets: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ requests: MfaResetRequest[] }>>(`/api/organization/${orgId}/mfa-resets`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ requests: MfaResetRequest[] }>>(`/api/organization/${encodeURIComponent(orgId)}/mfa-resets`, { signal: opts?.signal });
     },
     /** Ask for a member's second factors to be reset. Needs a session opened
      *  with a second factor and a step-up; ANOTHER admin must approve it. */
     requestMfaReset: async (orgId: string, body: { userId: string; reason: string }, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ request: MfaResetRequest }>>(`/api/organization/${orgId}/mfa-resets`, {
+      return core.request<ApiResponse<{ request: MfaResetRequest }>>(`/api/organization/${encodeURIComponent(orgId)}/mfa-resets`, {
         method: 'POST',
         body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),
@@ -960,7 +960,7 @@ export function organizationsApi(core: ApiCore) {
      *  codes, ends their sessions and grants an enrolment grace. Needs a step-up
      *  earned with a passkey or an authenticator code. */
     approveMfaReset: async (orgId: string, requestId: string, body: { graceHours?: number }, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ request: MfaResetRequest }>>(`/api/organization/${orgId}/mfa-resets/${requestId}/approve`, {
+      return core.request<ApiResponse<{ request: MfaResetRequest }>>(`/api/organization/${encodeURIComponent(orgId)}/mfa-resets/${encodeURIComponent(requestId)}/approve`, {
         method: 'POST',
         body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),
@@ -968,7 +968,7 @@ export function organizationsApi(core: ApiCore) {
     },
     /** Deny a request (or, as its requester, withdraw it). */
     denyMfaReset: async (orgId: string, requestId: string, body: { note?: string } = {}) => {
-      return core.request<ApiResponse<{ request: MfaResetRequest }>>(`/api/organization/${orgId}/mfa-resets/${requestId}/deny`, {
+      return core.request<ApiResponse<{ request: MfaResetRequest }>>(`/api/organization/${encodeURIComponent(orgId)}/mfa-resets/${encodeURIComponent(requestId)}/deny`, {
         method: 'POST',
         body: JSON.stringify(body),
       });

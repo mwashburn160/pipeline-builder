@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { LifeBuoy } from 'lucide-react';
 import api from '@/lib/api';
 import { StepUpModal } from '@/components/admin/StepUpModal';
@@ -36,6 +36,10 @@ export function OrgSupportIncidentsCard({ org }: { org: OrganizationDetail }) {
   const [invalid, setInvalid] = useState<string | null>(null);
   const [pending, setPending] = useState<SupportIncidentGrant | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  // The key of the grant not yet answered with success. A failed answer (a 502,
+  // a dropped connection) does not prove the server did NOT apply it, so a
+  // resubmit of the SAME grant reuses its key; an edited grant gets a new one.
+  const keyRef = useRef<{ count: number; note: string; key: string } | null>(null);
 
   const grant = useMutation({
     fn: async (body: SupportIncidentGrant, stepUpToken: string) => {
@@ -50,6 +54,7 @@ export function OrgSupportIncidentsCard({ org }: { org: OrganizationDetail }) {
       setResult(data.duplicate
         ? `Already granted: nothing new was added. Balance is ${data.balance}.${where}`
         : `Granted ${body.count} ${body.count === 1 ? 'incident' : 'incidents'}. Balance is now ${data.balance}.${where}`);
+      keyRef.current = null;
       setCount('1');
       setNote('');
     },
@@ -65,9 +70,10 @@ export function OrgSupportIncidentsCard({ org }: { org: OrganizationDetail }) {
     }
     setInvalid(null);
     const trimmed = note.trim();
-    // One key per submit: the step-up replay and any network retry of THIS
-    // grant reuse it, so the server applies it once.
-    setPending({ count: n, ...(trimmed ? { note: trimmed } : {}), idempotencyKey: `grant-${crypto.randomUUID()}` });
+    const prior = keyRef.current;
+    const key = prior && prior.count === n && prior.note === trimmed ? prior.key : `grant-${crypto.randomUUID()}`;
+    keyRef.current = { count: n, note: trimmed, key };
+    setPending({ count: n, ...(trimmed ? { note: trimmed } : {}), idempotencyKey: key });
   };
 
   return (

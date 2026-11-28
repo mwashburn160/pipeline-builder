@@ -26,6 +26,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { api } from '@/lib/api';
 import type { DashboardWithPanels, CatalogEntry, DashboardWrite } from '@/types/observability';
 import type { LayoutPanelInput } from '@/components/observability/DashboardLayoutGrid';
+import { canEditDashboard } from '@/components/observability/dashboard-access';
 import { formatError } from '@/lib/constants';
 import { useElementWidth } from '@/hooks/useElementWidth';
 import { useMutation } from '@/hooks/useMutation';
@@ -54,15 +55,15 @@ const DashboardLayoutGrid = dynamic(() => import('@/components/observability/Das
  */
 /** Stable empty catalog until the read lands (keeps AddPanelModal's props steady). */
 const EMPTY_CATALOG: CatalogEntry[] = [];
+/** Why Save is locked for a viewer the per-dashboard rule refuses. */
+const NO_EDIT_REASON = 'Read-only — only its creator, or a dashboards:write holder on an organization dashboard, can save it';
 
 export default function DashboardEditPage() {
   const uid = useId();
-  // View on `dashboards:read`; persisting edits is a `dashboards:write`
-  // capability gated on `can()` (the backend rejects the PUT otherwise, and
-  // `can()` reports false under read-only impersonation so Save disables).
-  // Superadmins bypass.
-  const { accessDenied, isReady, isAuthenticated, can } = useAuthGuard();
-  const canWrite = can('dashboards:write');
+  // View on `dashboards:read`. Saving follows ops-center's per-dashboard rule
+  // (creator, or `dashboards:write` on an org-visible one — see
+  // canEditDashboard); the PUT route names no permission of its own.
+  const { accessDenied, isReady, isAuthenticated, user, can, isReadOnly } = useAuthGuard();
   const router = useRouter();
   const toast = useToast();
   const id = typeof router.query.id === 'string' ? router.query.id: '';
@@ -96,6 +97,7 @@ export default function DashboardEditPage() {
   );
   const original = loaded?.dashboard ?? null;
   const catalog = loaded?.catalog ?? EMPTY_CATALOG;
+  const canWrite = !!original && canEditDashboard(original, { user, can, isReadOnly });
 
   useEffect(() => {
     if (original) load(original);
@@ -122,7 +124,7 @@ export default function DashboardEditPage() {
 
   const onSave = async () => {
     if (!original) return;
-    if (!canWrite) { toast.error('Read-only — requires dashboards:write'); return; }
+    if (!canWrite) { toast.error(NO_EDIT_REASON); return; }
     if (!name.trim()) { toast.error('Name is required'); return; }
     const body: DashboardWrite = {
       name: name.trim(),
@@ -181,7 +183,7 @@ export default function DashboardEditPage() {
             size="xs"
             onClick={() => void onSave()}
             disabled={saving || !name.trim()}
-            disabledReason={canWrite ? undefined : 'Read-only — requires dashboards:write'}
+            disabledReason={canWrite ? undefined : NO_EDIT_REASON}
             className="gap-1"
           >
             <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}

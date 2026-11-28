@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useMutation } from '@/hooks/useMutation';
 import { api } from '@/lib/api';
+import { ApiError } from '@/lib/api/errors';
+import { formatError } from '@/lib/constants';
 
 interface DeleteRepoConfirmProps {
   repo: string;
@@ -28,6 +30,8 @@ const MAX_TAGS_TO_PREVIEW = 20;
 export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfirmProps) {
   const [tags, setTags] = useState<string[] | null>(null);
   const [scanning, setScanning] = useState(true);
+  // The tag listing failed (other than a 404): the blast radius is unknown, not zero.
+  const [listError, setListError] = useState<string | null>(null);
 
   useEffect(() => {
     let aborted = false;
@@ -37,10 +41,12 @@ export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfir
         if (aborted) return;
         setTags(res.data?.tags ?? []);
       } catch (err) {
-        // A missing/empty repo isn't fatal here — deletion is idempotent, so
-        // treat it as an empty repo and let the operator prune the shell.
-        if (!aborted) setTags([]);
-        void err;
+        if (aborted) return;
+        // A missing repo (404) is an empty shell to prune — deletion is
+        // idempotent. Any other failure leaves the tag count unknown: never
+        // present it as "no tags".
+        if (err instanceof ApiError && err.statusCode === 404) setTags([]);
+        else setListError(formatError(err, 'the registry did not answer'));
       } finally {
         if (!aborted) setScanning(false);
       }
@@ -66,7 +72,7 @@ export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfir
   const submit = () => { void del.run(); };
 
   const tagCount = tags?.length ?? 0;
-  const isEmpty = !scanning && tagCount === 0;
+  const isEmpty = !scanning && !listError && tagCount === 0;
   const previewTags = tags?.slice(0, MAX_TAGS_TO_PREVIEW) ?? [];
   const extraTagCount = Math.max(0, tagCount - MAX_TAGS_TO_PREVIEW);
 
@@ -85,6 +91,12 @@ export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfir
         {scanning && (
           <div className="text-sm text-fg-muted">
             Scanning tags…
+          </div>
+        )}
+
+        {listError && (
+          <div className="p-3 text-sm border border-warning-border bg-warning-bg text-warning-strong rounded">
+            Could not list this repository&apos;s tags ({listError}). Deleting it still removes every tag it holds.
           </div>
         )}
 

@@ -5,7 +5,7 @@
  * The activity signal a client sends with `POST /auth/refresh` (body field
  * `activity`).
  *
- * `user`: there was real input (pointer, key, touch, scroll) since the
+ * `user`: there was real input (pointer, key, touch, wheel) since the
  * client's last refresh, so an interactive session's idle clock restarts.
  * `passive`: none — a background poll renewing the token of an unattended
  * tab; the idle clock stays where it was. Anything unsaid is `passive`, so a

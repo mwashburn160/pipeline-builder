@@ -86,9 +86,11 @@ export default function ToolchainConsolePage() {
   // permission in a read-only session); approve / reject also need a writable session.
   const canReviewFixes = hasPermission(user, 'plugins:write');
   const view = releases.data;
-  // The per-release panels default to the canary, else the newest release.
-  const selected = picked ?? view?.releases.find((r) => r.status === 'canary')?.releaseVersion ?? view?.releases[0]?.releaseVersion ?? null;
-  const selectedRelease = view?.releases.find((r) => r.releaseVersion === selected) ?? null;
+  // The per-release panels default to the canary, else the newest release. A
+  // pick that a refresh no longer lists (deleted in Cleanup) falls back too.
+  const pickedRelease = view?.releases.find((r) => r.releaseVersion === picked);
+  const selectedRelease = pickedRelease ?? view?.releases.find((r) => r.status === 'canary') ?? view?.releases[0] ?? null;
+  const selected = selectedRelease?.releaseVersion ?? null;
 
   const openCanary = (v: string) => { setPicked(v); select('rollout', 'canary'); };
 

@@ -50,6 +50,8 @@ const COMPLIANCE_EXEMPTIONS_HREF = '/dashboard/compliance?view=exemptions';
 /** The remediation stages that ask something of a person (N36 / N37 / N39), plus rolling out (N38 rollbacks). */
 const REMEDIATION_ACTION_STAGES = 'awaiting_approval,needs_owner,needs_review,rolling_out';
 export const REMEDIATION_PREVIEW = 50;
+/** The full Remediations list, for what the preview did not read. */
+const REMEDIATIONS_HREF = '/dashboard/plugins?tab=security&section=remediations';
 
 /**
  * The inbox items one remediation raises, matching the notices the platform
@@ -98,7 +100,7 @@ export function remediationInboxItems(r: PluginRemediationDto): InboxItem[] {
  *
  * Nothing here is capped silently: the owned-pipeline set is cursor-drained
  * (a join against a capped page would miss failures past the cap), and the
- * exemptions source says how many more are pending than it lists.
+ * exemptions and remediations sources say when more are pending than they list.
  */
 export default function NotificationsTab() {
   const { user, isReady, can } = useAuthGuard();
@@ -138,7 +140,7 @@ export default function NotificationsTab() {
     if (!active || !canReadPlugins) return null;
     const res = await api.listPluginRemediations({ stage: REMEDIATION_ACTION_STAGES, limit: REMEDIATION_PREVIEW });
     if (!(res.success && res.data)) throw new Error('source unavailable');
-    return res.data.remediations;
+    return res.data;
   }, [active, canReadPlugins]);
 
   // Per-source outcome: items when it loaded, `null` when it failed, and
@@ -208,7 +210,18 @@ export default function NotificationsTab() {
     if (!canReadPlugins) return undefined;
     if (remediations.error) return null;
     if (!remediations.data) return undefined;
-    return remediations.data.flatMap(remediationInboxItems);
+    const listed = remediations.data.remediations.flatMap(remediationInboxItems);
+    return remediations.data.nextCursor
+      ? [...listed, {
+        id: 'remediation:more',
+        kind: 'remediation',
+        title: 'More plugin security fixes may need attention',
+        detail: `Only the first ${REMEDIATION_PREVIEW} were read here. See them all on the Remediations tab.`,
+        href: REMEDIATIONS_HREF,
+        severity: 'medium',
+        icon: Wrench,
+      }]
+      : listed;
   }, [canReadPlugins, remediations.data, remediations.error]);
 
   const attempted = [

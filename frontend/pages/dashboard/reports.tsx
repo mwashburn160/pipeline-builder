@@ -16,7 +16,6 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { RetryError } from '@/components/ui/RetryError';
-import { Callout } from '@/components/ui/Callout';
 import { DateRangePicker, AutoRefresh, TwoColumnSkeleton } from '@/components/reports/ReportHelpers';
 import { IngestFreshness } from '@/components/reports/IngestFreshness';
 import {
@@ -49,8 +48,8 @@ const EXTEND_DORA_RETENTION_HREF = '/dashboard/usage?tab=billing&highlight=dora_
 const MAX_REPORT_RANGE_DAYS = 730;
 
 // ─── Tab Config ─────────────────────────────────────────
-// Five tabs holding the ten reports by topic (`lib/page-tabs/reports`); each
-// sub-tab id is the report's old top-level key, which still opens it.
+// Five tabs holding the ten reports by topic (`lib/page-tabs/reports`), each
+// report a sub-tab (`?tab=<tab>&section=<report>`).
 const TAB_META: Record<ReportsTab, { label: string; icon: LucideIcon }> = {
   overview: { label: 'Overview', icon: LayoutDashboard },
   delivery: { label: 'Delivery', icon: Truck },
@@ -148,10 +147,8 @@ export default function ReportsPage() {
     // leak). The incoming tab re-reports via onStatus on mount. `setStatus` is a
     // stable useState setter, resolved at call time.
     setStatus({ loading: true, error: null, refetch: () => {} });
-    // A locked Scorecard is never the landing spot of a click on Quality.
-    const landing = nextTab === 'quality' && !nextSection && !hasPermission(user, 'reports:read') ? 'insights' : nextSection;
-    select(nextTab, landing);
-  }, [select, user]);
+    select(nextTab, nextSection);
+  }, [select]);
 
   const [timeInterval, setTimeInterval] = useState<'day' | 'week' | 'month'>('week');
   const [dateFrom, setDateFrom] = useState('');
@@ -160,14 +157,8 @@ export default function ReportsPage() {
   // the toggle only appears when the org actually parents teams.
   const [includeDescendants, setIncludeDescendants] = useState(false);
   const canRollup = can('reports:rollup');
-  // The org Scorecard roll-up reads GET /pipelines/scorecard[/history], which the
-  // pipeline service gates on `reports:read` (the per-pipeline card on the
-  // pipeline page stays on `pipelines:read`). A viewer without it gets the tab
-  // LOCKED in place, saying which permission it needs, rather than a tab that can
-  // only 403 or none at all: a hidden tab left a linked Scorecard blank with a
-  // spinner that never stopped.
-  const canReadScorecard = can('reports:read');
-  const scorecardLocked = topTab === 'scorecard' && !canReadScorecard;
+  // The org Scorecard roll-up reads GET /pipelines/scorecard[/history], served on
+  // `reports:read` — this page's own gate, so every viewer here can open it.
 
   // Per-tab effective date-range caps (event vs DORA retention), read once from
   // the reports:read-only retention endpoint (so a Retention Pack shows without
@@ -184,10 +175,6 @@ export default function ReportsPage() {
   // banner + the refresh control). Only the mounted tab reports.
   const [status, setStatus] = useState<TabDataStatus>({ loading: true, error: null, refetch: () => {} });
   const onStatus = useCallback((s: TabDataStatus) => setStatus(s), []);
-  // The locked Scorecard mounts no tab to report a status, so it settles here.
-  useEffect(() => {
-    if (scorecardLocked) setStatus({ loading: false, error: null, refetch: () => {} });
-  }, [scorecardLocked]);
 
   // Effective max for the active tab: retention estimate, floored by any tighter
   // cap the backend reported.
@@ -238,13 +225,7 @@ export default function ReportsPage() {
       id,
       name: label,
       label: <span className="inline-flex items-center gap-2"><Icon className="w-4 h-4" aria-hidden="true" />{label}</span>,
-      sections: REPORTS_TABS.groups[id].map((sec) => ({
-        id: sec,
-        // A locked Scorecard says why, in place (a deep link lands on the reason below).
-        label: sec === 'scorecard' && !canReadScorecard
-          ? <span title="Requires the reports:read permission">{SECTION_LABELS[sec]}</span>
-          : SECTION_LABELS[sec],
-      })),
+      sections: REPORTS_TABS.groups[id].map((sec) => ({ id: sec, label: SECTION_LABELS[sec] })),
     };
   });
 
@@ -325,7 +306,6 @@ export default function ReportsPage() {
           onSelect={changeTab}
           idPrefix="reports"
           ariaLabel="Report sections"
-          disabledSectionIds={canReadScorecard ? undefined : ['scorecard']}
           className=""
         >
         <div className="space-y-6">
@@ -359,21 +339,15 @@ export default function ReportsPage() {
           {topTab === 'plugins' && <PluginsTab filters={filters} onStatus={onStatus} />}
           {/* The entitled tabs wait for the entitlement verdict, so an entitled org
               never sees a flash of the upsell. */}
-          {(topTab === 'dora' || (topTab === 'scorecard' && canReadScorecard)) && !doraGate.isLoaded && <TwoColumnSkeleton />}
+          {(topTab === 'dora' || topTab === 'scorecard') && !doraGate.isLoaded && <TwoColumnSkeleton />}
           {topTab === 'dora' && doraGate.isLoaded && (
             // Marking an outcome is a write gated on `pipelines:write`. Checked with
             // `hasPermission` (not `can()`, which folds in read-only impersonation) so
             // a read-only session still SEES the controls, disabled with the reason.
             <DoraTab filters={filters} enabled={doraEnabled} canMark={hasPermission(user, 'pipelines:write')} markReadOnly={isReadOnly} onStatus={onStatus} />
           )}
-          {topTab === 'scorecard' && canReadScorecard && doraGate.isLoaded && (
+          {topTab === 'scorecard' && doraGate.isLoaded && (
             <ScorecardTab enabled={doraEnabled} onStatus={onStatus} />
-          )}
-          {scorecardLocked && (
-            <Callout variant="info" title="The Scorecard needs report read access">
-              It rolls up every pipeline&apos;s scorecard, which requires the reports:read permission.
-              Ask an organization admin to add it to one of your Roles.
-            </Callout>
           )}
           {/* Insights: the stakeholder report's analytics sections on demand —
               advanced_reporting, waiting on the verdict like the DORA tab. */}

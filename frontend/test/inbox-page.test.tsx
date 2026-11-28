@@ -161,6 +161,13 @@ describe('InboxPage — plugin security fixes', () => {
     expect(listPluginRemediations).toHaveBeenCalledWith({ stage: 'awaiting_approval,needs_owner,needs_review,rolling_out', limit: 50 });
   });
 
+  it('says when more remediations are pending than the preview read (nothing capped silently)', async () => {
+    listPluginRemediations.mockResolvedValue({ success: true, data: { remediations: [rem({})], nextCursor: 'c2' } });
+    render(<InboxPage />);
+    const more = await screen.findByText(/more plugin security fixes may need attention/i);
+    expect(more.closest('a')?.getAttribute('href')).toBe('/dashboard/plugins?tab=security&section=remediations');
+  });
+
   it('does not ask without plugins:read', async () => {
     mockAuthGuard({ user: { id: 'me', organizationId: 'org-1' }, can: () => false });
     render(<InboxPage />);

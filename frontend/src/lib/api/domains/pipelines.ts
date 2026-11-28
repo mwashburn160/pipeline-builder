@@ -252,12 +252,12 @@ export function pipelinesApi(core: ApiCore) {
      */
     getPipelineById: async (id: string) => {
       return core.request<ApiResponse<{ pipeline: Pipeline; registration?: PipelineRegistrationStatus }>>(
-        `/api/pipelines/${id}`);
+        `/api/pipelines/${encodeURIComponent(id)}`);
     },
 
     /** Per-pipeline maturity scorecard (compliance posture + DORA bands). Requires `advanced_reporting`. */
     getPipelineScorecard: async (id: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ scorecard: PipelineScorecard }>>(`/api/pipelines/${id}/scorecard`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ scorecard: PipelineScorecard }>>(`/api/pipelines/${encodeURIComponent(id)}/scorecard`, { signal: opts?.signal });
     },
 
     /**
@@ -361,7 +361,7 @@ export function pipelinesApi(core: ApiCore) {
        *  (see `isConcurrencyConflict`). Absent: last write wins. */
       expectedUpdatedAt?: string;
     }, opts?: ProposedByOptions) => {
-      return core.request<ApiResponse<{ pipeline: Pipeline; pluginWarnings?: PipelinePluginWarning[] }>>(`/api/pipelines/${id}`, {
+      return core.request<ApiResponse<{ pipeline: Pipeline; pluginWarnings?: PipelinePluginWarning[] }>>(`/api/pipelines/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
         headers: core.proposedByHeader(opts),
@@ -369,7 +369,7 @@ export function pipelinesApi(core: ApiCore) {
     },
 
     deletePipeline: async (id: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/pipelines/${id}`, {
+      return core.request<ApiResponse<undefined>>(`/api/pipelines/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
     },
@@ -384,7 +384,7 @@ export function pipelinesApi(core: ApiCore) {
      *  action): pass the token from StepUpModal; the api forwards it as the
      *  `X-Step-Up-Token` header. */
     restorePipeline: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/${id}/restore`, {
+      return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/${encodeURIComponent(id)}/restore`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -394,7 +394,7 @@ export function pipelinesApi(core: ApiCore) {
      *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
     purgePipeline: async (id: string, stepUpToken?: string) => {
       // A deployed pipeline whose stack no runner can remove is refused 409 (`details.stackRetainedReason`).
-      return core.request<ApiResponse<PipelinePurgeResult | Record<string, never>>>(`/api/pipelines/${id}/purge`, {
+      return core.request<ApiResponse<PipelinePurgeResult | Record<string, never>>>(`/api/pipelines/${encodeURIComponent(id)}/purge`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -489,7 +489,7 @@ export function pipelinesApi(core: ApiCore) {
      */
     triggerPipelineExecution: async (pipelineId: string, opts?: { runnerId?: string }) => {
       // `runnerId`: run with that runner when none is linked to the pipeline (a usable linked runner wins).
-      return core.request<ApiResponse<QueuedRunRequest>>(`/api/pipelines/${pipelineId}/executions`, {
+      return core.request<ApiResponse<QueuedRunRequest>>(`/api/pipelines/${encodeURIComponent(pipelineId)}/executions`, {
         method: 'POST',
         ...(opts?.runnerId ? { body: JSON.stringify({ runnerId: opts.runnerId }) } : {}),
       });
@@ -501,7 +501,7 @@ export function pipelinesApi(core: ApiCore) {
      * `triggerPipelineExecution`.
      */
     stopPipelineExecution: async (pipelineId: string, executionId: string, body?: { reason?: string; abandon?: boolean }) => {
-      return core.request<ApiResponse<QueuedRunRequest>>(`/api/pipelines/${pipelineId}/executions/${executionId}/stop`, {
+      return core.request<ApiResponse<QueuedRunRequest>>(`/api/pipelines/${encodeURIComponent(pipelineId)}/executions/${encodeURIComponent(executionId)}/stop`, {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
       });

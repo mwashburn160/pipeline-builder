@@ -110,6 +110,9 @@ describe('SupportFloorModal', () => {
     ['10', '', /floor of 0 or more/i],
     ['10', '-5', /floor of 0 or more/i],
     ['10', 'abc', /floor of 0 or more/i],
+    // The route's ceilings (MAX_NEGOTIATED_FLOOR_SEATS / _CENTS): refused here, not after a spent step-up.
+    ['10000001', '100', /seat count this price was agreed at/i],
+    ['10', '10000000.01', /floor of 0 or more/i],
   ])('refuses seats %p / floor %p before any step-up', async (seats, floor, message) => {
     render(<SupportFloorModal subscription={SUB} onClose={() => {}} onSaved={() => {}} />);
     fill(seats, floor);

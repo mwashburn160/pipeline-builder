@@ -356,7 +356,7 @@ export function billingApi(core: ApiCore) {
 
     /** Change plan or interval on an existing subscription. */
     changeSubscription: async (id: string, data: { planId?: string; interval?: BillingInterval }) => {
-      return core.request<ApiResponse<{ subscription: Subscription }>>(`/api/billing/subscriptions/${id}`, {
+      return core.request<ApiResponse<{ subscription: Subscription }>>(`/api/billing/subscriptions/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
@@ -365,7 +365,7 @@ export function billingApi(core: ApiCore) {
     /** Cancel subscription at end of current period. Step-up gated: confirm in
      *  a `StepUpModal` first and forward its token. */
     cancelSubscription: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ subscription: Subscription; message: string }>>(`/api/billing/subscriptions/${id}/cancel`, {
+      return core.request<ApiResponse<{ subscription: Subscription; message: string }>>(`/api/billing/subscriptions/${encodeURIComponent(id)}/cancel`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -373,7 +373,7 @@ export function billingApi(core: ApiCore) {
 
     /** Reactivate a canceled subscription. */
     reactivateSubscription: async (id: string) => {
-      return core.request<ApiResponse<{ subscription: Subscription; message: string }>>(`/api/billing/subscriptions/${id}/reactivate`, {
+      return core.request<ApiResponse<{ subscription: Subscription; message: string }>>(`/api/billing/subscriptions/${encodeURIComponent(id)}/reactivate`, {
         method: 'POST',
       });
     },
@@ -385,7 +385,7 @@ export function billingApi(core: ApiCore) {
 
     /** Dry-run: effective limits + itemized price for a proposed add-on change. */
     previewAddon: async (subscriptionId: string, bundleId: string, quantity: number) => {
-      return core.request<ApiResponse<AddonResult>>(`/api/billing/subscriptions/${subscriptionId}/addons/preview`, {
+      return core.request<ApiResponse<AddonResult>>(`/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/addons/preview`, {
         method: 'POST',
         body: JSON.stringify({ bundleId, quantity }),
       });
@@ -393,7 +393,7 @@ export function billingApi(core: ApiCore) {
 
     /** Add or set an add-on bundle's quantity. */
     addAddon: async (subscriptionId: string, bundleId: string, quantity: number) => {
-      return core.request<ApiResponse<AddonResult>>(`/api/billing/subscriptions/${subscriptionId}/addons`, {
+      return core.request<ApiResponse<AddonResult>>(`/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/addons`, {
         method: 'POST',
         body: JSON.stringify({ bundleId, quantity }),
       });
@@ -401,7 +401,7 @@ export function billingApi(core: ApiCore) {
 
     /** Remove an add-on bundle. */
     removeAddon: async (subscriptionId: string, bundleId: string) => {
-      return core.request<ApiResponse<AddonResult>>(`/api/billing/subscriptions/${subscriptionId}/addons/${bundleId}`, {
+      return core.request<ApiResponse<AddonResult>>(`/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/addons/${encodeURIComponent(bundleId)}`, {
         method: 'DELETE',
       });
     },
@@ -456,7 +456,7 @@ export function billingApi(core: ApiCore) {
 
     /** Dry-run a discount code against the active subscription (billing:read). */
     previewDiscountCode: async (subscriptionId: string, code: string) => {
-      return core.request<ApiResponse<{ applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/subscriptions/${subscriptionId}/discounts/preview`, {
+      return core.request<ApiResponse<{ applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/discounts/preview`, {
         method: 'POST',
         body: JSON.stringify({ code }),
       });
@@ -464,7 +464,7 @@ export function billingApi(core: ApiCore) {
 
     /** Redeem a discount code (token or public alias) onto the subscription (billing:manage). */
     redeemDiscountCode: async (subscriptionId: string, code: string) => {
-      return core.request<ApiResponse<{ discount: Discount; applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/subscriptions/${subscriptionId}/discounts`, {
+      return core.request<ApiResponse<{ discount: Discount; applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/discounts`, {
         method: 'POST',
         body: JSON.stringify({ code }),
       });
@@ -472,7 +472,7 @@ export function billingApi(core: ApiCore) {
 
     /** Stop a standing recurring discount (already-granted credit persists) (billing:manage). */
     removeSubscriptionDiscount: async (subscriptionId: string, discountId: string) => {
-      return core.request<ApiResponse<{ removed: string }>>(`/api/billing/subscriptions/${subscriptionId}/discounts/${discountId}`, {
+      return core.request<ApiResponse<{ removed: string }>>(`/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/discounts/${encodeURIComponent(discountId)}`, {
         method: 'DELETE',
       });
     },
@@ -548,12 +548,12 @@ export function billingApi(core: ApiCore) {
 
     /** Issue (mint/re-issue) an opaque redeemable token for a discount. */
     issueDiscountToken: async (id: string) => {
-      return core.request<ApiResponse<{ token: string }>>(`/api/billing/admin/discounts/${id}/token`, { method: 'POST' });
+      return core.request<ApiResponse<{ token: string }>>(`/api/billing/admin/discounts/${encodeURIComponent(id)}/token`, { method: 'POST' });
     },
 
     /** Direct-grant a discount to a target org (Mode A). */
     applyDiscountToOrg: async (id: string, targetOrgId: string) => {
-      return core.request<ApiResponse<{ discount: Discount; applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/admin/discounts/${id}/apply`, {
+      return core.request<ApiResponse<{ discount: Discount; applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/admin/discounts/${encodeURIComponent(id)}/apply`, {
         method: 'POST',
         body: JSON.stringify({ targetOrgId }),
       });
@@ -561,7 +561,7 @@ export function billingApi(core: ApiCore) {
 
     /** Dry-run a direct grant on a target org. */
     previewDiscountForOrg: async (id: string, targetOrgId: string) => {
-      return core.request<ApiResponse<{ applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/admin/discounts/${id}/preview`, {
+      return core.request<ApiResponse<{ applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/admin/discounts/${encodeURIComponent(id)}/preview`, {
         method: 'POST',
         body: JSON.stringify({ targetOrgId }),
       });
@@ -569,7 +569,7 @@ export function billingApi(core: ApiCore) {
 
     /** Edit / revoke (isActive:false) a discount. */
     updateDiscount: async (id: string, body: { isActive?: boolean; maxRedemptions?: number; redeemBy?: string; appliesToTiers?: string[] }) => {
-      return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${id}`, {
+      return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(body),
       });
@@ -577,7 +577,7 @@ export function billingApi(core: ApiCore) {
 
     /** Hard-revoke a discount (isActive:false). */
     deleteDiscount: async (id: string) => {
-      return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${id}`, { method: 'DELETE' });
+      return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
 
     // ============================================
@@ -610,7 +610,7 @@ export function billingApi(core: ApiCore) {
 
     /** Edit / (re)activate a promotion. Revoke goes through {@link revokePromotion}. */
     updatePromotion: async (id: string, body: Partial<{ name: string; isActive: boolean; endsAt: string; budgetCents: number; maxGrants: number }>) => {
-      return core.request<ApiResponse<{ promotion: Promotion }>>(`/api/billing/admin/promotions/${id}`, {
+      return core.request<ApiResponse<{ promotion: Promotion }>>(`/api/billing/admin/promotions/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(body),
       });
@@ -618,7 +618,7 @@ export function billingApi(core: ApiCore) {
 
     /** Manually grant a promotion to one org (honors budget + idempotency). */
     grantPromotion: async (id: string, targetOrgId: string) => {
-      return core.request<ApiResponse<{ result: PromotionGrantResult }>>(`/api/billing/admin/promotions/${id}/grant`, {
+      return core.request<ApiResponse<{ result: PromotionGrantResult }>>(`/api/billing/admin/promotions/${encodeURIComponent(id)}/grant`, {
         method: 'POST',
         body: JSON.stringify({ targetOrgId }),
       });
@@ -626,17 +626,17 @@ export function billingApi(core: ApiCore) {
 
     /** Grant across the existing eligible base now (batch activation). */
     activatePromotion: async (id: string) => {
-      return core.request<ApiResponse<{ result: { total: number; matched: number; granted: number; alreadyGranted: number; skippedBudget: number; spentCents: number } }>>(`/api/billing/admin/promotions/${id}/activate`, { method: 'POST' });
+      return core.request<ApiResponse<{ result: { total: number; matched: number; granted: number; alreadyGranted: number; skippedBudget: number; spentCents: number } }>>(`/api/billing/admin/promotions/${encodeURIComponent(id)}/activate`, { method: 'POST' });
     },
 
     /** Projected reach + committed spend for a campaign. */
     previewPromotion: async (id: string) => {
-      return core.request<ApiResponse<{ projection: { eligibleOrgs: number; projectedCents: number; remainingBudgetCents: number } }>>(`/api/billing/admin/promotions/${id}/preview`, { method: 'POST' });
+      return core.request<ApiResponse<{ projection: { eligibleOrgs: number; projectedCents: number; remainingBudgetCents: number } }>>(`/api/billing/admin/promotions/${encodeURIComponent(id)}/preview`, { method: 'POST' });
     },
 
     /** Ledger-derived spend rollup (authoritative + advisory cache + drift). */
     promotionSpend: async (id: string) => {
-      return core.request<ApiResponse<{ spend: PromotionSpend }>>(`/api/billing/admin/promotions/${id}/spend`);
+      return core.request<ApiResponse<{ spend: PromotionSpend }>>(`/api/billing/admin/promotions/${encodeURIComponent(id)}/spend`);
     },
 
     // ============================================
@@ -651,7 +651,7 @@ export function billingApi(core: ApiCore) {
     /** Admin override on one subscription — plan / status / interval / cancel flag. */
     updateAdminSubscription: async (id: string, body: AdminSubscriptionUpdate, stepUpToken?: string) => {
       // Step-up gated: confirm in a `StepUpModal` first and forward its token.
-      return core.request<ApiResponse<{ subscription: Subscription }>>(`/api/billing/admin/subscriptions/${id}`, {
+      return core.request<ApiResponse<{ subscription: Subscription }>>(`/api/billing/admin/subscriptions/${encodeURIComponent(id)}`, {
         method: 'PUT',
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(body),
@@ -681,7 +681,7 @@ export function billingApi(core: ApiCore) {
      *  counts subscriptions KEPT because their provider cancel failed — purging
      *  again retries them. */
     deleteSubscriptionByOrg: async (orgId: string, stepUpToken: string) => {
-      return core.request<ApiResponse<{ deleted: number; events: number; retained: number }>>(`/api/billing/subscriptions/by-org/${orgId}`, {
+      return core.request<ApiResponse<{ deleted: number; events: number; retained: number }>>(`/api/billing/subscriptions/by-org/${encodeURIComponent(orgId)}`, {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });

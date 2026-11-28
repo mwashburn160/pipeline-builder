@@ -195,14 +195,14 @@ export function adminApi(core: ApiCore) {
     getOrgIdpConfig: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       // `config` is null when the org has no IdP configured (a normal state; the
       // endpoint returns 200, not 404).
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/admin/org-idp/${orgId}`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/admin/org-idp/${encodeURIComponent(orgId)}`, { signal: opts?.signal });
     },
 
     /** Writes are strong-factor step-up gated: confirm in a `StepUpModal`
      *  (`requireStrongFactor`) first and forward its token. */
     putOrgIdpConfig: async (orgId: string, data: OrgIdpConfigCreate, stepUpToken?: string) => {
       // `warnings` rides only when there are any (see IdpSaveWarning).
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/admin/org-idp/${orgId}`, {
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/admin/org-idp/${encodeURIComponent(orgId)}`, {
         method: 'PUT',
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(data),
@@ -211,7 +211,7 @@ export function adminApi(core: ApiCore) {
 
     patchOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>, stepUpToken?: string) => {
       // `warnings` rides only when there are any (see IdpSaveWarning).
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/admin/org-idp/${orgId}`, {
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/admin/org-idp/${encodeURIComponent(orgId)}`, {
         method: 'PATCH',
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(data),
@@ -219,7 +219,7 @@ export function adminApi(core: ApiCore) {
     },
 
     deleteOrgIdpConfig: async (orgId: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<Record<string, never>>>(`/api/admin/org-idp/${orgId}`, {
+      return core.request<ApiResponse<Record<string, never>>>(`/api/admin/org-idp/${encodeURIComponent(orgId)}`, {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -255,7 +255,7 @@ export function adminApi(core: ApiCore) {
      *  is intentionally elided server-side. */
     getOrgKmsConfig: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<OrgKmsConfigStatus>>(
-        `/api/admin/orgs/${orgId}/kms-config`,
+        `/api/admin/orgs/${encodeURIComponent(orgId)}/kms-config`,
         { signal: opts?.signal },
       );
     },
@@ -270,7 +270,7 @@ export function adminApi(core: ApiCore) {
     ) => {
       const q = opts?.reencrypt === false ? '?reencrypt=false' : '';
       return core.request<ApiResponse<KmsConfigChangeResult & { keyId: string }>>(
-        `/api/admin/orgs/${orgId}/kms-config${q}`,
+        `/api/admin/orgs/${encodeURIComponent(orgId)}/kms-config${q}`,
         { method: 'PUT', body: JSON.stringify(data), headers: core.stepUpHeader(stepUpToken) },
       );
     },
@@ -278,7 +278,7 @@ export function adminApi(core: ApiCore) {
     /** Clear the org's KMS config — org reverts to the shared master. */
     deleteOrgKmsConfig: async (orgId: string, stepUpToken?: string) => {
       return core.request<ApiResponse<KmsConfigChangeResult>>(
-        `/api/admin/orgs/${orgId}/kms-config`,
+        `/api/admin/orgs/${encodeURIComponent(orgId)}/kms-config`,
         { method: 'DELETE', headers: core.stepUpHeader(stepUpToken) },
       );
     },
@@ -288,7 +288,7 @@ export function adminApi(core: ApiCore) {
      *  pending; 500 (record kept) when it fails again. aal2 + strong step-up. */
     retryRunnerKeyReencrypt: async (orgId: string, stepUpToken?: string) => {
       return core.request<ApiResponse<RunnerKeyRewrapResult>>(
-        `/api/admin/orgs/${orgId}/kms-config/runner-keys/reencrypt`,
+        `/api/admin/orgs/${encodeURIComponent(orgId)}/kms-config/runner-keys/reencrypt`,
         { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
       );
     },
@@ -297,7 +297,7 @@ export function adminApi(core: ApiCore) {
      *  CMK exists, IAM permits Decrypt, and the wrapped master is valid. */
     testOrgKmsConfig: async (orgId: string, data: { keyId: string; ciphertextBase64: string }) => {
       return core.request<ApiResponse<{ ok: boolean; keyId: string; keyFingerprint: string; message: string }>>(
-        `/api/admin/orgs/${orgId}/kms-config/test`,
+        `/api/admin/orgs/${encodeURIComponent(orgId)}/kms-config/test`,
         { method: 'POST', body: JSON.stringify(data) },
       );
     },
@@ -309,7 +309,7 @@ export function adminApi(core: ApiCore) {
     /** Grant a named privilege to a user (today: 'platform-admin'). */
     addUserGrant: async (userId: string, grant: 'platform-admin', stepUpToken?: string) => {
       return core.request<ApiResponse<{ userId: string; grant: string; changed: boolean }>>(
-        `/api/admin/users/${userId}/grants`,
+        `/api/admin/users/${encodeURIComponent(userId)}/grants`,
         { method: 'POST', body: JSON.stringify({ grant }), headers: core.stepUpHeader(stepUpToken) },
       );
     },
@@ -318,7 +318,7 @@ export function adminApi(core: ApiCore) {
      *  server-side to prevent lockout. */
     removeUserGrant: async (userId: string, grant: 'platform-admin', stepUpToken?: string) => {
       return core.request<ApiResponse<{ userId: string; grant: string; changed: boolean }>>(
-        `/api/admin/users/${userId}/grants`,
+        `/api/admin/users/${encodeURIComponent(userId)}/grants`,
         { method: 'DELETE', body: JSON.stringify({ grant }), headers: core.stepUpHeader(stepUpToken) },
       );
     },
@@ -329,7 +329,7 @@ export function adminApi(core: ApiCore) {
     // ============================================
     /** Fetch the templated namespace YAML as a downloadable string. */
     getOrgNamespaceYaml: async (orgId: string, stepUpToken?: string): Promise<string> => {
-      return core.requestText(`/api/admin/orgs/${orgId}/k8s-namespace.yaml`, {
+      return core.requestText(`/api/admin/orgs/${encodeURIComponent(orgId)}/k8s-namespace.yaml`, {
         headers: core.stepUpHeader(stepUpToken),
         errorMessage: 'Failed to fetch namespace YAML',
       });
@@ -342,7 +342,7 @@ export function adminApi(core: ApiCore) {
      *  only for a user sharing their org). Opening a user reads this rather than
      *  trusting the list row, which may be stale. */
     getUser: async (id: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ user: User }>>(`/api/users/${id}`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ user: User }>>(`/api/users/${encodeURIComponent(id)}`, { signal: opts?.signal });
     },
 
     listUsers: async (params?: { organizationId?: string; role?: string; search?: string; offset?: number; limit?: number }) => {
@@ -369,7 +369,7 @@ export function adminApi(core: ApiCore) {
       data: { username?: string; email?: string; role?: string; organizationId?: string | null; password?: string },
       stepUpToken: string,
     ) => {
-      return core.request<ApiResponse<{ user: User }>>(`/api/users/${id}`, {
+      return core.request<ApiResponse<{ user: User }>>(`/api/users/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
         headers: core.stepUpHeader(stepUpToken),
@@ -385,14 +385,14 @@ export function adminApi(core: ApiCore) {
      */
     resetUserMfa: async (id: string, body: { reason: string; graceHours?: number }, stepUpToken: string) => {
       return core.request<ApiResponse<{ reset: { userId: string; email: string; passkeysRemoved: number; totpRemoved: boolean; recoveryCodesRemoved: boolean; graceUntil: string } }>>(
-        `/api/admin/users/${id}/mfa-reset`,
+        `/api/admin/users/${encodeURIComponent(id)}/mfa-reset`,
         { method: 'POST', body: JSON.stringify(body), headers: core.stepUpHeader(stepUpToken) },
       );
     },
 
     /** Deletes the whole account (platform admins only); requires a fresh password check. */
     deleteUserById: async (id: string, stepUpToken: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/users/${id}`, {
+      return core.request<ApiResponse<undefined>>(`/api/users/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -421,7 +421,7 @@ export function adminApi(core: ApiCore) {
         ...(options.orgId ? { orgId: options.orgId } : {}),
       };
       return core.request<ApiResponse<ImpersonationStartDto>>(
-        `/api/admin/impersonate/${userId}`,
+        `/api/admin/impersonate/${encodeURIComponent(userId)}`,
         {
           method: 'POST',
           headers: core.stepUpHeader(stepUpToken),
@@ -446,7 +446,7 @@ export function adminApi(core: ApiCore) {
     /** Approve or deny a pending request. */
     decideImpersonationRequest: async (requestId: string, approve: boolean) => {
       return core.request<ApiResponse<{ requestId: string; status: string }>>(
-        `/api/admin/impersonate/requests/${requestId}/decide`,
+        `/api/admin/impersonate/requests/${encodeURIComponent(requestId)}/decide`,
         { method: 'POST', body: JSON.stringify({ approve }) },
       );
     },
@@ -457,7 +457,7 @@ export function adminApi(core: ApiCore) {
       // `revokedEverywhere: false` means the platform refuses the token but other
       // services may still accept it until it expires — tell the person that.
       return core.request<ApiResponse<{ requestId: string; status: 'revoked'; revokedEverywhere: boolean }>>(
-        `/api/admin/impersonate/requests/${requestId}/revoke`,
+        `/api/admin/impersonate/requests/${encodeURIComponent(requestId)}/revoke`,
         { method: 'POST' },
       );
     },
@@ -465,7 +465,7 @@ export function adminApi(core: ApiCore) {
     /** Exchange an approved request for its session token. Step-up gated. */
     redeemImpersonationRequest: async (requestId: string, stepUpToken?: string) => {
       return core.request<ApiResponse<ImpersonationStartDto>>(
-        `/api/admin/impersonate/requests/${requestId}/redeem`,
+        `/api/admin/impersonate/requests/${encodeURIComponent(requestId)}/redeem`,
         { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
       );
     },
@@ -475,7 +475,7 @@ export function adminApi(core: ApiCore) {
      *  (202) when a second sysadmin must approve. */
     breakglassImpersonation: async (userId: string, justification: string, stepUpToken?: string) => {
       return core.request<ApiResponse<ImpersonationStartDto>>(
-        `/api/admin/impersonate/${userId}/breakglass`,
+        `/api/admin/impersonate/${encodeURIComponent(userId)}/breakglass`,
         { method: 'POST', body: JSON.stringify({ justification }), headers: core.stepUpHeader(stepUpToken) },
       );
     },
@@ -495,7 +495,7 @@ export function adminApi(core: ApiCore) {
       organizationId?: string,
     ) => {
       return core.request<ApiResponse<{ user: User; organizationId: string }>>(
-        `/api/users/${userId}/features`,
+        `/api/users/${encodeURIComponent(userId)}/features`,
         {
           method: 'PUT',
           body: JSON.stringify({ overrides, ...(organizationId && { organizationId }) }),
@@ -533,7 +533,7 @@ export function adminApi(core: ApiCore) {
 
     /** Get quotas for a specific org. */
     getOrgQuotas: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${encodeURIComponent(orgId)}`, { signal: opts?.signal });
     },
 
     /**
@@ -600,7 +600,7 @@ export function adminApi(core: ApiCore) {
 
     /** Update org name, slug, and/or quotas (system admin only). */
     updateOrgQuotas: async (orgId: string, data: { name?: string; slug?: string; tier?: PlanTier; quotas?: Record<string, number> }) => {
-      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}`, {
+      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${encodeURIComponent(orgId)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
@@ -615,7 +615,7 @@ export function adminApi(core: ApiCore) {
      */
     resetOrgQuota: async (orgId: string, quotaType?: QuotaType, stepUpToken?: string) => {
       // Step-up gated: confirm in a `StepUpModal` first and forward its token.
-      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}/reset`, {
+      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${encodeURIComponent(orgId)}/reset`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(quotaType ? { quotaType } : {}),

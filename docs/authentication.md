@@ -2996,7 +2996,7 @@ switch-org:
 
 - `user` — the client saw real input since its last refresh. The idle clock
   restarts at this refresh. The browser sends it when there was pointer, key,
-  touch, wheel or scroll input in **any** of its tabs; the CLI sends it on
+  touch or wheel input in **any** of its tabs (a scroll is not counted: code scrolls too); the CLI sends it on
   every renewal (a renewal only happens because someone ran a command).
 - `passive`, or no value at all — a background poll renewing the token of a
   tab nobody is using. The token is renewed (rotation, reuse detection and the

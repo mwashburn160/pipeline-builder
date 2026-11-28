@@ -227,3 +227,54 @@ describe('ApiCore.streamRequest under impersonation', () => {
     expect(expired).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ApiCore.reportActivity under impersonation', () => {
+  // The operator's OWN session keeps its idle clock on the server while they
+  // impersonate. Activity they make meanwhile must still reach it, or ending
+  // an impersonation longer than the idle timeout signs an active operator out.
+  const IDLE = { idleTimeoutMinutes: 15, idleExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString() };
+
+  afterEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    (require('../src/lib/session/activity') as typeof import('../src/lib/session/activity')).activityTracker.resetForTests();
+  });
+
+  it('renews the operator session with user activity, keeping the impersonation token', async () => {
+    const { activityTracker } = await import('../src/lib/session/activity');
+    const core = new ApiCore();
+    core.setTokens({ accessToken: OPERATOR_TOKEN, session: IDLE });
+    core.startImpersonation(IMPERSONATION_TOKEN, 'req-7');
+    const before = core.getSessionIdle()!.lastActiveAt;
+    const later = new Date(Date.now() + 15 * 60_000 + 5 * 60_000).toISOString();
+    global.fetch = jest.fn<AnyFn>(async () => ({
+      status: 200, ok: true, headers: new Headers(),
+      json: async () => ({ data: { accessToken: OPERATOR_TOKEN, expiresIn: 900, session: { idleTimeoutMinutes: 15, idleExpiresAt: later } } }),
+    }) as unknown as Response) as unknown as typeof fetch;
+    activityTracker.record(Date.now() + 1000);
+
+    await expect(core.reportActivity()).resolves.toBe(true);
+
+    const [url, init] = (global.fetch as unknown as jest.Mock<AnyFn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/api/auth/refresh');
+    expect(JSON.parse(String(init.body))).toEqual({ activity: 'user' });
+    expect(tokenOf(core)).toBe(IMPERSONATION_TOKEN);
+    expect(core.isImpersonating()).toBe(true);
+    expect(core.getSessionIdle()!.lastActiveAt).toBeGreaterThan(before);
+  });
+
+  it('signs out when the operator session has ended for inactivity', async () => {
+    const core = new ApiCore();
+    core.setTokens({ accessToken: OPERATOR_TOKEN, session: IDLE });
+    core.startImpersonation(IMPERSONATION_TOKEN, 'req-7');
+    const expired = jest.fn();
+    core.onSessionExpired(expired);
+    global.fetch = jest.fn<AnyFn>(async () => ({
+      status: 401, ok: false, headers: new Headers(),
+      json: async () => ({ code: 'SESSION_EXPIRED', details: { reason: 'idle', idleTimeoutMinutes: 15 } }),
+    }) as unknown as Response) as unknown as typeof fetch;
+
+    await expect(core.reportActivity()).resolves.toBe(false);
+    expect(expired).toHaveBeenCalledWith('idle', { idleTimeoutMinutes: 15 });
+    expect(tokenOf(core)).toBeNull();
+  });
+});

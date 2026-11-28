@@ -159,6 +159,17 @@ describe('Cascade outbox (operators)', () => {
     expect(screen.queryByTestId('stepup-modal')).toBeNull();
   });
 
+  it('a page left empty (its legs moved out of the filter) steps back instead of showing "51–50 of 50"', async () => {
+    api.listCascadeLegs
+      .mockResolvedValueOnce(ok({ legs: [leg()], pagination: { total: 51, limit: 50, offset: 0, hasMore: true } }))
+      .mockResolvedValueOnce(ok({ legs: [], pagination: { total: 50, limit: 50, offset: 50, hasMore: false } }));
+    render(<CascadePage />);
+    await rowOf('org-gone');
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(api.listCascadeLegs).toHaveBeenLastCalledWith({ limit: 50, offset: 0 }, expect.anything()));
+    expect(api.listCascadeLegs).toHaveBeenCalledTimes(3);
+  });
+
   it('a denied viewer sees the access-denied page', () => {
     mockAuthGuard({ accessDenied: { kind: 'permission', permission: 'platform:read', pathname: '/dashboard/admin/cascade' } });
     render(<CascadePage />);

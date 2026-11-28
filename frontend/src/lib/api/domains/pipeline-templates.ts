@@ -26,14 +26,14 @@ export function pipelineTemplatesApi(core: ApiCore) {
       body: { project: string; organization: string; pipelineName?: string; inputs?: Record<string, string | number | boolean> },
     ) => {
       return core.request<ApiResponse<{ props: BuilderProps; description?: string; keywords?: string[] }>>(
-        `/api/pipeline-templates/${id}/instantiate`,
+        `/api/pipeline-templates/${encodeURIComponent(id)}/instantiate`,
         { method: 'POST', body: JSON.stringify(body) },
       );
     },
 
     /** Fetch a single template by id (full record, incl. props + inputs). */
     getPipelineTemplate: async (id: string) => {
-      return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${id}`);
+      return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${encodeURIComponent(id)}`);
     },
 
     createPipelineTemplate: async (data: {
@@ -67,7 +67,7 @@ export function pipelineTemplatesApi(core: ApiCore) {
        *  PRECONDITION_FAILED when the template changed since). Absent: last write wins. */
       expectedUpdatedAt?: string;
     }, opts?: ProposedByOptions) => {
-      return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${id}`, {
+      return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
         headers: core.proposedByHeader(opts),
@@ -75,7 +75,7 @@ export function pipelineTemplatesApi(core: ApiCore) {
     },
 
     deletePipelineTemplate: async (id: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/pipeline-templates/${id}`, { method: 'DELETE' });
+      return core.request<ApiResponse<{ message: string }>>(`/api/pipeline-templates/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
 
     /** List the org's soft-deleted templates (tombstones), most-recent first —
@@ -88,7 +88,7 @@ export function pipelineTemplatesApi(core: ApiCore) {
      *  action): pass the token from StepUpModal; the api forwards it as the
      *  `X-Step-Up-Token` header. */
     restorePipelineTemplate: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${id}/restore`, {
+      return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${encodeURIComponent(id)}/restore`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -97,7 +97,7 @@ export function pipelineTemplatesApi(core: ApiCore) {
     /** Permanently hard-delete a soft-deleted template tombstone (bypasses the retention
      *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
     purgePipelineTemplate: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/pipeline-templates/${id}/purge`, {
+      return core.request<ApiResponse<undefined>>(`/api/pipeline-templates/${encodeURIComponent(id)}/purge`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });

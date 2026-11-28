@@ -96,7 +96,7 @@ export function pluginsApi(core: ApiCore) {
     },
 
     getPluginById: async (id: string) => {
-      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}`);
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${encodeURIComponent(id)}`);
     },
 
     /**
@@ -318,7 +318,7 @@ export function pluginsApi(core: ApiCore) {
        *  PRECONDITION_FAILED when the version changed since). Absent: last write wins. */
       expectedUpdatedAt?: string;
     }, opts?: ProposedByOptions) => {
-      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}`, {
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
         headers: core.proposedByHeader(opts),
@@ -333,7 +333,7 @@ export function pluginsApi(core: ApiCore) {
      * `plugins:publish` for a public version.
      */
     deprecatePlugin: async (id: string, data: { deprecated?: boolean; message?: string } = {}) => {
-      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}/deprecate`, {
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${encodeURIComponent(id)}/deprecate`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -346,7 +346,7 @@ export function pluginsApi(core: ApiCore) {
      * version published to the ecosystem answers 409 (request the yank there).
      */
     yankPlugin: async (id: string, reason: string) => {
-      return core.request<ApiResponse<{ plugin: Plugin; promotedDefault?: { id: string; version: string } }>>(`/api/plugins/${id}/yank`, {
+      return core.request<ApiResponse<{ plugin: Plugin; promotedDefault?: { id: string; version: string } }>>(`/api/plugins/${encodeURIComponent(id)}/yank`, {
         method: 'POST',
         body: JSON.stringify({ reason }),
       });
@@ -360,7 +360,7 @@ export function pluginsApi(core: ApiCore) {
      * `CONFLICT` when it is not yanked. Same gates as yank.
      */
     unyankPlugin: async (id: string, reason?: string) => {
-      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}/unyank`, {
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${encodeURIComponent(id)}/unyank`, {
         method: 'POST',
         body: JSON.stringify(reason ? { reason } : {}),
       });
@@ -369,7 +369,7 @@ export function pluginsApi(core: ApiCore) {
     /** `promotedDefault` names the version that became the default when the
      *  deleted one was it. */
     deletePlugin: async (id: string) => {
-      return core.request<ApiResponse<{ promotedDefault?: { id: string; version: string } }>>(`/api/plugins/${id}`, {
+      return core.request<ApiResponse<{ promotedDefault?: { id: string; version: string } }>>(`/api/plugins/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
     },
@@ -384,7 +384,7 @@ export function pluginsApi(core: ApiCore) {
      *  action): pass the token from StepUpModal; the api forwards it as the
      *  `X-Step-Up-Token` header. */
     restorePlugin: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}/restore`, {
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${encodeURIComponent(id)}/restore`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -393,7 +393,7 @@ export function pluginsApi(core: ApiCore) {
     /** Permanently hard-delete a soft-deleted plugin tombstone (bypasses the retention
      *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
     purgePlugin: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/plugins/${id}/purge`, {
+      return core.request<ApiResponse<undefined>>(`/api/plugins/${encodeURIComponent(id)}/purge`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });

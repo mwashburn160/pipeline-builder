@@ -29,9 +29,9 @@ import { StackedBarPanel } from '@/components/observability/StackedBarPanel';
 import { StatPanel } from '@/components/observability/StatPanel';
 import { TablePanel } from '@/components/observability/TablePanel';
 import { RangePicker } from '@/components/observability/RangePicker';
+import { canEditDashboard } from '@/components/observability/dashboard-access';
 import type { RangeKey , DashboardWithPanels, DashboardPanel } from '@/types/observability';
 import { api } from '@/lib/api';
-import { isSystemAdmin } from '@/lib/auth-helpers';
 import { formatError } from '@/lib/constants';
 import { useElementWidth } from '@/hooks/useElementWidth';
 
@@ -270,15 +270,8 @@ export default function DashboardPage() {
     );
   }
 
-  // Show Edit only when the caller might have write access. Doesn't enforce
-  // anything — server rejects writes the caller isn't allowed to make — but
-  // hides the button from members who can't touch it to reduce noise.
-  // `!isReadOnly`: the author branch (`createdBy === user.id`) isn't read-only-
-  // aware (only `can()` is), so without it a read-only impersonation of the
-  // author would still get Edit/Delete — writes the backend rejects.
-  const mightEdit = !!user && !isReadOnly
-    && (dashboard.visibility !== 'public' || isSystemAdmin(user))
-    && (dashboard.createdBy === user.id || can('dashboards:write'));
+  // Edit / Delete only where ops-center would accept them (its per-dashboard rule).
+  const mightEdit = canEditDashboard(dashboard, { user, can, isReadOnly });
 
   const canClone = can('dashboards:write');
 

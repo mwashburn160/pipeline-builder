@@ -75,7 +75,8 @@ type AuthBroadcast =
  * the session's last activity as the server recorded it, and the deadline past
  * which the server refuses the next refresh. From the `session` block of every
  * token delivery (sign-in, refresh, switch-org); `null` without an interactive
- * session (signed out, impersonating).
+ * session (signed out). While a tab impersonates it stays the OPERATOR's
+ * session's state: that is the session the idle clock is running on.
  */
 export interface SessionIdleState {
   idleTimeoutMinutes: number;
@@ -335,8 +336,31 @@ export class ApiCore {
    * idle guard keeping the server's clock in step). Resolves like a refresh.
    */
   reportActivity(): Promise<boolean> {
+    // An impersonating operator's OWN session keeps its idle clock on the
+    // server; their activity must reach it, or ending an impersonation longer
+    // than the idle timeout signs an active operator out.
+    if (this.isImpersonating()) {
+      if (!this.hasSessionMarker()) return Promise.resolve(false);
+      return this.withCrossTabRefreshLock(() => this.renewBehindImpersonation());
+    }
     if (!this.canRefresh()) return Promise.resolve(false);
     return this.refreshAccessToken();
+  }
+
+  /**
+   * Renew the operator's session while this tab impersonates: one refresh
+   * whose token goes to the sibling tabs (which are on the operator's session)
+   * but not to this one, which keeps the impersonation token. Not retried —
+   * the idle guard asks again. A refused session ends here like anywhere.
+   */
+  private async renewBehindImpersonation(): Promise<boolean> {
+    if (!this.isImpersonating() || !this.hasSessionMarker()) return false;
+    const generation = this.sessionGeneration;
+    const outcome = await this.attemptRefresh(generation, { keepAccessToken: true });
+    if (outcome === 'ok') return true;
+    if (this.sessionGeneration !== generation) return false;
+    if (outcome === 'rejected' || outcome === 'expired') this.endRefusedSession(outcome);
+    return false;
   }
 
   /**
@@ -574,6 +598,22 @@ export class ApiCore {
     const idle = this.idleStateFrom(tokens.accessToken, tokens.session);
     if (idle) this.setSessionIdle(idle);
     this.broadcast({ type: 'access-token', accessToken: tokens.accessToken, organizationId: this.organizationId, sessionIdle: this.sessionIdle });
+  }
+
+  /**
+   * A renewal of the operator's session made while this tab impersonates: its
+   * idle state is the one this tab's guard times, and its token is for the
+   * sibling tabs (on the operator's session) — never applied here.
+   */
+  private adoptRenewalElsewhere(tokens: AuthTokens): void {
+    const idle = this.idleStateFrom(tokens.accessToken, tokens.session);
+    if (idle) this.setSessionIdle(idle);
+    let organizationId: string | null = null;
+    try {
+      const claim = (JSON.parse(base64UrlDecode(tokens.accessToken.split('.')[1])) as { organizationId?: unknown }).organizationId;
+      if (typeof claim === 'string' && claim) organizationId = claim;
+    } catch { /* undecodable — siblings keep their org */ }
+    this.broadcast({ type: 'access-token', accessToken: tokens.accessToken, organizationId, sessionIdle: this.sessionIdle });
   }
 
   /**
@@ -1043,13 +1083,7 @@ export class ApiCore {
       // this refresh no longer speaks for the current session.
       if (this.sessionGeneration !== generation) return false;
       if (outcome === 'rejected' || outcome === 'expired') {
-        const end = outcome === 'expired' ? this.lastExpiry ?? { reason: 'session-expired' as const } : undefined;
-        this.clearTokens(end);
-        if (end?.reason === 'idle') {
-          this.notifySessionExpired('idle', end.idleTimeoutMinutes !== undefined ? { idleTimeoutMinutes: end.idleTimeoutMinutes } : {});
-        } else {
-          this.notifySessionExpired(end?.reason);
-        }
+        this.endRefusedSession(outcome);
         return false;
       }
       if (outcome === 'throttled') {
@@ -1069,6 +1103,17 @@ export class ApiCore {
     this.refreshCooldownUntil = Date.now() + REFRESH_FAILURE_COOLDOWN_MS;
     this.scheduleRefreshAfterCooldown();
     return false;
+  }
+
+  /** `/auth/refresh` refused the cookie: sign out every tab, saying why when the server did. */
+  private endRefusedSession(outcome: 'rejected' | 'expired'): void {
+    const end = outcome === 'expired' ? this.lastExpiry ?? { reason: 'session-expired' as const } : undefined;
+    this.clearTokens(end);
+    if (end?.reason === 'idle') {
+      this.notifySessionExpired('idle', end.idleTimeoutMinutes !== undefined ? { idleTimeoutMinutes: end.idleTimeoutMinutes } : {});
+    } else {
+      this.notifySessionExpired(end?.reason);
+    }
   }
 
   /** True when the current access token is missing or inside the refresh window. */
@@ -1125,7 +1170,7 @@ export class ApiCore {
    *  - `failed`    anything else (other 4xx, 2xx without a token) — not retried,
    *                but not proof the session is over either
    */
-  private async attemptRefresh(generation: number): Promise<'ok' | 'rejected' | 'expired' | 'throttled' | 'transient' | 'failed'> {
+  private async attemptRefresh(generation: number, opts?: { keepAccessToken?: boolean }): Promise<'ok' | 'rejected' | 'expired' | 'throttled' | 'transient' | 'failed'> {
     let response: Response;
     // Bounded: this runs inside the cross-tab lock, so a request that never
     // settles would hold it for good (see REFRESH_REQUEST_TIMEOUT_MS). A timeout
@@ -1180,7 +1225,8 @@ export class ApiCore {
       // that WAS, so it must not overwrite — or re-open — the one that is.
       // `doRefresh` sees the generation change and reports false.
       if (this.sessionGeneration !== generation) return 'failed';
-      this.setTokens(tokens);
+      if (opts?.keepAccessToken) this.adoptRenewalElsewhere(tokens);
+      else this.setTokens(tokens);
       return 'ok';
     }
     return 'failed';

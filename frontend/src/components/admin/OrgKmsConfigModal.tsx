@@ -301,7 +301,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
             <div>
               Saving rotates the org&apos;s KMS binding and re-encrypts existing AI keys and IdP secrets under the new CMK.
               The operator must have already created the CMK (key policy: allow platform&apos;s IAM role to <code>kms:Decrypt</code>)
-              and generated a wrapped master via <code>aws kms encrypt --key-id ALIAS --plaintext FILE://master.b64 --output text --query CiphertextBlob</code>.
+              and wrapped a 32-byte master with it (<code>head -c 32 /dev/urandom &gt; master.bin</code>, then the command below).
             </div>
           </div>
 

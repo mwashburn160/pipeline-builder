@@ -39,7 +39,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Get rule change history */
     getComplianceRuleHistory: async (id: string) => {
-      return core.request<ApiResponse<{ history: ComplianceRuleHistoryEntry[] }>>(`/api/compliance/rules/${id}/history`);
+      return core.request<ApiResponse<{ history: ComplianceRuleHistoryEntry[] }>>(`/api/compliance/rules/${encodeURIComponent(id)}/history`);
     },
 
     /** Create a compliance rule */
@@ -52,14 +52,14 @@ export function complianceApi(core: ApiCore) {
 
     /** Get a compliance rule by id. */
     getComplianceRule: async (id: string) => {
-      return core.request<ApiResponse<{ rule: ComplianceRule }>>(`/api/compliance/rules/${id}`);
+      return core.request<ApiResponse<{ rule: ComplianceRule }>>(`/api/compliance/rules/${encodeURIComponent(id)}`);
     },
 
     /** Update a compliance rule. `data.expectedUpdatedAt` (the `updatedAt` the
      *  edit was based on) makes it a conditional write: 412 PRECONDITION_FAILED
      *  when the rule changed since. Absent: last write wins. */
     updateComplianceRule: async (id: string, data: ComplianceRuleUpdate) => {
-      return core.request<ApiResponse<{ rule: ComplianceRule }>>(`/api/compliance/rules/${id}`, {
+      return core.request<ApiResponse<{ rule: ComplianceRule }>>(`/api/compliance/rules/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
@@ -67,7 +67,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Delete a compliance rule */
     deleteComplianceRule: async (id: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/compliance/rules/${id}`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/compliance/rules/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
     },
@@ -83,7 +83,7 @@ export function complianceApi(core: ApiCore) {
      *  window). Step-up gated (reverses a destructive action): pass the token
      *  from StepUpModal; the api forwards it as the `X-Step-Up-Token` header. */
     restoreComplianceRule: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/compliance/rules/${id}/restore`, {
+      return core.request<ApiResponse<undefined>>(`/api/compliance/rules/${encodeURIComponent(id)}/restore`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -92,7 +92,7 @@ export function complianceApi(core: ApiCore) {
     /** Permanently hard-delete a soft-deleted rule tombstone (bypasses the retention
      *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
     purgeComplianceRule: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/compliance/rules/${id}/purge`, {
+      return core.request<ApiResponse<undefined>>(`/api/compliance/rules/${encodeURIComponent(id)}/purge`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -159,7 +159,7 @@ export function complianceApi(core: ApiCore) {
      *  was based on) makes it a conditional write: 412 PRECONDITION_FAILED when
      *  the policy changed since. Absent: last write wins. */
     updateCompliancePolicy: async (id: string, data: { name?: string; description?: string; version?: string; isActive?: boolean; expectedUpdatedAt?: string }) => {
-      return core.request<ApiResponse<{ policy: CompliancePolicy }>>(`/api/compliance/policies/${id}`, {
+      return core.request<ApiResponse<{ policy: CompliancePolicy }>>(`/api/compliance/policies/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
@@ -167,7 +167,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Delete a compliance policy */
     deleteCompliancePolicy: async (id: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/compliance/policies/${id}`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/compliance/policies/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
     },
@@ -183,7 +183,7 @@ export function complianceApi(core: ApiCore) {
      *  window). Step-up gated (reverses a destructive action): pass the token
      *  from StepUpModal; the api forwards it as the `X-Step-Up-Token` header. */
     restoreCompliancePolicy: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/compliance/policies/${id}/restore`, {
+      return core.request<ApiResponse<undefined>>(`/api/compliance/policies/${encodeURIComponent(id)}/restore`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -192,7 +192,7 @@ export function complianceApi(core: ApiCore) {
     /** Permanently hard-delete a soft-deleted policy tombstone (bypasses the retention
      *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
     purgeCompliancePolicy: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/compliance/policies/${id}/purge`, {
+      return core.request<ApiResponse<undefined>>(`/api/compliance/policies/${encodeURIComponent(id)}/purge`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -222,7 +222,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Activate or deactivate a subscribed rule */
     setSubscriptionActive: async (ruleId: string, isActive: boolean) => {
-      return core.request<ApiResponse<{ subscription: ComplianceRuleSubscription }>>(`/api/compliance/subscriptions/${ruleId}`, {
+      return core.request<ApiResponse<{ subscription: ComplianceRuleSubscription }>>(`/api/compliance/subscriptions/${encodeURIComponent(ruleId)}`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive }),
       });
@@ -230,7 +230,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Unsubscribe from a published rule */
     unsubscribeFromRule: async (ruleId: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/compliance/subscriptions/${ruleId}`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/compliance/subscriptions/${encodeURIComponent(ruleId)}`, {
         method: 'DELETE',
       });
     },
@@ -258,14 +258,14 @@ export function complianceApi(core: ApiCore) {
 
     /** Pin subscription to current rule version */
     pinSubscription: async (ruleId: string) => {
-      return core.request<ApiResponse<{ subscription: ComplianceRuleSubscription }>>(`/api/compliance/subscriptions/${ruleId}/pin`, {
+      return core.request<ApiResponse<{ subscription: ComplianceRuleSubscription }>>(`/api/compliance/subscriptions/${encodeURIComponent(ruleId)}/pin`, {
         method: 'POST',
       });
     },
 
     /** Unpin subscription (use latest rule version) */
     unpinSubscription: async (ruleId: string) => {
-      return core.request<ApiResponse<{ subscription: ComplianceRuleSubscription }>>(`/api/compliance/subscriptions/${ruleId}/pin`, {
+      return core.request<ApiResponse<{ subscription: ComplianceRuleSubscription }>>(`/api/compliance/subscriptions/${encodeURIComponent(ruleId)}/pin`, {
         method: 'DELETE',
       });
     },
@@ -332,7 +332,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Approve or reject an exemption */
     reviewExemption: async (id: string, status: 'approved' | 'rejected', rejectionReason?: string) => {
-      return core.request<ApiResponse<{ exemption: ComplianceExemption }>>(`/api/compliance/exemptions/${id}/review`, {
+      return core.request<ApiResponse<{ exemption: ComplianceExemption }>>(`/api/compliance/exemptions/${encodeURIComponent(id)}/review`, {
         method: 'PUT',
         body: JSON.stringify({ status, rejectionReason }),
       });
@@ -350,7 +350,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Delete an exemption */
     deleteExemption: async (id: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/compliance/exemptions/${id}`, {
+      return core.request<ApiResponse<{ message: string }>>(`/api/compliance/exemptions/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
     },
@@ -366,7 +366,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Get scan by ID */
     getScan: async (id: string) => {
-      return core.request<ApiResponse<{ scan: ComplianceScan }>>(`/api/compliance/scans/${id}`);
+      return core.request<ApiResponse<{ scan: ComplianceScan }>>(`/api/compliance/scans/${encodeURIComponent(id)}`);
     },
 
     /** Trigger a compliance scan */
@@ -384,7 +384,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Cancel a running scan */
     cancelScan: async (id: string) => {
-      return core.request<ApiResponse<{ scan: ComplianceScan }>>(`/api/compliance/scans/${id}/cancel`, {
+      return core.request<ApiResponse<{ scan: ComplianceScan }>>(`/api/compliance/scans/${encodeURIComponent(id)}/cancel`, {
         method: 'POST',
       });
     },
@@ -408,7 +408,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Update a scan schedule */
     updateScanSchedule: async (id: string, data: { target?: string; cronExpression?: string }) => {
-      return core.request<ApiResponse<{ schedule: ScanSchedule }>>(`/api/compliance/scan-schedules/${id}`, {
+      return core.request<ApiResponse<{ schedule: ScanSchedule }>>(`/api/compliance/scan-schedules/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
@@ -416,7 +416,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Toggle scan schedule active state */
     toggleScanScheduleActive: async (id: string, isActive: boolean) => {
-      return core.request<ApiResponse<{ schedule: ScanSchedule }>>(`/api/compliance/scan-schedules/${id}/active`, {
+      return core.request<ApiResponse<{ schedule: ScanSchedule }>>(`/api/compliance/scan-schedules/${encodeURIComponent(id)}/active`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive }),
       });
@@ -424,7 +424,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Delete a scan schedule */
     deleteScanSchedule: async (id: string) => {
-      return core.request<ApiResponse<void>>(`/api/compliance/scan-schedules/${id}`, {
+      return core.request<ApiResponse<void>>(`/api/compliance/scan-schedules/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
     },

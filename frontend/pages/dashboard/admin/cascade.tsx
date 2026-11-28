@@ -15,7 +15,7 @@
  * leg's handler is idempotent, so a redrive is always safe to repeat.
  */
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Workflow } from 'lucide-react';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { AccessDenied } from '@/components/ui/AccessDenied';
@@ -98,11 +98,21 @@ export default function CascadeOutboxPage() {
     onError: () => { void legs.refetch(); },
   });
 
+  // A page left empty past the first (a redrive or a delivery moved its legs
+  // out of the filter) steps back to the last page that has rows.
+  const pageData = legs.data;
+  useEffect(() => {
+    if (pageData && pageData.legs.length === 0 && pageData.pagination.offset > 0) {
+      const lastOffset = Math.max(0, Math.floor((pageData.pagination.total - 1) / PAGE_SIZE) * PAGE_SIZE);
+      setOffset(Math.min(lastOffset, pageData.pagination.offset - PAGE_SIZE));
+    }
+  }, [pageData]);
+
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
 
-  const rows = legs.data?.legs ?? [];
-  const page = legs.data?.pagination;
+  const rows = pageData?.legs ?? [];
+  const page = pageData?.pagination;
 
   const applySubject = (e: FormEvent) => {
     e.preventDefault();

@@ -137,7 +137,7 @@ export function messagesApi(core: ApiCore) {
     /** Get all messages in a thread. Pass `signal` so a superseded thread
      *  switch stops the abandoned read on the wire. */
     getThread: async (id: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ messages: Message[] }>>(`/api/messages/${id}/thread`, opts);
+      return core.request<ApiResponse<{ messages: Message[] }>>(`/api/messages/${encodeURIComponent(id)}/thread`, opts);
     },
 
     /** Send a new message (announcement or conversation) */
@@ -190,7 +190,7 @@ export function messagesApi(core: ApiCore) {
 
     /** Reply to a message thread */
     replyToMessage: async (id: string, content: string, attachmentIds?: string[], idempotencyKey?: string) => {
-      return core.request<ApiResponse<Message>>(`/api/messages/${id}/reply`, {
+      return core.request<ApiResponse<Message>>(`/api/messages/${encodeURIComponent(id)}/reply`, {
         method: 'POST',
         headers: { 'Idempotency-Key': idempotencyKey ?? newIdempotencyKey() },
         body: JSON.stringify({ content, ...(attachmentIds?.length ? { attachmentIds } : {}) }),
@@ -199,7 +199,7 @@ export function messagesApi(core: ApiCore) {
 
     /** Edit a sent message's content (author-only; enforced server-side). */
     editMessage: async (id: string, content: string) => {
-      return core.request<ApiResponse<{ message: Message }>>(`/api/messages/${id}`, {
+      return core.request<ApiResponse<{ message: Message }>>(`/api/messages/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         body: JSON.stringify({ content }),
       });
@@ -250,7 +250,7 @@ export function messagesApi(core: ApiCore) {
      */
     setSupportCaseStatus: async (threadId: string, status: string) => {
       return core.request<ApiResponse<{ status: string; awaitingTotalSeconds: number }>>(
-        `/api/messages/support/${threadId}/status`,
+        `/api/messages/support/${encodeURIComponent(threadId)}/status`,
         { method: 'PATCH', body: JSON.stringify({ status }) },
       );
     },
@@ -264,7 +264,7 @@ export function messagesApi(core: ApiCore) {
      */
     transferSupportCase: async (threadId: string, tenantContact: string) => {
       return core.request<ApiResponse<{ tenantContact: string | null }>>(
-        `/api/messages/support/${threadId}/transfer`,
+        `/api/messages/support/${encodeURIComponent(threadId)}/transfer`,
         { method: 'PATCH', body: JSON.stringify({ tenantContact }) },
       );
     },
@@ -283,7 +283,7 @@ export function messagesApi(core: ApiCore) {
     /** Take, hand over, or RELEASE a case (null = back to the unowned pool). Staff only. */
     assignSupportCase: async (threadId: string, assignedTo: string | null) => {
       return core.request<ApiResponse<{ assignedTo: string | null }>>(
-        `/api/messages/support/${threadId}/assign`,
+        `/api/messages/support/${encodeURIComponent(threadId)}/assign`,
         { method: 'PATCH', body: JSON.stringify({ assignedTo }) },
       );
     },
@@ -295,7 +295,7 @@ export function messagesApi(core: ApiCore) {
      */
     setSupportCaseSeverity: async (threadId: string, severity: string) => {
       return core.request<ApiResponse<{ severity: string }>>(
-        `/api/messages/support/${threadId}/severity`,
+        `/api/messages/support/${encodeURIComponent(threadId)}/severity`,
         { method: 'PATCH', body: JSON.stringify({ severity }) },
       );
     },
@@ -318,18 +318,18 @@ export function messagesApi(core: ApiCore) {
      */
     getSupportCaseNotes: async (threadId: string) => {
       return core.request<ApiResponse<{ notes: SupportCaseNote[] }>>(
-        `/api/messages/support/${threadId}/notes`,
+        `/api/messages/support/${encodeURIComponent(threadId)}/notes`,
       );
     },
     addSupportCaseNote: async (threadId: string, content: string) => {
       return core.request<ApiResponse<{ note: SupportCaseNote }>>(
-        `/api/messages/support/${threadId}/notes`,
+        `/api/messages/support/${encodeURIComponent(threadId)}/notes`,
         { method: 'POST', body: JSON.stringify({ content }) },
       );
     },
     deleteSupportCaseNote: async (threadId: string, noteId: string) => {
       return core.request<ApiResponse<{ noteId: string }>>(
-        `/api/messages/support/${threadId}/notes/${noteId}`,
+        `/api/messages/support/${encodeURIComponent(threadId)}/notes/${encodeURIComponent(noteId)}`,
         { method: 'DELETE' },
       );
     },
@@ -363,7 +363,7 @@ export function messagesApi(core: ApiCore) {
      */
     rateSupportCase: async (threadId: string, satisfaction: number, comment?: string) => {
       return core.request<ApiResponse<{ satisfaction: number }>>(
-        `/api/messages/support/${threadId}/satisfaction`,
+        `/api/messages/support/${encodeURIComponent(threadId)}/satisfaction`,
         { method: 'PATCH', body: JSON.stringify({ satisfaction, ...(comment ? { comment } : {}) }) },
       );
     },
@@ -382,12 +382,12 @@ export function messagesApi(core: ApiCore) {
       });
     },
     updateCannedResponse: async (id: string, fields: { title?: string; body?: string }) => {
-      return core.request<ApiResponse<{ id: string }>>(`/api/messages/support/canned/${id}`, {
+      return core.request<ApiResponse<{ id: string }>>(`/api/messages/support/canned/${encodeURIComponent(id)}`, {
         method: 'PATCH', body: JSON.stringify(fields),
       });
     },
     deleteCannedResponse: async (id: string) => {
-      return core.request<ApiResponse<{ id: string }>>(`/api/messages/support/canned/${id}`, { method: 'DELETE' });
+      return core.request<ApiResponse<{ id: string }>>(`/api/messages/support/canned/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
 
     /**
@@ -423,7 +423,7 @@ export function messagesApi(core: ApiCore) {
      * author or its current tenant contact.
      */
     replyToSupportCase: async (threadId: string, content: string, attachmentIds?: string[], idempotencyKey?: string) => {
-      return core.request<ApiResponse<Message>>(`/api/messages/support/${threadId}/reply`, {
+      return core.request<ApiResponse<Message>>(`/api/messages/support/${encodeURIComponent(threadId)}/reply`, {
         method: 'POST',
         headers: { 'Idempotency-Key': idempotencyKey ?? newIdempotencyKey() },
         body: JSON.stringify({ content, ...(attachmentIds?.length ? { attachmentIds } : {}) }),
@@ -448,7 +448,7 @@ export function messagesApi(core: ApiCore) {
 
     /** List a message's attachment metadata. */
     getMessageAttachments: async (messageId: string) => {
-      return core.request<ApiResponse<{ attachments: MessageAttachment[] }>>(`/api/messages/${messageId}/attachments`);
+      return core.request<ApiResponse<{ attachments: MessageAttachment[] }>>(`/api/messages/${encodeURIComponent(messageId)}/attachments`);
     },
 
     /** Fetch an attachment's bytes (auth-gated) as a Blob — the caller creates an
@@ -457,20 +457,20 @@ export function messagesApi(core: ApiCore) {
      *  when no thumbnail exists). */
     fetchAttachmentBlob: async (id: string, opts?: { thumb?: boolean }): Promise<Blob> => {
       const q = opts?.thumb ? '?thumb=1' : '';
-      const response = await core.requestRaw(`/api/messages/attachments/${id}${q}`, { errorMessage: 'Attachment download failed' });
+      const response = await core.requestRaw(`/api/messages/attachments/${encodeURIComponent(id)}${q}`, { errorMessage: 'Attachment download failed' });
       return response.blob();
     },
 
     /** Mark a message as read */
     markMessageAsRead: async (id: string) => {
-      return core.request<ApiResponse<{ message: Message }>>(`/api/messages/${id}/read`, {
+      return core.request<ApiResponse<{ message: Message }>>(`/api/messages/${encodeURIComponent(id)}/read`, {
         method: 'PUT',
       });
     },
 
     /** Mark all messages in a thread as read */
     markThreadAsRead: async (id: string) => {
-      return core.request<ApiResponse<{ updated: number }>>(`/api/messages/${id}/thread/read`, {
+      return core.request<ApiResponse<{ updated: number }>>(`/api/messages/${encodeURIComponent(id)}/thread/read`, {
         method: 'PUT',
       });
     },
@@ -534,7 +534,7 @@ export function messagesApi(core: ApiCore) {
 
     /** Delete a message (soft delete) */
     deleteMessage: async (id: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/messages/${id}`, {
+      return core.request<ApiResponse<undefined>>(`/api/messages/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
     },
@@ -550,7 +550,7 @@ export function messagesApi(core: ApiCore) {
      *  Step-up gated (reverses a destructive action): pass the token from
      *  StepUpModal; the api forwards it as the `X-Step-Up-Token` header. */
     restoreMessage: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/messages/${id}/restore`, {
+      return core.request<ApiResponse<undefined>>(`/api/messages/${encodeURIComponent(id)}/restore`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -559,7 +559,7 @@ export function messagesApi(core: ApiCore) {
     /** Permanently hard-delete a soft-deleted message tombstone (bypasses the retention
      *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
     purgeMessage: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/messages/${id}/purge`, {
+      return core.request<ApiResponse<undefined>>(`/api/messages/${encodeURIComponent(id)}/purge`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });

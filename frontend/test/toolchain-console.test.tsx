@@ -293,6 +293,22 @@ describe('Toolchain console: tabs', () => {
     expect(screen.getByRole('tab', { name: 'Adoption' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('a picked release that is gone after a refresh falls back to the default pick, not "No toolchain releases yet"', async () => {
+    fns.getToolchainCleanup.mockImplementation(() => ok({ candidates: [{ releaseVersion: '1.4.1', createdAt: '2026-08-01T00:00:00Z' }] }));
+    await renderConsole();
+    tab('Rollout');
+    fireEvent.change(screen.getByLabelText('Release'), { target: { value: '1.4.1' } });
+    expect(screen.getByLabelText('Release')).toHaveValue('1.4.1');
+    fns.listToolchainReleases.mockImplementation(() => ok({ platformDefault: '1.4.2', releases: RELEASES.filter((r) => r.releaseVersion !== '1.4.1') }));
+    tab('Cleanup');
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete 1.4.1' }));
+    confirmStepUp();
+    await waitFor(() => expect(fns.listToolchainReleases).toHaveBeenCalledTimes(2));
+    tab('Rollout');
+    await waitFor(() => expect(screen.getByLabelText('Release')).toHaveValue('1.5.0'));
+    expect(screen.queryByText('No toolchain releases yet.')).toBeNull();
+  });
+
   it('an unknown ?tab= opens Releases', async () => {
     mockRouter({ query: { tab: 'adoption' } });
     render(<ToolchainConsolePage />);

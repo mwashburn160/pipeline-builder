@@ -4,8 +4,8 @@
 /**
  * Inactivity sign-out, the client half that never renders anything:
  *
- *  - the ACTIVITY TRACKER counts only real input (pointer, key, touch, wheel,
- *    scroll), throttled, shared with every tab of the browser over a
+ *  - the ACTIVITY TRACKER counts only real input (pointer, key, touch, wheel —
+ *    never a scroll, which code causes too), throttled, shared with every tab of the browser over a
  *    BroadcastChannel — or the `storage` event where there is none;
  *  - the API client reports it: `/auth/refresh` says `activity: 'user'` only
  *    when there was input since the session's last recorded activity, and
@@ -78,7 +78,15 @@ afterEach(() => {
 });
 
 describe('ActivityTracker', () => {
-  it.each(['pointermove', 'pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll'])('counts %s as real input', (type) => {
+  it('does not count a scroll: code scrolls too (a live log tail, a streaming answer), and a person\'s scroll arrives as wheel, touch, key or pointer input', () => {
+    const t = new ActivityTracker();
+    const stop = t.start();
+    input('scroll');
+    expect(t.lastActivityAt()).toBe(0);
+    stop();
+  });
+
+  it.each(['pointermove', 'pointerdown', 'keydown', 'touchstart', 'wheel'])('counts %s as real input', (type) => {
     const t = new ActivityTracker();
     const stop = t.start();
     expect(t.lastActivityAt()).toBe(0);
@@ -329,5 +337,159 @@ describe('ApiCore ends an idle session everywhere', () => {
     const tabB = new ApiCore();
     tabA.setTokens({ accessToken: accessToken('u1'), session: idleState(2 * MINUTE) });
     expect(tabB.getSessionIdle()).toEqual(tabA.getSessionIdle());
+  });
+});
+
+/**
+ * An impersonating tab keeps the OPERATOR's idle clock running on the server:
+ * `reportActivity()` renews the operator's session (the token goes to the
+ * sibling tabs, never this one), and every way that renewal can end is handled
+ * the way an ordinary refresh's would be.
+ */
+describe('ApiCore renews the operator session behind an impersonation', () => {
+  let fetchMock: jest.Mock<AnyFn>;
+  const hadLocks = 'locks' in navigator;
+
+  /** A token for the impersonated user, as `startImpersonation` receives it. */
+  function impersonationToken(): string {
+    const body = { sub: 'target', organizationId: 'org-t', impersonationReadOnly: true };
+    return `h.${Buffer.from(JSON.stringify(body)).toString('base64').replace(/=+$/, '')}.s`;
+  }
+
+  /** The operator's tab (impersonating) and a sibling tab on the operator's session. */
+  function tabs(): { imp: ApiCore; sibling: ApiCore; impToken: string } {
+    const imp = new ApiCore();
+    const sibling = new ApiCore();
+    imp.setTokens({ accessToken: accessToken('operator'), session: idleState(8 * MINUTE) });
+    const impToken = impersonationToken();
+    imp.startImpersonation(impToken, 'req-1');
+    return { imp, sibling, impToken };
+  }
+
+  beforeEach(() => {
+    fetchMock = jest.fn<AnyFn>();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    (globalThis as { BroadcastChannel?: unknown }).BroadcastChannel = TestBroadcastChannel;
+  });
+
+  afterEach(() => {
+    if (!hadLocks) delete (navigator as unknown as Record<string, unknown>).locks;
+  });
+
+  it('hands the renewed operator token and idle state to the sibling tabs, and keeps the impersonation token here', async () => {
+    const { imp, sibling, impToken } = tabs();
+    const renewed = accessToken('operator');
+    fetchMock.mockResolvedValue(res(200, { data: { accessToken: renewed, expiresIn: 900, session: idleState(0) } }));
+
+    await expect(imp.reportActivity()).resolves.toBe(true);
+
+    expect(imp.getAccessToken()).toBe(impToken);
+    expect(imp.isImpersonating()).toBe(true);
+    expect(sibling.getAccessToken()).toBe(renewed);
+    // The operator's org, read from the renewed token — not the impersonated org.
+    expect(sibling.getOrganizationId()).toBe('org-1');
+    // Both tabs now time the restarted idle clock.
+    expect(imp.getSessionIdle()!.lastActiveAt).toBe(Date.now());
+    expect(sibling.getSessionIdle()).toEqual(imp.getSessionIdle());
+  });
+
+  it('a renewal without a session block keeps the idle state this tab already had', async () => {
+    const { imp } = tabs();
+    const before = imp.getSessionIdle();
+    fetchMock.mockResolvedValue(res(200, { data: { accessToken: accessToken('operator'), expiresIn: 900 } }));
+
+    await expect(imp.reportActivity()).resolves.toBe(true);
+    expect(imp.getSessionIdle()).toEqual(before);
+  });
+
+  it('ignores a session block whose deadline is not a date', async () => {
+    const { imp } = tabs();
+    const before = imp.getSessionIdle();
+    fetchMock.mockResolvedValue(res(200, {
+      data: { accessToken: accessToken('operator'), expiresIn: 900, session: { idleTimeoutMinutes: 15, idleExpiresAt: 'soon' } },
+    }));
+
+    await expect(imp.reportActivity()).resolves.toBe(true);
+    expect(imp.getSessionIdle()).toEqual(before);
+  });
+
+  it('sends nothing when this browser holds no session to renew', async () => {
+    const { imp } = tabs();
+    localStorage.removeItem('pb.session');
+    (imp as unknown as { sessionInMemory: boolean }).sessionInMemory = false;
+
+    await expect(imp.reportActivity()).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('an outage (5xx) reports false and changes nothing: no sign-out, impersonation intact', async () => {
+    const { imp, impToken } = tabs();
+    const before = imp.getSessionIdle();
+    const ended = jest.fn<AnyFn>();
+    imp.onSessionExpired(ended);
+    fetchMock.mockResolvedValue(res(503));
+
+    await expect(imp.reportActivity()).resolves.toBe(false);
+    // One attempt, not the refresh retry ladder: the idle guard asks again.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(ended).not.toHaveBeenCalled();
+    expect(imp.getAccessToken()).toBe(impToken);
+    expect(imp.getSessionIdle()).toEqual(before);
+  });
+
+  it('a plain rejection of the cookie signs every tab out, with no reason to show', async () => {
+    const { imp, sibling } = tabs();
+    const endedHere = jest.fn<AnyFn>();
+    const endedThere = jest.fn<AnyFn>();
+    imp.onSessionExpired(endedHere);
+    sibling.onSessionExpired(endedThere);
+    fetchMock.mockResolvedValue(res(401, { code: 'INVALID_REFRESH_TOKEN' }));
+
+    await expect(imp.reportActivity()).resolves.toBe(false);
+
+    expect(imp.getAccessToken()).toBeNull();
+    expect(imp.getSessionIdle()).toBeNull();
+    expect(endedHere).toHaveBeenCalledWith(undefined);
+    expect(endedThere).toHaveBeenCalledWith(undefined);
+  });
+
+  it('a renewal that lands after the impersonation ended is dropped', async () => {
+    const { imp, sibling } = tabs();
+    let answer!: (r: Response) => void;
+    fetchMock.mockImplementation((() => new Promise<Response>((r) => { answer = r; })) as AnyFn);
+
+    const done = imp.reportActivity();
+    // The tab signs out while the renewal is out.
+    imp.clearTokens();
+    answer(res(200, { data: { accessToken: accessToken('late'), expiresIn: 900, session: idleState(0) } }));
+
+    await expect(done).resolves.toBe(false);
+    expect(imp.getAccessToken()).toBeNull();
+    expect(imp.getSessionIdle()).toBeNull();
+    // The sign-out reached the sibling; the late token did not.
+    expect(sibling.getAccessToken()).toBeNull();
+  });
+
+  it('renews under the cross-tab lock, and gives up without a request when the lock is never granted', async () => {
+    const { imp } = tabs();
+    const names: string[] = [];
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: (name: string, opts: { signal?: AbortSignal }) => {
+          names.push(name);
+          return new Promise((_, reject) => {
+            opts.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          });
+        },
+      },
+    });
+
+    const done = imp.reportActivity();
+    await jest.advanceTimersByTimeAsync(10 * MINUTE);
+
+    await expect(done).resolves.toBe(false);
+    expect(names).toHaveLength(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
