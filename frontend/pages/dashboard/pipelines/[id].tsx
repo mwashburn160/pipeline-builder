@@ -47,6 +47,8 @@ import { runnerErrorBanner, runnerErrorMessage } from '@/components/pipeline/Run
 import { RunRequestStatus } from '@/components/pipeline/RunRequestStatus';
 import { PipelineRegistrationBanner } from '@/components/pipeline/PipelineDeployGuidance';
 import { DeployPipelinePanel } from '@/components/pipeline/DeployPipelinePanel';
+import { RegisterDeploymentModal } from '@/components/deployments/RegisterDeploymentModal';
+import { RunWithRunnerModal } from '@/components/pipeline/RunWithRunnerModal';
 import { PipelineStackNotice } from '@/components/pipeline/PipelineStackNotice';
 import { RunnerLinkBanners, RunnerLinkRow, useRunnerLink } from '@/components/pipeline/RunnerLinkStatus';
 import { StepUpModal } from '@/components/admin/StepUpModal';
@@ -287,8 +289,8 @@ function PipelineDetail({ id }: { id: string }) {
   const startQueued = runRequests.active.some((r) => r.action === 'start' && r.phase === 'queued');
 
   const trigger = useMutation({
-    fn: async (pipelineId: string) => {
-      const res = await api.triggerPipelineExecution(pipelineId);
+    fn: async (pipelineId: string, runnerId?: string | null) => {
+      const res = runnerId ? await api.triggerPipelineExecution(pipelineId, { runnerId }) : await api.triggerPipelineExecution(pipelineId);
       if (!res.success) throw new Error(res.message || 'Failed to trigger execution');
       return res.data;
     },
@@ -301,11 +303,37 @@ function PipelineDetail({ id }: { id: string }) {
   });
   const triggering = trigger.pending || startQueued;
   const { run: runTrigger } = trigger;
+  /**
+   * Run pipeline, by where the pipeline stands:
+   *  - registered and linked to a runner (or a link check running) → run;
+   *  - not registered → Register and run: register it with a runner, then run
+   *    once that runner finds it;
+   *  - registered, no runner linked → choose the runner to run it with.
+   * When the registration or the link can't be read, it just runs (the server
+   * finds the runner).
+   */
+  const registration = pipeline?.registration;
+  const link = runnerLink.link;
   const handleTrigger = useCallback(async () => {
     if (!id) return;
     setActionError(null);
+    if (registration && !registration.registered && can('pipeline_registry:write')) {
+      setRunAfterRegister(true);
+      setShowRegister(true);
+      return;
+    }
+    if (registration?.registered && link && link.status !== 'checking' && !(link.status === 'linked' && link.runner)) {
+      setShowRunWith(true);
+      return;
+    }
     await runTrigger(id);
-  }, [id, runTrigger]);
+  }, [id, runTrigger, registration, link, can]);
+  const runWith = useCallback(async (runnerId: string | null) => {
+    if (!id) return;
+    setShowRunWith(false);
+    await runTrigger(id, runnerId);
+    void runnerLink.refetch();
+  }, [id, runTrigger, runnerLink]);
 
   const cancelExecution = useMutation({
     fn: async (pipelineId: string, executionId: string) => {
@@ -337,6 +365,12 @@ function PipelineDetail({ id }: { id: string }) {
   const canWriteTemplate = can('templates:write');
   const canPublishTemplate = can('templates:publish');
   const [showDelete, setShowDelete] = useState(false);
+  // Register deployment opens here (not on the Deployments page) for a pipeline with no registration.
+  const [showRegister, setShowRegister] = useState(false);
+  // Run pipeline on an unregistered pipeline: register it with a runner, then run.
+  const [runAfterRegister, setRunAfterRegister] = useState(false);
+  // Run pipeline on a registered pipeline no runner is linked to: choose the runner to run with.
+  const [showRunWith, setShowRunWith] = useState(false);
   const [actionError, setActionError] = useState<ReactNode>(null);
 
   const deletion = useMutation({
@@ -520,6 +554,29 @@ function PipelineDetail({ id }: { id: string }) {
           pipelineId={pipeline.id}
           registered={pipeline.registration.registered}
           hasEvents={pipeline.registration.hasEvents}
+          onRegister={can('pipeline_registry:write') ? () => { setRunAfterRegister(false); setShowRegister(true); } : undefined}
+        />
+      )}
+      {showRegister && pipeline && (
+        <RegisterDeploymentModal
+          configs={[{ id: pipeline.id, pipelineName: pipeline.pipelineName, project: pipeline.project, organization: pipeline.organization }]}
+          initialPipelineId={pipeline.id}
+          lockPipeline
+          // The Deploy panel is on this page (when it can be edited): close the dialog onto it.
+          onDeployInstead={canEdit ? () => setShowRegister(false) : undefined}
+          onClose={() => setShowRegister(false)}
+          onRegistered={() => { void reloadPipeline(); void runnerLink.refetch(); }}
+          // Register and run: start the run once the chosen runner linked it.
+          onLinked={runAfterRegister ? () => { setShowRegister(false); void runTrigger(pipeline.id); } : undefined}
+        />
+      )}
+      {showRunWith && pipeline && (
+        <RunWithRunnerModal
+          pipelineId={pipeline.id}
+          pipelineLabel={pipeline.pipelineName || pipeline.id}
+          running={trigger.pending}
+          onRun={(runnerId) => { void runWith(runnerId); }}
+          onClose={() => setShowRunWith(false)}
         />
       )}
       {/* Never deployed and editable: deploy it through a pipeline runner from here. */}

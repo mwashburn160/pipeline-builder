@@ -49,6 +49,12 @@ export async function routeExecution(input: RouteInput, deps: RunnerDeps = runne
     const runner = await linkedRunner(deps, link, await loadEligible());
     if (runner) return enqueueRun(deps, runner, input);
   }
-  const runner = await discoverRunner(deps, input, await loadEligible(), link);
+  let candidates = await loadEligible();
+  if (input.runnerId) {
+    const wanted = input.runnerId.toLowerCase();
+    candidates = candidates.filter((e) => e.runner.id.toLowerCase() === wanted);
+    if (candidates.length === 0) throw new RunnerRouteError('VALIDATION_ERROR', 'runnerId names no pipeline runner your organization can use.');
+  }
+  const runner = await discoverRunner(deps, input, candidates, link);
   return enqueueRun(deps, runner, input);
 }

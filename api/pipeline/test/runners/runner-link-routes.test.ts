@@ -16,6 +16,8 @@ import { apiCoreMock } from '../helpers/mock-api-core.js';
 const ORG_ID = '0123456789abcdef01234567';
 const mockFindById = jest.fn<(id: string, orgId: string) => Promise<unknown>>();
 jest.unstable_mockModule('../../src/services/pipeline-service.js', () => ({ pipelineService: { findById: mockFindById } }));
+const mockRegStatus = jest.fn<AnyFn>();
+jest.unstable_mockModule('../../src/services/pipeline-registry-service.js', () => ({ pipelineRegistryService: { findRegistrationStatus: (...a: unknown[]) => mockRegStatus(...a) } }));
 const mockAudit = jest.fn<AnyFn>();
 const mockStepUp = jest.fn<AnyFn>((_req, _res, next: () => void) => next());
 const mockAssurance = jest.fn<AnyFn>((_req, _res, next: () => void) => next());
@@ -63,6 +65,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   expect(ORG).toBe(ORG_ID);
   mockFindById.mockResolvedValue({ id: PIPE });
+  mockRegStatus.mockResolvedValue({ registered: false, lastDeployed: null, stackName: null, region: null, hasEvents: false });
   deps = testDeps();
   setRunnerDepsForTesting(deps);
 });
@@ -116,6 +119,52 @@ describe('GET /:pipelineId/runner-link', () => {
     const r = add({ label: 'deployer', capabilities: ['deploy:1'] });
     deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: 'us-east-1', runnerId: r.id, linkStatus: 'linked' });
     expect(data(await getLink())).toMatchObject({ runner: { id: r.id, capabilities: ['deploy:1'] } });
+  });
+});
+
+describe('GET /:pipelineId/register-runners (the Register deployment dialog)', () => {
+  const list = async (pipelineId = PIPE) => { const r = res(); await handler('get', '/:pipelineId/register-runners')({ params: { pipelineId }, query: {}, user: {} }, r); return r; };
+
+  it('is a pipelines:read route', () => {
+    expect(stackOf('get', '/:pipelineId/register-runners')).toHaveLength(stackOf('get', '/:pipelineId/runner-link').length);
+  });
+
+  it('404 for an unknown, invisible or malformed pipeline', async () => {
+    mockFindById.mockResolvedValue(null);
+    expect((await list()).statusCode).toBe(404);
+    expect((await list('nope')).statusCode).toBe(404);
+  });
+
+  it('lists every eligible runner (deploys enabled or not) with health and regions, the registration state, and the link — never a URL', async () => {
+    const own = add({ label: 'default', regions: ['us-east-1'] });
+    const down = add({ label: 'old', health: 'unreachable', regions: ['us-east-1', 'eu-west-1'] });
+    const shared = add({ orgId: PARENT, label: 'parent', shareWithTeams: true });
+    deps.ancestors.push(PARENT);
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: own.id, linkStatus: 'linked' });
+    mockRegStatus.mockResolvedValue({ registered: true, lastDeployed: null, stackName: null, region: null, hasEvents: true });
+    const out = await list();
+    expect(out.statusCode).toBe(200);
+    expect(data(out)).toEqual({
+      pipelineId: PIPE,
+      available: true,
+      unavailableReason: null,
+      registered: true,
+      hasEvents: true,
+      linkedRunnerId: own.id,
+      runners: [
+        { id: own.id, label: 'default', isOwn: true, ownerOrgName: null, regions: ['us-east-1'], health: 'healthy' },
+        { id: down.id, label: 'old', isOwn: true, ownerOrgName: null, regions: ['us-east-1', 'eu-west-1'], health: 'unreachable' },
+        { id: shared.id, label: 'parent', isOwn: false, ownerOrgName: expect.any(String), regions: ['us-east-1'], health: 'healthy' },
+      ],
+    });
+    expect(JSON.stringify(out.body)).not.toContain(URL_A);
+  });
+
+  it('says why no runner can link it when runners are unavailable, and flags a never-deployed pipeline', async () => {
+    add({ label: 'default' });
+    deps.availability.available = false;
+    deps.availability.reason = 'paused';
+    expect(data(await list())).toMatchObject({ available: false, unavailableReason: 'paused', runners: [], registered: false, hasEvents: false, linkedRunnerId: null });
   });
 });
 

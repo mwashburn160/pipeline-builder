@@ -31,6 +31,7 @@ jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() =>
 
 const api = {
   getPipelineById: jest.fn<AnyFn>(),
+  getRegisterRunners: jest.fn<AnyFn>(),
   getExecutionCount: jest.fn<AnyFn>(),
   getOrganizationMembers: jest.fn<AnyFn>(),
   listPipelineDeployments: jest.fn<AnyFn>(),
@@ -103,13 +104,28 @@ describe('pipeline detail registration banner', () => {
     expect(screen.queryByText(/Deployed but not registered/)).not.toBeInTheDocument();
   });
 
-  it('deployed but not registered (it has reported before): registers itself, or by hand from Deployments', async () => {
+  it('deployed but not registered (it has reported before): registers itself, or by hand right here', async () => {
     api.getPipelineById.mockResolvedValue({ success: true, data: { pipeline, registration: { registered: false, hasEvents: true } } });
+    api.getRegisterRunners.mockResolvedValue({ success: true, data: {
+      pipelineId: 'p1', available: true, unavailableReason: null, registered: false, hasEvents: true, linkedRunnerId: null,
+      runners: [{ id: 'run-default', label: 'default', isOwn: true, ownerOrgName: null, regions: ['us-east-1'], health: 'healthy' }],
+    } });
     render(<PipelineDetailPage />);
     expect(await screen.findByText(/Deployed but not registered/)).toBeInTheDocument();
     expect(screen.getByText(/registers itself on its next pipeline event/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Register deployment/ })).toHaveAttribute('href', '/dashboard/deployments?register=p1');
     expect(screen.queryByText(/Not deployed yet/)).not.toBeInTheDocument();
+
+    // The dialog opens on this page, on this pipeline, and asks about its only runner.
+    fireEvent.click(screen.getByRole('button', { name: 'Register deployment' }));
+    expect(await screen.findByText(/with the pipeline runner/)).toHaveTextContent('Register web-pipeline with the pipeline runner default?');
+    expect(screen.queryByLabelText('Pipeline')).not.toBeInTheDocument();
+  });
+
+  it('without pipeline_registry:write, Register deployment links to the Deployments page', async () => {
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => p !== 'pipeline_registry:write' });
+    api.getPipelineById.mockResolvedValue({ success: true, data: { pipeline, registration: { registered: false, hasEvents: true } } });
+    render(<PipelineDetailPage />);
+    expect(await screen.findByRole('link', { name: /Register deployment/ })).toHaveAttribute('href', '/dashboard/deployments?register=p1');
   });
 
   it('shows neither once registered', async () => {
@@ -142,7 +158,8 @@ describe('pipeline detail runs + actions', () => {
     await waitFor(() => expect(api.stopPipelineExecution).toHaveBeenCalledWith('p1', 'e-run', expect.anything()));
   });
 
-  it('Re-run triggers this pipeline', async () => {
+  it('Re-run triggers this pipeline (registered: no runner link read, so the server finds the runner)', async () => {
+    api.getPipelineById.mockResolvedValue({ success: true, data: { pipeline, registration: { registered: true, hasEvents: true } } });
     render(<PipelineDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: /Re-run|Run pipeline/ }));
     await waitFor(() => expect(api.triggerPipelineExecution).toHaveBeenCalledWith('p1'));
@@ -159,6 +176,7 @@ describe('pipeline detail runs + actions', () => {
 
   it('a refused trigger shows the server message', async () => {
     api.triggerPipelineExecution.mockResolvedValue({ success: false, message: 'Pipeline not deployed' });
+    api.getPipelineById.mockResolvedValue({ success: true, data: { pipeline, registration: { registered: true, hasEvents: true } } });
     render(<PipelineDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: /Re-run|Run pipeline/ }));
     expect(await screen.findByText(/Pipeline not deployed/)).toBeInTheDocument();

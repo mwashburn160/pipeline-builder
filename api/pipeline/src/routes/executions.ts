@@ -30,6 +30,15 @@ const StopExecutionSchema = z.object({
 });
 
 /**
+ * The start body: `runnerId` runs it with that runner when no runner is linked
+ * to the pipeline (the dashboard's "Run with" choice). Empty: the linked
+ * runner, else discovery across every eligible runner.
+ */
+const StartBodySchema = z.object({
+  runnerId: z.string().uuid('runnerId must be a pipeline runner id').optional(),
+});
+
+/**
  * Register pipeline execution write routes. Runners are the only execution
  * path: both routes queue a signed request for the pipeline's runner (linked,
  * or found by discovery) and answer 202 with the queued run request; the
@@ -60,9 +69,14 @@ export function createExecutionRoutes(): Router {
       const pipelineId = getParam(req.params, 'pipelineId');
       if (!pipelineId) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
+      // Optional `{ runnerId }`: run with that runner when none is linked to the pipeline.
+      const body = StartBodySchema.safeParse(req.body ?? {});
+      if (!body.success) return sendBadRequest(res, body.error.issues[0]?.message ?? 'Invalid body', ErrorCode.VALIDATION_ERROR);
+      const runnerId = body.data.runnerId?.toLowerCase();
+
       try {
         const parentOrgId = req.user?.parentOrganizationId;
-        const started = await triggerExecutionInWindow(pipelineId, orgId, { requestedBy: userId, ...(parentOrgId ? { parentOrgId } : {}) });
+        const started = await triggerExecutionInWindow(pipelineId, orgId, { requestedBy: userId, ...(parentOrgId ? { parentOrgId } : {}), ...(runnerId ? { runnerId } : {}) });
         if (started.status === 'duplicate') {
           ctx.log('WARN', 'Duplicate pipeline execution trigger suppressed', { pipelineId });
           recordAudit({

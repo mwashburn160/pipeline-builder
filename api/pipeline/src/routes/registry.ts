@@ -24,7 +24,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { runnerDeps } from '../runners/deps.js';
-import { linkInBackground } from '../runners/routing.js';
+import { eligibleRunners, startLink } from '../runners/routing.js';
 import { SYSTEM_RUNNER_LINK } from '../runners/vocabulary.js';
 import {
   pipelineRegistryService,
@@ -68,6 +68,12 @@ const PipelineRegistrySchema = z.object({
   organization: z.string().max(255).optional(),
   stackName: z.string().max(255).optional(),
   steps: z.array(StepManifestEntrySchema).max(MAX_MANIFEST_STEPS).optional(),
+  /**
+   * The pipeline runner picked in the dashboard's Register deployment dialog:
+   * the background link probe asks only that runner (it still links only when
+   * the runner finds the pipeline's tag). Omitted: every eligible runner.
+   */
+  runnerId: z.string().uuid('runnerId must be a pipeline runner id').optional(),
 });
 
 /** The Deployment card's `runner: { id, label } | null` on each row (the caller's own org only). */
@@ -117,7 +123,7 @@ export function createRegistryRoutes(): Router {
     });
   }));
 
-  router.post('/registry', requirePermission('pipeline_registry:write'), audited('pipeline.registry.register'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/registry', requirePermission('pipeline_registry:write'), audited('pipeline.registry.register', 'pipeline.runner.link.refresh'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, PipelineRegistrySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -128,6 +134,18 @@ export function createRegistryRoutes(): Router {
     // `pb.pipeline-id` tag (= pipelineId) and reports against it, so the
     // registry only needs the stable pipelineId + display metadata.
     ctx.log('INFO', 'Registering pipeline for event reporting', { pipelineId: v.pipelineId });
+
+    // A picked runner must be one this org can use (its own, or an ancestor's
+    // shared one) — checked before anything is written.
+    const parentOrgId = req.user?.parentOrganizationId;
+    let runnerLabel: string | undefined;
+    if (v.runnerId) {
+      const runnerId = v.runnerId.toLowerCase();
+      const eligible = await eligibleRunners(runnerDeps(), orgId, parentOrgId);
+      const picked = eligible.find((e) => e.runner.id.toLowerCase() === runnerId);
+      if (!picked) return sendBadRequest(res, 'runnerId names no pipeline runner your organization can use.', ErrorCode.VALIDATION_ERROR);
+      runnerLabel = picked.runner.label;
+    }
 
     try {
       const { exposures, ...result } = await pipelineRegistryService.upsert({
@@ -164,24 +182,48 @@ export function createRegistryRoutes(): Router {
           ...(v.stackName !== undefined ? { stackName: v.stackName } : {}),
           ...(result.manifestSteps !== undefined ? { manifestSteps: result.manifestSteps } : {}),
           ...(result.pipelineDeleted ? { pipelineDeleted: true } : {}),
+          ...(v.runnerId ? { runnerId: v.runnerId, runnerLabel } : {}),
           // Deployed-side plugin vulnerability exposures the manifest reconcile
           // opened / closed (only when a manifest was sent).
           ...(exposures ? { exposuresOpened: exposures.opened, exposuresClosed: exposures.closed } : {}),
         },
       });
 
-      // Link at registration: probe the org's runners in the background and
-      // save the link, so the first Run goes straight to its runner. Never
-      // awaited, never fails the registration; its outcome is the row's
-      // runner-link status (and Run still falls back to discovery).
-      void linkInBackground(runnerDeps(), {
+      // Link at registration: probe the org's runners (only the picked one, when
+      // the dialog named one) and save the link, so the first Run goes straight
+      // to its runner. The probe runs after the answer and never fails the
+      // registration; the answer's `runnerLink` is `checking` while it runs (the
+      // row is marked first, so polling GET …/runner-link reads its outcome),
+      // and the outcome is audited.
+      const link = await startLink(runnerDeps(), {
         pipelineId: v.pipelineId,
         orgId,
         requestedBy: SYSTEM_RUNNER_LINK,
-        ...(req.user?.parentOrganizationId ? { parentOrgId: req.user.parentOrganizationId } : {}),
+        ...(parentOrgId ? { parentOrgId } : {}),
+        ...(v.runnerId ? { runnerId: v.runnerId.toLowerCase() } : {}),
       });
+      if (link.probed) {
+        void link.done.then(async (status) => {
+          const after = await runnerDeps().store.getRegistryLink(v.pipelineId, orgId).catch(() => null);
+          recordAudit({
+            action: 'pipeline.runner.link.refresh',
+            actorId: actorId({ userId }),
+            orgId,
+            targetType: 'pipeline',
+            targetId: v.pipelineId,
+            ...(status === 'linked' ? {} : { outcome: 'failure' as const }),
+            details: {
+              trigger: 'registration',
+              status: status ?? 'not_found',
+              ...(v.runnerId ? { runnerId: v.runnerId, runnerLabel } : {}),
+              runnersChecked: after?.linkDetail?.runnersChecked ?? [],
+              matched: after?.linkDetail?.matched ?? [],
+            },
+          });
+        });
+      }
 
-      return sendSuccess(res, 200, { registry: result });
+      return sendSuccess(res, 200, { registry: result, runnerLink: link.status });
     } catch (err) {
       const code = errorMessage(err);
       if (code === PR_PIPELINE_NOT_OWNED) {

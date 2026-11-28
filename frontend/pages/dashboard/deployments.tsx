@@ -483,10 +483,9 @@ export default function DeploymentsPage() {
           onClose={() => setShowRegister(false)}
           onRegistered={() => {
             // Re-read the registry (the server upserts by pipelineId, so the
-            // new or updated row is authoritative there).
+            // new or updated row is authoritative there). The dialog stays open
+            // to say whether the runner found the pipeline; Done closes it.
             void refetchRegistry();
-            setShowRegister(false);
-            toast.success('Deployment registered');
           }}
         />
       )}

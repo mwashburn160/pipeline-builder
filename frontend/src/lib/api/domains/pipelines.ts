@@ -3,7 +3,8 @@
 
 import type {
   DeletedPipelineDeploymentDto, DeployRequestDto, DeployStartBody, DeployTargetsDto, QueuedDeployDto,
-  InheritedPipelineRunnerDto, PipelineRunnerDto, PipelineRunnersListDto, QueuedRunRequestDto, RunnerDeliveriesDto,
+  InheritedPipelineRunnerDto, PipelineRunnerDto, PipelineRunnersListDto, QueuedRunRequestDto, RegisterRunnersDto, RunnerDeliveriesDto,
+  RunnerLinkStatus,
   RunnerHealth, RunnerKeyMode, RunnerKeyRotationState, RunnerKeyStatusRow, RunnerLinkDto, RunnerSigningKeyDto,
   RunnerSigningKeySummary, RunnerStatus, RunRequestAction, RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
@@ -113,6 +114,7 @@ export type PipelineRunnerUpdate = { label?: string; shareWithTeams?: boolean; s
 
 // -- Deploying a never-deployed pipeline through a pipeline runner --
 export type { DeletedPipelineDeploymentDto, DeployRequestDto, DeployStartBody, DeployTargetsDto, QueuedDeployDto };
+export type { RegisterRunnersDto, RunnerLinkStatus };
 
 /** A Recently deleted pipeline row: `deployment` says what a purge does to its stack (null = never registered). */
 export type DeletedPipeline = Pipeline & { deployment: DeletedPipelineDeploymentDto | null };
@@ -446,7 +448,9 @@ export function pipelinesApi(core: ApiCore) {
      * Register (upsert) a deployed pipeline in the registry by its stable
      * pipelineId. The server rejects a pipelineId the caller's org does not own
      * (404) or one already claimed by another org (409). Requires
-     * `pipeline_registry:write`.
+     * `pipeline_registry:write`. `runnerId` names the pipeline runner to link
+     * it through (the link probe asks only that runner); a runner the org
+     * can't use is a 400.
      */
     registerPipelineDeployment: async (body: {
       pipelineId: string;
@@ -455,8 +459,11 @@ export function pipelinesApi(core: ApiCore) {
       project?: string;
       organization?: string;
       stackName?: string;
+      runnerId?: string;
     }) => {
-      return core.request<ApiResponse<{ registry: PipelineDeployment }>>('/api/pipelines/registry', {
+      // `runnerLink`: `checking` while the link probe runs (poll getPipelineRunnerLink
+      // for its outcome), `linked` when it already was, null when no probe ran.
+      return core.request<ApiResponse<{ registry: PipelineDeployment; runnerLink?: RunnerLinkStatus | null }>>('/api/pipelines/registry', {
         method: 'POST',
         body: JSON.stringify(body),
       });
@@ -480,9 +487,11 @@ export function pipelinesApi(core: ApiCore) {
      * rather than a second one queued) — follow it with `getRunRequest`.
      * 409 NO_RUNNER when the org has no runner that can reach it.
      */
-    triggerPipelineExecution: async (pipelineId: string) => {
+    triggerPipelineExecution: async (pipelineId: string, opts?: { runnerId?: string }) => {
+      // `runnerId`: run with that runner when none is linked to the pipeline (a usable linked runner wins).
       return core.request<ApiResponse<QueuedRunRequest>>(`/api/pipelines/${pipelineId}/executions`, {
         method: 'POST',
+        ...(opts?.runnerId ? { body: JSON.stringify({ runnerId: opts.runnerId }) } : {}),
       });
     },
 
@@ -648,6 +657,14 @@ export function pipelinesApi(core: ApiCore) {
 
     // -- A pipeline's link to its runner (found by its pb.pipeline-id tag; nobody re-points a runner by hand).
 
+    /**
+     * The Register deployment dialog's runners: every runner the org can register
+     * this pipeline with (health, regions), whether runners are available, and the
+     * pipeline's registration state (`registered`, `hasEvents`). `pipelines:read`.
+     */
+    getRegisterRunners: async (pipelineId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<RegisterRunnersDto>>(`/api/pipelines/${encodeURIComponent(pipelineId)}/register-runners`, { signal: opts?.signal });
+    },
     /** Status, runner label, last checked, runners checked. 404 = not registered. */
     getPipelineRunnerLink: async (pipelineId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<RunnerLinkDto>>(`/api/pipelines/${encodeURIComponent(pipelineId)}/runner-link`, { signal: opts?.signal });

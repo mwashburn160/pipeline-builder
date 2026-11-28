@@ -452,6 +452,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | pipeline | POST | `/pipelines/runners/signing-key/revoke` | `any(org_settings:write) + aal2 + step-up(any)` |
 | pipeline | PUT | `/pipelines/runners/signing-key/mode` | `any(org_settings:write) + aal2 + step-up(any)` |
 | pipeline | GET | `/pipelines/runners/:id/pipelines` | `any(org_settings:write)` |
+| pipeline | GET | `/pipelines/:pipelineId/register-runners` | `any(pipelines:read)` |
 | pipeline | GET | `/pipelines/:pipelineId/runner-link` | `any(pipelines:read)` |
 | pipeline | POST | `/pipelines/:pipelineId/runner-link/refresh` | `any(pipelines:write) + aal2 + step-up(any)` |
 | pipeline | GET | `/pipelines/:pipelineId/deploy-targets` | `any(pipelines:write)` |

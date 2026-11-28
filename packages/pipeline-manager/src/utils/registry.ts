@@ -82,6 +82,11 @@ export interface RegistryPayload {
    * register`) leaves the stored manifest untouched.
    */
   steps?: StepManifestEntry[];
+  /**
+   * The pipeline runner to link it through (`pipeline register --runner`): the
+   * platform's link probe asks only that runner. Absent: every eligible runner.
+   */
+  runnerId?: string;
 }
 
 /** Pipeline fields needed to construct a RegistryPayload. */

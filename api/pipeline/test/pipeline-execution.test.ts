@@ -63,7 +63,7 @@ const handlerFor = (path: string) => {
   const stack = router.stack.find((l: any) => l.route?.path === path && l.route?.methods?.post).route.stack;
   return stack[stack.length - 1].handle;
 };
-const start = (pipelineId = PIPE) => handlerFor('/:pipelineId/executions')({ params: { pipelineId }, user: {} }, {});
+const start = (pipelineId = PIPE, body: unknown = undefined) => handlerFor('/:pipelineId/executions')({ params: { pipelineId }, body, user: {} }, {});
 const stop = (pipelineId = PIPE, executionId = 'exec-7') => handlerFor('/:pipelineId/executions/:executionId/stop')({ params: { pipelineId, executionId }, body: {}, user: {} }, {});
 
 let deps: Deps;
@@ -114,6 +114,22 @@ describe('POST /:pipelineId/executions', () => {
     await start();
     expect(successBody()).toMatchObject({ status: 'queued', runnerLabel: 'prod' });
     expect(deps.store.registry.get(PIPE)).toMatchObject({ runnerId: r.id, linkStatus: 'linked' });
+  });
+
+  it('Run with a chosen runner: { runnerId } probes only that runner and queues through it', async () => {
+    addRunner({ label: 'a' });
+    const b = addRunner({ label: 'b' });
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: null });
+    deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'match' }));
+    await start(PIPE, { runnerId: b.id.toUpperCase() });
+    expect(successBody()).toMatchObject({ status: 'queued', runnerLabel: 'b' });
+    expect(deps.fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a malformed runnerId is a 400 before the window is claimed', async () => {
+    await start(PIPE, { runnerId: 'default' });
+    expect(sendBadRequest).toHaveBeenCalled();
+    expect(mockClaim).not.toHaveBeenCalled();
   });
 
   it('a double click queues ONE run: the window refuses the second inside it, and a pending start is reused after it', async () => {

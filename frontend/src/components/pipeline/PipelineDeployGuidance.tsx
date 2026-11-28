@@ -44,13 +44,18 @@ export function registerDeploymentHref(pipelineId: string): string {
  * state right after create (never deployed); true means it has reported before,
  * so it was deployed and its registration has since gone.
  */
-export function PipelineRegistrationBanner({ pipelineId, registered, hasEvents, className }: {
+export function PipelineRegistrationBanner({ pipelineId, registered, hasEvents, onRegister, className }: {
   pipelineId: string;
   registered: boolean;
   hasEvents?: boolean;
+  /** Open the Register deployment dialog on this page; without it, the action links to the Deployments page. */
+  onRegister?: () => void;
   className?: string;
 }) {
   if (registered) return null;
+  const registerAction = onRegister
+    ? <button type="button" onClick={onRegister} className="action-link">Register deployment</button>
+    : <Link href={registerDeploymentHref(pipelineId)} className="action-link">Register deployment</Link>;
   if (hasEvents) {
     return (
       <WarningAlert
@@ -60,7 +65,7 @@ export function PipelineRegistrationBanner({ pipelineId, registered, hasEvents, 
             <strong>Deployed but not registered.</strong> This pipeline has reported runs before, but it has no
             deploy registration now, so new runs, reports and DORA metrics are not recorded. It registers itself
             on its next pipeline event; to register it now, use{' '}
-            <Link href={registerDeploymentHref(pipelineId)} className="action-link">Register deployment</Link>.
+            {registerAction}.
           </>
         )}
       />
@@ -75,7 +80,7 @@ export function PipelineRegistrationBanner({ pipelineId, registered, hasEvents, 
           through a pipeline runner with deploys enabled, or with <code>{deployCommand(pipelineId)}</code>. Run pipeline only starts a pipeline that is already deployed
           (through your pipeline runner); it does not deploy one. Deployed it another way (CDK, CI)? It registers
           itself on its first pipeline event, or use{' '}
-          <Link href={registerDeploymentHref(pipelineId)} className="action-link">Register deployment</Link>.
+          {registerAction}.
         </>
       )}
     />
