@@ -19,6 +19,7 @@ import express, { type Express, type RequestHandler } from 'express';
 
 import { alertWebhookLimiter } from './middleware/limiters.js';
 import { opsApiCallsQuota } from './middleware/quota.js';
+import clientVitalsRoutes, { CLIENT_VITALS_PATH } from './routes/client-vitals.js';
 import dashboardRoutes from './routes/dashboards.js';
 import { createInternalOrgPurgeRoutes, OPS_INTERNAL_MOUNT } from './routes/internal-org-purge.js';
 import observabilityRoutes from './routes/observability.js';
@@ -44,6 +45,9 @@ export function mountRoutes(app: Express, deps: OpsRouteDeps = {}): void {
   const quota = deps.apiCallsQuota ?? opsApiCallsQuota;
   app.use(ONCALL_ACK_PATH, express.raw({ type: 'application/json', limit: '1mb' }));
   app.use(ALERT_WEBHOOK_PATH, alertWebhookLimiter);
+  // Browser telemetry, AHEAD of the tenant prefix so it never meters/checks
+  // apiCalls (routes/client-vitals.ts says why).
+  app.use(CLIENT_VITALS_PATH, clientVitalsRoutes);
   // `apiCalls` meters + gates the tenant surface (checked by each route's
   // requireAuth); service principals and the unauthenticated machine webhooks
   // are skipped by the middleware itself (docs/quotas.md).

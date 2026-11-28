@@ -177,7 +177,7 @@ describe('top-bar menus', () => {
     expect(trigger).toHaveFocus();
   });
 
-  it('help menu lists Help, API catalog and Downloads', () => {
+  it('help menu lists Help, API catalog, Downloads and the shortcuts overlay', () => {
     render(<HelpMenu />);
     fireEvent.click(screen.getByRole('button', { name: 'Help and resources' }));
     const menu = screen.getByRole('menu');
@@ -185,6 +185,8 @@ describe('top-bar menus', () => {
       ['Help', '/dashboard/help'],
       ['API catalog', '/dashboard/api-catalog'],
       ['Downloads', '/dashboard/downloads'],
+      // Not a page: opens the shortcuts overlay (also on `?`).
+      ['Keyboard shortcuts', null],
     ]);
   });
 });

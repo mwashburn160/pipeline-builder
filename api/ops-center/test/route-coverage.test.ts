@@ -45,6 +45,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'audit',
     reason: 'A READ carried on POST for its body: runs a dashboard\'s catalog queries (Prometheus + audit trail, each under the per-key catalog gate) in one metered call per refresh tick. Persists nothing.',
   },
+  {
+    method: 'POST',
+    path: '/observability/client-vitals',
+    waive: 'all',
+    reason: 'Browser real-user monitoring (web vitals + error-boundary catches): ANY signed-in user may post (requireAuth), because the samples describe the browser\'s own experience of the UI, not tenant data, so no capability applies. Not audited: it is not an actor-attributed action and records nothing but aggregate Prometheus series — frontend_web_vitals{metric,route,rating} and frontend_error_boundary_caught_total{boundary,route} — whose labels are closed sets (the route a known page pattern or `other`), with no user id or URL. Bounded per user and per IP (middleware/limiters.ts).',
+  },
   // -- Dynamic per-row authorization ----------------------------------------
   {
     path: /^(PUT|DELETE|POST) \/dashboards\/:id(\/restore|\/purge)?$/,
@@ -103,7 +109,14 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
  * User routes that deliberately do not meter and/or check apiCalls (docs/quotas.md).
  * The machine webhooks carry no user, so the quota middleware skips them itself.
  */
-const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [];
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [
+  {
+    method: 'POST',
+    path: '/observability/client-vitals',
+    waive: 'all',
+    reason: 'Telemetry the app sends on its own (web vitals, error-boundary catches), not a call the customer makes: it must neither spend the org\'s apiCalls budget nor be refused when the org is at its cap. Mounted ahead of the /observability tenant prefix for exactly that; bounded instead by its own per-user and per-IP buckets.',
+  },
+];
 
 let table: RouteTableEntry[];
 

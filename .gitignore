@@ -59,6 +59,7 @@ deploy/pipeline-builder/
 !/.npmrc
 /*/pnpm-lock.yaml
 /*/*/pnpm-lock.yaml
+.claude/worktrees/
 !/.nvmrc
 !/.node-version
 !/nx.json
@@ -71,7 +72,3 @@ deploy/pipeline-builder/
 !/deploy/aws/ec2/services.txt
 !/deploy/aws/eks/services.txt
 !/.projenrc.ts
-
-# Claude Code agent worktrees: local git checkouts, never committed (they
-# land as gitlinks with no .gitmodules entry and break submodule checkouts).
-.claude/worktrees/

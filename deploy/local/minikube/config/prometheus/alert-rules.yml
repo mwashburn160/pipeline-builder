@@ -4725,3 +4725,27 @@ groups:
         annotations:
           summary: "{{ $value | humanize }} runner deploy(s) are running past their deadline"
           description: "At least one deploy or undeploy through a runner has been running past its deadline for 10 minutes, so the runner sweep is not finishing it (deploy_cancel + DEPLOY_TIMED_OUT). Check that the runner sweep is running (its leader lock, the pipeline service logs for 'Runner deploy poll'), and the database the sweep writes to."
+
+      # ---- Frontend real-user monitoring ----
+      # Browsers report web vitals to ops-center (POST /observability/client-vitals),
+      # recorded on frontend_web_vitals{metric,route,rating} — seconds, labelled by
+      # Next.js route PATTERN, never a concrete path. p75 is web.dev's assessment
+      # point and 4s its LCP "poor" line, a bucket boundary (api-server
+      # HISTOGRAM_BUCKETS) so the comparison is exact. The `and … >= 20` keeps a
+      # rarely visited page's one slow load on a bad connection from firing it.
+      #
+      # severity: info — users are having a slow time, nothing is down; it is a
+      # signal for the frontend backlog, not a page.
+      - alert: FrontendWebVitalsPoor
+        expr: |
+          histogram_quantile(0.75, sum by (le, route) (rate(frontend_web_vitals_bucket{metric="LCP"}[30m]))) > 4
+          and on(route)
+          sum by (route) (increase(frontend_web_vitals_count{metric="LCP"}[30m])) >= 20
+        for: 30m
+        labels:
+          severity: info
+          component: frontend
+          tenancy: platform
+        annotations:
+          summary: "Real users wait over 4s for the largest paint on {{ $labels.route }}"
+          description: "The 75th-percentile Largest Contentful Paint reported by browsers for {{ $labels.route }} has been above 4s (web.dev's \"poor\" line) for 30 minutes, over at least 20 page loads. Compare frontend_web_vitals TTFB for the same route: a slow TTFB points at the server/API, a fast one at the page's own JS and rendering (check the bundle budget in frontend/bundle-budgets.json)."

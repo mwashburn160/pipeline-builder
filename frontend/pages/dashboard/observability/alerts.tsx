@@ -12,6 +12,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { RetryError } from '@/components/ui/RetryError';
@@ -149,7 +150,7 @@ export default function AlertsPage() {
           variant="secondary"
           size="xs"
           onClick={refetch}
-          className="gap-1"
+          className={`gap-1 ${TAP_TARGET}`}
           aria-label="Refresh alerts"
         >
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
@@ -179,9 +180,11 @@ export default function AlertsPage() {
                 const suppressed = a.status.state === 'suppressed';
                 return (
                   <div key={a.fingerprint} className={`rounded border p-3 ${styles.bg}`}>
-                    <div className="flex items-start justify-between gap-3">
+                    {/* On a phone the action drops under the alert as a full-width
+                        target, so the text keeps the card's width. */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded ${styles.chip}`}>
                             <AlertTriangle className="w-3 h-3" />
                             {severityOf(a).toUpperCase()}
@@ -191,22 +194,22 @@ export default function AlertsPage() {
                               <BellOff className="w-3 h-3" /> silenced
                             </span>
                           )}
-                          <span className={`text-sm font-semibold ${styles.text}`}>
+                          <span className={`text-sm font-semibold break-words min-w-0 ${styles.text}`}>
                             {a.labels.alertname || 'Unnamed alert'}
                           </span>
                         </div>
                         {a.annotations.summary && (
-                          <div className={`text-sm ${styles.text}`}>{a.annotations.summary}</div>
+                          <div className={`text-sm break-words ${styles.text}`}>{a.annotations.summary}</div>
                         )}
                         {a.annotations.description && (
-                          <div className="text-xs text-fg-muted mt-1">{a.annotations.description}</div>
+                          <div className="text-xs text-fg-muted mt-1 break-words">{a.annotations.description}</div>
                         )}
                         <div className="text-xs text-fg-muted mt-2 flex gap-3 flex-wrap">
                           <span>Since {formatRelativeTime(a.startsAt)}</span>
                           {Object.entries(a.labels)
                             .filter(([k]) => !['alertname', 'severity'].includes(k))
                             .map(([k, v]) => (
-                              <span key={k} className="font-mono">{k}={v}</span>
+                              <span key={k} className="font-mono break-all">{k}={v}</span>
                             ))}
                         </div>
                       </div>
@@ -215,7 +218,7 @@ export default function AlertsPage() {
                           variant="secondary"
                           size="xs"
                           onClick={() => setSilenceTarget(a)}
-                          className="flex-shrink-0 gap-1"
+                          className={`flex-shrink-0 gap-1 max-sm:w-full ${TAP_TARGET}`}
                         >
                           <BellOff className="w-3 h-3" /> Silence
                         </Button>
@@ -234,12 +237,12 @@ export default function AlertsPage() {
               </h3>
               <div className="space-y-1">
                 {activeSilences.map((s) => (
-                  <div key={s.id} className="rounded border border-default bg-surface px-3 py-2 text-xs flex items-center justify-between gap-3">
+                  <div key={s.id} className="rounded border border-default bg-surface px-3 py-2 text-xs flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="font-mono text-fg-muted truncate">
+                      <div className="font-mono text-fg-muted break-all sm:truncate">
                         {s.matchers.map(m => `${m.name}="${m.value}"`).join(', ')}
                       </div>
-                      <div className="text-fg-muted mt-0.5">
+                      <div className="text-fg-muted mt-0.5 break-words">
                         {s.comment} — by {s.createdBy} — expires {formatRelativeTime(s.endsAt)}
                       </div>
                     </div>
@@ -248,7 +251,7 @@ export default function AlertsPage() {
                         variant="secondary"
                         size="xs"
                         onClick={() => setExpireTarget(s)}
-                        className="flex-shrink-0"
+                        className={`flex-shrink-0 max-sm:w-full ${TAP_TARGET}`}
                       >
                         Expire
                       </Button>
@@ -325,6 +328,7 @@ function SilenceModal(props: {
         size="sm"
         onClick={onClose}
         disabled={submitting}
+        className={`max-sm:flex-1 ${TAP_TARGET}`}
       >
         Cancel
       </Button>
@@ -333,6 +337,7 @@ function SilenceModal(props: {
         size="sm"
         onClick={() => void handleSubmit()}
         disabled={submitting || !comment.trim()}
+        className={`max-sm:flex-1 ${TAP_TARGET}`}
       >
         {submitting ? 'Creating…' : 'Create silence'}
       </Button>
@@ -351,6 +356,7 @@ function SilenceModal(props: {
         <div>
           <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-duration`}>Duration</label>
           <Select id={`${uid}-duration`}
+            className="max-sm:text-base"
             value={durationMs}
             onChange={(e) => setDurationMs(parseInt(e.target.value, 10))}
           >
@@ -365,6 +371,7 @@ function SilenceModal(props: {
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={3}
+            className="max-sm:text-base"
             placeholder="Why are you silencing this? (visible to other operators)"
           />
         </div>

@@ -2,156 +2,28 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import { Sparkles, Send, BookOpen, AlertTriangle, Check, Loader2, Trash2, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { SideDrawer } from '@/components/ui/SideDrawer';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAIProviders } from '@/hooks/useAIProviders';
-import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
-import { CodeBlock } from '@/components/ui/CodeBlock';
-import { Disclosure } from '@/components/ui/Disclosure';
-import { FormField } from '@/components/ui/FormField';
-import { Input } from '@/components/ui/Input';
-import { DescriptionList, type DescriptionItem } from '@/components/ui/DescriptionList';
 import api from '@/lib/api';
-import type { AskAvailability, AskSource, AskTurn } from '@/lib/api/domains/ask';
+import type { AskSource, AskTurn } from '@/lib/api/domains/ask';
 import { useFeatures } from '@/hooks/useFeatures';
 import { AskHelpTopics } from './AskHelpTopics';
-import { AskSources } from './AskSources';
 import { clearTranscript, getTranscriptEpoch, loadTranscript, saveTranscript } from './transcript-store';
-import { formatError } from '@/lib/constants';
 import { formatAIError, streamEventError } from '@/lib/ai-errors';
-import { AIServedBy, type AIServedByInfo, type AIUsageInfo } from '@/components/ui/AIServedBy';
-import { AIQuotaHint } from '@/components/ui/AIQuotaHint';
-import { ReadOnlyNotice, READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
+import type { AIServedByInfo, AIUsageInfo } from '@/components/ui/AIServedBy';
 import { useAIQuota } from '@/hooks/useAIQuota';
 import { useAiDraftOutcome } from '@/hooks/useAiDraftOutcome';
 import { aiKeySource, aiQuotaBlocked } from '@/lib/ai-quota';
 import { useUnmountedRef } from '../../hooks/useUnmountedRef';
 import type { Proposal } from './proposal';
-import { PROPOSAL_META, isDiffProposal, proposalDiff, proposalReady, requiredPermissions } from './proposal';
-import { ProposalDiffView } from './ProposalDiffView';
-import { ProposalNotes } from './ProposalNotes';
-import { StaleDraftError, commitProposal as runCommit } from './proposal-commit';
-
-/**
- * The review body of a proposal card.
- *
- * An EDIT proposal is reviewed as a CURRENT -> PROPOSED diff, never as a JSON
- * blob: a blob gets skimmed, and the diff is also literally the commit payload,
- * so a field that is not on screen cannot be applied.
- */
-function ProposalDetails({ p }: { p: Proposal }) {
-  const json = (v: unknown) => JSON.stringify(v ?? {}, null, 2);
-
-  if (isDiffProposal(p)) return <ProposalDiffView diff={proposalDiff(p)} />;
-
-  if (p.kind === 'plugin') {
-    const c = (p.config ?? {}) as Record<string, unknown>;
-    const cmds = [...(Array.isArray(c.installCommands) ? c.installCommands : []), ...(Array.isArray(c.commands) ? c.commands : [])];
-    const items: DescriptionItem[] = [
-      { label: 'Name', value: String(c.name ?? '—') },
-      { label: 'Version', value: String(c.version ?? '—') },
-      { label: 'Type', value: String(c.pluginType ?? '—') },
-      { label: 'Compute', value: String(c.computeType ?? '—') },
-      ...(c.primaryOutputDirectory ? [{ label: 'Output dir', value: String(c.primaryOutputDirectory) }] : []),
-    ];
-    return (
-      <div className="space-y-2">
-        <DescriptionList items={items} variant="rows" />
-        {cmds.length > 0 && <CodeBlock language="commands" code={cmds.join('\n')} className="max-h-52 overflow-y-auto" />}
-        {p.dockerfile && <CodeBlock language="Dockerfile" code={p.dockerfile} className="max-h-64 overflow-y-auto" />}
-      </div>
-    );
-  }
-
-  if (p.kind === 'template') {
-    const t = (p.template ?? {}) as Record<string, unknown>;
-    const inputs = (Array.isArray(t.inputs) ? t.inputs : []) as Array<{ name?: string }>;
-    const items: DescriptionItem[] = [
-      { label: 'Name', value: String(t.name ?? '—') },
-      ...(t.category ? [{ label: 'Category', value: String(t.category) }] : []),
-      { label: 'Variables', value: inputs.length ? inputs.map((i) => i.name).filter(Boolean).join(', ') : 'none' },
-    ];
-    return (
-      <div className="space-y-2">
-        <DescriptionList items={items} variant="rows" />
-        <CodeBlock language="template props (JSON)" code={json(t.props)} className="max-h-64 overflow-y-auto" />
-      </div>
-    );
-  }
-
-  const pr = (p.props ?? {}) as Record<string, unknown>;
-  const varNames = pr.vars && typeof pr.vars === 'object' ? Object.keys(pr.vars as object) : [];
-  const items: DescriptionItem[] = [
-    { label: 'Project', value: String(pr.project ?? '—') },
-    { label: 'Organization', value: String(pr.organization ?? '—') },
-    ...(pr.pipelineName ? [{ label: 'Name', value: String(pr.pipelineName) }] : []),
-    { label: 'Stages', value: String(Array.isArray(pr.stages) ? pr.stages.length : 0) },
-    ...(varNames.length ? [{ label: 'Variables', value: varNames.join(', ') }] : []),
-  ];
-  return (
-    <div className="space-y-2">
-      <DescriptionList items={items} variant="rows" />
-      <CodeBlock language="pipeline props (JSON)" code={json(pr)} className="max-h-64 overflow-y-auto" />
-    </div>
-  );
-}
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  sources?: AskSource[];
-  /** The reader's verdict, once given. Persisted with the transcript so it
-   *  survives a drawer close and does not invite a second vote. */
-  rated?: 'up' | 'down';
-  proposal?: Proposal;
-  /** Commit state for a proposal on this message. `stale` is its own state: the
-   *  live entity moved after the draft was reviewed, so NOTHING was written —
-   *  that must not read as a failed write. */
-  proposalStatus?: 'creating' | 'created' | 'error' | 'stale';
-  proposalError?: string;
-  /** True while the assistant message is still streaming. */
-  pending?: boolean;
-  /** Who answered (after org-key selection and any failover) and what it cost — from the `done` event. */
-  servedBy?: AIServedByInfo;
-  usage?: AIUsageInfo;
-  /** Tokens the turn's in-process tool generations spent (added to the footer's total). */
-  toolUsage?: AIUsageInfo;
-  /** `aiCalls` quota units the turn drew (0 when waived). */
-  slotsCharged?: number;
-}
-
-/**
- * The part of a transcript worth carrying across a drawer close.
- *
- * Deliberately NOT the whole message. Two things are dropped:
- *
- *   * `proposal` and its commit state. A draft is live session state — restoring
- *     one would show a "created" badge earned in a previous sitting, and the
- *     commit path re-reads the entity first anyway, so a restored card buys
- *     nothing. More importantly a proposal holds RAW field values: redaction is
- *     applied where it renders (`redactionFor`/`describeValue`), and the comment
- *     on that allowlist says it "admits no secret today … defence in depth".
- *     Persisting the raw object would quietly make that assumption load-bearing
- *     for STORAGE, so a later allowlist change could put a credential in
- *     sessionStorage with nothing nearby to say so.
- *   * `pending`, so a half-streamed bubble cannot come back as a stuck one.
- *
- * What remains is what a reader actually wants back: the questions, the answers,
- * their citations, and any verdict already given.
- */
-function persistable(messages: readonly ChatMessage[]): ChatMessage[] {
-  return messages
-    .filter((m) => !m.pending && m.content)
-    .map(({ role, content, sources, rated }) => ({ role, content, sources, rated }));
-}
-
-const EXAMPLES = [
-  'How do I point my incident tooling at in-cluster Alertmanager?',
-  'How do I generate a pipeline from a Git URL?',
-  'What environment variables configure billing?',
-];
+import { persistable, type ChatMessage } from './ask-chat';
+import { AskComposer } from './AskComposer';
+import { AskConversation } from './AskConversation';
+import { AskModelSettings } from './AskModelSettings';
+import { useAskAvailability } from './useAskAvailability';
+import { useProposalActions } from './useProposalActions';
 
 /**
  * The "Ask" agent panel — a read-only, streaming chat grounded in the platform docs.
@@ -216,21 +88,6 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     if (epochRef.current !== getTranscriptEpoch()) return;
     saveTranscript(persistable(messages));
   }, [messages, busy]);
-
-  /**
-   * Whether this viewer may commit this proposal — EVERY permission its route
-   * (or routes: an org-settings change spans services) requires, not just one.
-   *
-   * `can()` is impersonation-aware, but only for permissions it classifies as
-   * mutations — and one of these kinds FILES A REQUEST behind a read permission
-   * (any member may request a compliance exemption). Every commit here is a
-   * write, so the read-only-session check is applied to all of them rather than
-   * left to each permission's own classification.
-   */
-  const commitAllowed = useCallback(
-    (p: Proposal) => !isReadOnly && requiredPermissions(p).every((perm) => can(perm)),
-    [can, isReadOnly],
-  );
 
   useEffect(() => {
     // Optional-chain the method: jsdom (and some older browsers) don't implement
@@ -334,71 +191,12 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     }
   }, [busy, quotaBlocked, isReadOnly, messages, ai.selectedProvider, ai.currentSource, ai.selectedModel, ai.customApiKey, repoToken, cancelledRef, draftOutcome]);
 
-  /** Commit a proposal via the normal write API (the user's own session). */
-  const commitProposal = useCallback(async (index: number) => {
-    const p = messages[index]?.proposal;
-    if (!p) return;
-    // Re-checked here, not only on the button: the write call would 403 anyway,
-    // and a refused proposal should never look like a failed draft.
-    if (!commitAllowed(p)) return;
-    const patch = (u: Partial<ChatMessage>) => setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, ...u } : m)));
-    patch({ proposalStatus: 'creating', proposalError: undefined });
-    try {
-      await runCommit(p);
-      patch({ proposalStatus: 'created' });
-      if (pendingDraftIndex.current === index) {
-        pendingDraftIndex.current = null;
-        draftOutcome.accepted();
-      }
-    } catch (e) {
-      // A stale draft is not a failed write — nothing was applied, and saying so
-      // is the whole point of the re-read.
-      patch({
-        proposalStatus: e instanceof StaleDraftError ? 'stale' : 'error',
-        proposalError: formatError(e, 'Failed to apply.'),
-      });
-    }
-  }, [messages, commitAllowed, draftOutcome]);
+  const { commitAllowed, commitProposal, dismissProposal } = useProposalActions({
+    messages, setMessages, can, isReadOnly, draftOutcome, pendingDraftIndex,
+  });
 
-  /** Dismiss a proposal: its card goes, and a pending draft is reported discarded. */
-  const dismissProposal = useCallback((index: number) => {
-    setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, proposal: undefined, proposalStatus: undefined, proposalError: undefined } : m)));
-    if (pendingDraftIndex.current === index) {
-      pendingDraftIndex.current = null;
-      draftOutcome.discarded();
-    }
-  }, [draftOutcome]);
-
-  // Which surface this drawer is: the agent, or help topics.
-  //
-  // Two independent reasons to show topics instead of the question box, and the
-  // user should not have to discover either by asking a question that fails:
-  //   * ASK_UI_MODE=help-topics — this deployment never offers the agent;
-  //   * the agent is on but cannot answer — its self-hosted model is outside its
-  //     business-hours window, or no provider is configured at all.
-  //
-  // The probe is skipped entirely in help-topics mode: nothing would act on the
-  // answer, and the route is gated on an entitlement this surface does not need.
-  //
-  // FAILS OPEN. A probe that errors (a boot-window 502, a nginx hiccup) leaves
-  // the agent on offer rather than hiding it — the assistant may well work, and
-  // if the turn does fail the server's own 503 explains why. The opposite
-  // default would let one transient error silently replace the product.
-  const [availability, setAvailability] = useState<AskAvailability | null>(null);
-  useEffect(() => {
-    if (askUiMode === 'help-topics') return;
-    let alive = true;
-    // Inside an async IIFE so a SYNCHRONOUS throw is caught too, not just a
-    // rejected promise: a client missing this method would otherwise throw
-    // straight out of the effect and take the whole panel down with it.
-    void (async () => {
-      try {
-        const res = await api.getAskAvailability();
-        if (alive && res.success && res.data) setAvailability(res.data);
-      } catch { /* fail open — see above */ }
-    })();
-    return () => { alive = false; };
-  }, [askUiMode]);
+  // Which surface this drawer is: the agent, or help topics (see useAskAvailability).
+  const availability = useAskAvailability(askUiMode);
 
   // `available === false` EXPLICITLY, not `!available`. A payload that does not
   // carry the field (a proxy's generic envelope) would otherwise read as unavailable and replace the assistant with
@@ -474,302 +272,36 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
               : ''}
         </p>
 
-        {/* Transcript */}
-        <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
-          {messages.length === 0 && (
-            <div className="text-sm text-fg-muted space-y-3">
-              <p>Ask how to use the platform — deployments, pipelines, plugins, billing, and more.</p>
-              <div className="space-y-2">
-                {EXAMPLES.map((ex) => (
-                  <button
-                    key={ex}
-                    onClick={() => send(ex)}
-                    disabled={quotaBlocked || isReadOnly}
-                    title={isReadOnly ? READ_ONLY_REASON : undefined}
-                    className="block w-full text-left px-3 py-2 rounded-lg border border-default hover:border-brand hover:text-brand transition-colors"
-                  >
-                    {ex}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+        <AskConversation
+          scrollRef={scrollRef}
+          messages={messages}
+          error={error}
+          quotaBlocked={quotaBlocked}
+          isReadOnly={isReadOnly}
+          noProviderHint={!ai.loading && !ai.hasConfiguredProvider && !ai.customApiKey}
+          commitAllowed={commitAllowed}
+          onSend={send}
+          onRate={rate}
+          onCommit={commitProposal}
+          onDismiss={dismissProposal}
+          onClose={onClose}
+        />
 
-          {messages.map((m, i) => (
-            <div key={i} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-              <div
-                className={
-                  m.role === 'user'
-                    ? 'max-w-[85%] rounded-2xl px-3 py-2 text-sm text-white'
-                    : 'max-w-[95%] rounded-2xl px-3 py-2 text-sm bg-surface-muted text-fg'
-                }
-                style={m.role === 'user' ? { background: 'var(--pb-brand-solid)' } : undefined}
-              >
-                <div className="whitespace-pre-wrap break-words">
-                  {m.content}
-                  {m.pending && <span className="inline-block w-2 h-4 ml-0.5 align-text-bottom animate-pulse bg-current opacity-60" />}
-                </div>
-                {m.sources && m.sources.length > 0 && (
-                  <AskSources sources={m.sources} onNavigate={onClose} />
-                )}
-                {m.role === 'assistant' && !m.pending && <AIServedBy servedBy={m.servedBy} usage={m.usage} toolUsage={m.toolUsage} aiCalls={m.slotsCharged} className="mt-1" />}
-                {/* Whether the answer was any good — the one thing the turn
-                    cannot tell us about itself, and the only signal for which
-                    docs the assistant answers badly from. Shown once the answer
-                    has settled, so it never appears beside a half-streamed
-                    sentence. */}
-                {m.role === 'assistant' && !m.pending && m.content && (
-                  <div className="mt-2 flex items-center gap-2">
-                    {m.rated ? (
-                      <span className="text-2xs text-fg-muted inline-flex items-center gap-1">
-                        <Check className="w-3 h-3" aria-hidden="true" />
-                        Thanks — noted.
-                      </span>
-                    ) : (
-                      <>
-                        <span className="text-2xs text-fg-muted">Was this helpful?</span>
-                        <button
-                          type="button"
-                          onClick={() => rate(i, 'up', (m.sources ?? []).map((s) => s.id))}
-                          aria-label="This answer was helpful"
-                          className="p-1 rounded text-fg-muted hover:text-success-strong transition-colors"
-                        >
-                          <ThumbsUp className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => rate(i, 'down', (m.sources ?? []).map((s) => s.id))}
-                          aria-label="This answer was not helpful"
-                          className="p-1 rounded text-fg-muted hover:text-danger transition-colors"
-                        >
-                          <ThumbsDown className="w-3.5 h-3.5" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
-                {m.proposal && (() => {
-                  const meta = PROPOSAL_META[m.proposal.kind];
-                  if (!meta) return null; // ignore an unrecognized proposal kind rather than crash
-                  const Icon = meta.icon;
-                  const proposal = m.proposal;
-                  const ready = proposalReady(proposal);
-                  const diffKind = isDiffProposal(proposal);
-                  // The write route's own permission — without it the action stays
-                  // visible (the draft is still worth reading) but inert, saying why.
-                  const allowed = commitAllowed(proposal);
-                  const needed = requiredPermissions(proposal).join(' + ');
-                  // WHY it is inert, not just that it is. In a read-only session
-                  // the operator may well hold the permission — naming it would
-                  // send them to look for a grant they already have.
-                  const blockedReason = isReadOnly ? READ_ONLY_REASON : `Requires the ${needed} permission`;
-                  return (
-                    <div className="mt-2 rounded-xl border border-default p-3 bg-surface">
-                      <div className="flex items-center gap-2 text-sm font-medium text-fg">
-                        <Icon className="w-4 h-4" style={{ color: 'var(--pb-brand)' }} /> {meta.label}
-                        {proposal.target && <span className="font-normal text-fg-muted">{proposal.target}</span>}
-                      </div>
-                      {proposal.description && (
-                        <p className="mt-1 text-xs text-fg-muted">{proposal.description}</p>
-                      )}
-                      {proposal.error && (
-                        <p className="mt-1 text-xs text-warning-strong">{proposal.error}</p>
-                      )}
-                      {/* The org's own policy verdict, and whether the create route
-                          would refuse the draft — above the fold, not behind a summary. */}
-                      <ProposalNotes p={proposal} />
-                      {/* Fields the TOOL refused before drafting (outside its allowlist).
-                          Surfaced rather than swallowed: a draft that asked for something
-                          it may not touch is the signal worth seeing. */}
-                      {proposal.refusedFields && proposal.refusedFields.length > 0 && (
-                        <p className="mt-1 text-2xs text-warning-strong" data-testid="ask-tool-refused">
-                          Not proposable, and left out of this draft: {proposal.refusedFields.join(', ')}.
-                        </p>
-                      )}
-                      {/* Drafted but not appliable: a value outside the setting's
-                          declared domain, or one whose current value could not be
-                          read — so there is no baseline to re-read against. */}
-                      {((proposal.invalidFields?.length ?? 0) + (proposal.unreadableFields?.length ?? 0)) > 0 && (
-                        <p className="mt-1 text-2xs text-warning-strong" data-testid="ask-tool-dropped">
-                          {proposal.invalidFields?.length ? `Out-of-range values, left out: ${proposal.invalidFields.join(', ')}. ` : ''}
-                          {proposal.unreadableFields?.length ? `Current value could not be read, so not proposed: ${proposal.unreadableFields.join(', ')}.` : ''}
-                        </p>
-                      )}
-                      {meta.filesRequest && (
-                        <p className="mt-1 text-2xs text-fg-muted" data-testid="ask-files-request">
-                          This files a request in the organization&apos;s approval queue. An approver decides — nothing changes when you submit it.
-                        </p>
-                      )}
-                      {/* The diff / drafted spec — review before committing (nothing
-                          is committed sight-unseen), and for an edit the reviewed
-                          diff is exactly what gets sent. */}
-                      <details className="mt-2 text-xs" open={diffKind}>
-                        <summary className="cursor-pointer select-none text-fg-muted hover:text-brand">
-                          {diffKind ? 'Review the change' : 'Review full spec'}
-                        </summary>
-                        <div className="mt-2">
-                          <ProposalDetails p={proposal} />
-                        </div>
-                      </details>
-                      {m.proposalStatus === 'created' ? (
-                        <div className="mt-2 inline-flex items-center gap-1 text-xs text-success">
-                          <Check className="w-3.5 h-3.5" />{' '}
-                          <Link href={meta.href} onClick={onClose} className="underline hover:text-brand">{meta.createdText}</Link>
-                        </div>
-                      ) : (
-                        <div className="mt-2 flex items-center gap-2">
-                          <button
-                            onClick={() => commitProposal(i)}
-                            disabled={m.proposalStatus === 'creating' || !ready || !allowed}
-                            title={allowed ? undefined : blockedReason}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-xs disabled:opacity-50"
-                            style={{ background: 'var(--pb-brand-solid)' }}
-                          >
-                            {m.proposalStatus === 'creating'
-                              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {meta.busyLabel}</>
-                              : meta.createLabel}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => dismissProposal(i)}
-                            disabled={m.proposalStatus === 'creating'}
-                            className="px-3 py-1.5 rounded-lg text-xs text-fg-muted border border-default hover:text-fg disabled:opacity-50"
-                          >
-                            Dismiss
-                          </button>
-                          <span className="text-2xs text-fg-muted">
-                            {!allowed ? blockedReason
-                              : ready ? meta.reviewHint : 'Draft incomplete'}
-                          </span>
-                        </div>
-                      )}
-                      {m.proposalStatus === 'error' && (
-                        <p role="alert" className="mt-1 text-xs text-danger">{m.proposalError}</p>
-                      )}
-                      {/* Refused, not failed: the live state moved after the draft was
-                          reviewed, so the approved diff is no longer the diff that
-                          would be applied — and nothing was written. */}
-                      {m.proposalStatus === 'stale' && (
-                        <p className="mt-1 flex items-start gap-1 text-xs text-warning-strong" data-testid="ask-stale">
-                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                          <span>{m.proposalError}</span>
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          ))}
+        <AskModelSettings ai={ai} repoToken={repoToken} onRepoTokenChange={setRepoToken} busy={busy} />
 
-          {error && (
-            <div className="flex items-start gap-2 text-sm text-danger">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {/* Said BEFORE a turn is sent, not after one fails. With no provider
-              configured the picker falls back to a catalog entry nobody chose,
-              and sending produced an error naming that one vendor — which read
-              as "Bedrock is broken" rather than "this deployment has no AI set
-              up". `ai.loading` gates it so the empty state does not flash while
-              the provider list is still being fetched. */}
-          {!ai.loading && !ai.hasConfiguredProvider && !ai.customApiKey && (
-            <div className="flex items-start gap-2 text-sm text-fg-muted">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
-              <span>
-                No AI provider is listed for your organization. Ask will try this deployment&apos;s
-                default model, which needs no key. To use a specific vendor instead, paste a key
-                under <strong>Model and repository access</strong> below.
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Which model answers, and what it may read. Collapsed by default —
-            the defaults are the ask-agent service's own and work untouched. */}
-        <Disclosure
-          title="Model and repository access"
-          className="group mt-3 border border-default rounded-xl"
-          summaryClassName="cursor-pointer list-none w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-fg-muted hover:text-fg"
-          bodyClassName="px-3 pb-3 pt-1 space-y-3 border-t border-default"
-        >
-          <AiProviderModelPicker ai={ai} disabled={busy} />
-          <FormField
-            label="Private repository token"
-            hint="Sent with this conversation only, so the agent can analyse a private repo you name. It is never shown to the model and is not stored."
-          >
-            <Input
-              type="password"
-              autoComplete="off"
-              value={repoToken}
-              onChange={(e) => setRepoToken(e.target.value)}
-              placeholder="Leave empty for public repositories"
-              className="text-sm"
-              disabled={busy}
-            />
-          </FormField>
-        </Disclosure>
-
-        {/* Composer */}
-        <form
-          className="mt-3 pt-3 border-t border-default"
-          onSubmit={(e) => { e.preventDefault(); void send(input); }}
-        >
-          <ReadOnlyNotice show={isReadOnly} className="mb-2" />
-          <AIQuotaHint quota={quota} keySource={keySource} className="mb-2" />
-          <div className="flex items-end gap-2">
-            <textarea
-              value={input}
-              aria-label="Ask a question"
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(input); }
-              }}
-              rows={2}
-              placeholder={isReadOnly ? 'Unavailable in a read-only session' : 'Ask a question…'}
-              disabled={busy || isReadOnly}
-              title={isReadOnly ? READ_ONLY_REASON : undefined}
-              className="flex-1 resize-none rounded-lg border border-default bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand disabled:opacity-60"
-            />
-            <button
-              type="submit"
-              // A turn is POST /ask-agent/agent/stream, and `requireAuth` refuses every
-              // non-GET under a read-only impersonation token — so the whole
-              // assistant, documentation lookups included, is unavailable here.
-              // Without this the composer accepted input and every send 403'd.
-              disabled={busy || quotaBlocked || isReadOnly || !input.trim()}
-              title={isReadOnly ? READ_ONLY_REASON : undefined}
-              aria-label="Send"
-              className="p-2 rounded-lg text-white disabled:opacity-40"
-              style={{ background: 'var(--pb-brand-solid)' }}
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-fg-muted">
-            <span>Read-only · nothing is changed</span>
-            <div className="flex items-center gap-3">
-              {/* The transcript now outlives the drawer, so there has to be a way
-                  to end it. Without this, "start again" meant closing the panel —
-                  which no longer does anything. */}
-              {messages.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => { draftOutcome.discarded(); pendingDraftIndex.current = null; setMessages([]); setError(null); clearTranscript(); }}
-                  disabled={busy}
-                  className="inline-flex items-center gap-1 hover:text-brand disabled:opacity-40"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Clear
-                </button>
-              )}
-              <Link href="/dashboard/help" onClick={onClose} className="inline-flex items-center gap-1 hover:text-brand">
-                <BookOpen className="w-3.5 h-3.5" /> Browse all help
-              </Link>
-            </div>
-          </div>
-        </form>
+        <AskComposer
+          input={input}
+          onInputChange={setInput}
+          onSend={send}
+          onClear={() => { draftOutcome.discarded(); pendingDraftIndex.current = null; setMessages([]); setError(null); clearTranscript(); }}
+          hasMessages={messages.length > 0}
+          busy={busy}
+          quotaBlocked={quotaBlocked}
+          isReadOnly={isReadOnly}
+          quota={quota}
+          keySource={keySource}
+          onClose={onClose}
+        />
       </div>
     </SideDrawer>
   );

@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/Input';
 import { useMutation } from '@/hooks/useMutation';
 import { MfaRequiredError } from '@/lib/api/errors';
 import { MAX_INCIDENT_GRANT, type SupportIncidentGrant } from '@/lib/api/domains/billing';
-import type { OrganizationDetail } from '@/lib/api/domains/organizations';
+import type { OrganizationDetail } from '@/lib/api/domains/organizations-lifecycle';
 import { formatError } from '@/lib/constants';
 
 /** What the audit row keeps of a note (the route trims and slices to 500). */

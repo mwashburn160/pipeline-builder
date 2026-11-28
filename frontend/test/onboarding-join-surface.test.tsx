@@ -177,3 +177,15 @@ describe('onboarding page — first run', () => {
     expect(isSetupGuideSnoozed('some-other-org')).toBe(false);
   });
 });
+
+describe('onboarding page — error containment', () => {
+  it('renders outside the dashboard layout, so it brings its own page-level boundary', () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const getLayout = (OnboardingPage as unknown as { getLayout?: (p: React.ReactElement) => React.ReactElement }).getLayout;
+    expect(getLayout).toBeDefined();
+    function Bomb(): never { throw new Error('wizard exploded'); }
+    render(getLayout!(<Bomb />));
+    expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+});

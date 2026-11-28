@@ -15,7 +15,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import type { EffectiveImpersonationPolicyDto, ImpersonationPolicy } from '@/lib/api/domains/organizations';
+import type { EffectiveImpersonationPolicyDto, ImpersonationPolicy } from '@/lib/api/domains/organizations-policies';
 
 /** Plain-language options, from most to least permissive. */
 const OPTIONS: { value: ImpersonationPolicy; label: string; description: string }[] = [

@@ -375,3 +375,60 @@ tests:
       - eval_time: 30m
         alertname: RunnerDeployStuck
         exp_alerts: []
+
+  # FrontendWebVitalsPoor: real users' p75 LCP on a page above 4s (the web.dev
+  # "poor" line, a bucket boundary) for 30m, over at least 20 loads in the
+  # window. Case 1: every load ~5s, one a minute -> fires, labelled by route.
+  - interval: 1m
+    input_series:
+      - series: 'frontend_web_vitals_bucket{metric="LCP",route="/dashboard",rating="poor",le="2.5",service="ops-center"}'
+        values: '0x120'
+      - series: 'frontend_web_vitals_bucket{metric="LCP",route="/dashboard",rating="poor",le="4",service="ops-center"}'
+        values: '0x120'
+      - series: 'frontend_web_vitals_bucket{metric="LCP",route="/dashboard",rating="poor",le="6",service="ops-center"}'
+        values: '0+1x120'
+      - series: 'frontend_web_vitals_bucket{metric="LCP",route="/dashboard",rating="poor",le="+Inf",service="ops-center"}'
+        values: '0+1x120'
+      - series: 'frontend_web_vitals_count{metric="LCP",route="/dashboard",rating="poor",service="ops-center"}'
+        values: '0+1x120'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: FrontendWebVitalsPoor
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: FrontendWebVitalsPoor
+        exp_alerts:
+          - exp_labels: { severity: info, component: frontend, tenancy: platform, route: /dashboard }
+            exp_annotations:
+              summary: "Real users wait over 4s for the largest paint on /dashboard"
+              description: "The 75th-percentile Largest Contentful Paint reported by browsers for /dashboard has been above 4s (web.dev's \"poor\" line) for 30 minutes, over at least 20 page loads. Compare frontend_web_vitals TTFB for the same route: a slow TTFB points at the server/API, a fast one at the page's own JS and rendering (check the bundle budget in frontend/bundle-budgets.json)."
+  # Case 2: the same traffic at ~1.5s is healthy -> quiet.
+  - interval: 1m
+    input_series:
+      - series: 'frontend_web_vitals_bucket{metric="LCP",route="/dashboard",rating="good",le="1.8",service="ops-center"}'
+        values: '0+1x120'
+      - series: 'frontend_web_vitals_bucket{metric="LCP",route="/dashboard",rating="good",le="4",service="ops-center"}'
+        values: '0+1x120'
+      - series: 'frontend_web_vitals_bucket{metric="LCP",route="/dashboard",rating="good",le="+Inf",service="ops-center"}'
+        values: '0+1x120'
+      - series: 'frontend_web_vitals_count{metric="LCP",route="/dashboard",rating="good",service="ops-center"}'
+        values: '0+1x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: FrontendWebVitalsPoor
+        exp_alerts: []
+  # Case 3: slow, but one load every two minutes (15 in 30m) is too thin to page on -> quiet.
+  - interval: 1m
+    input_series:
+      - series: 'frontend_web_vitals_bucket{metric="LCP",route="/login",rating="poor",le="4",service="ops-center"}'
+        values: '0x120'
+      - series: 'frontend_web_vitals_bucket{metric="LCP",route="/login",rating="poor",le="6",service="ops-center"}'
+        values: '0+0.5x120'
+      - series: 'frontend_web_vitals_bucket{metric="LCP",route="/login",rating="poor",le="+Inf",service="ops-center"}'
+        values: '0+0.5x120'
+      - series: 'frontend_web_vitals_count{metric="LCP",route="/login",rating="poor",service="ops-center"}'
+        values: '0+0.5x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: FrontendWebVitalsPoor
+        exp_alerts: []

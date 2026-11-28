@@ -8,6 +8,7 @@ import {
 } from '@pipeline-builder/api-core/wire-vocabulary';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import type { Message, SupportCaseSummary } from '@/types';
 
 /** Props for the MessageList component. */
@@ -214,10 +215,11 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
         return (
           <div
             key={msg.id}
+            data-message-id={msg.id}
             role="button"
             tabIndex={0}
             aria-current={isSelected ? 'true' : undefined}
-            className={`group relative w-full text-left px-3 py-3 flex items-center gap-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)] focus-visible:ring-inset ${
+            className={`group relative w-full text-left px-3 py-3 flex items-center gap-3 ${onDelete && (!canDelete || canDelete(msg)) ? 'pr-14 sm:pr-10' : ''} transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)] focus-visible:ring-inset ${
               isSelected || isTicked
                 ? 'bg-info-bg'
                 : 'hover:bg-surface-muted'
@@ -235,7 +237,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
               // click too, so the keyboard path is the same. `onChange` is the
               // controlled-input no-op React requires.
               <Checkbox
-                className="flex-shrink-0"
+                className="flex-shrink-0 max-sm:w-5 max-sm:h-5"
                 checked={isTicked}
                 onChange={() => {}}
                 onClick={(e) => { e.stopPropagation(); onToggleSelect(msg.id, e.shiftKey); }}
@@ -332,7 +334,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
             {onDelete && (!canDelete || canDelete(msg)) && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(msg.id); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-fg-subtle hover:text-danger hover:bg-danger-bg opacity-60 group-hover:opacity-100 focus:opacity-100 transition-all"
+                className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg ${TAP_TARGET} text-fg-subtle hover:text-danger hover:bg-danger-bg opacity-60 group-hover:opacity-100 focus:opacity-100 transition-all`}
                 title="Delete message"
                 aria-label="Delete message"
               >
@@ -349,7 +351,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
           <button
             onClick={onLoadMore}
             disabled={loadingMore}
-            className="w-full text-center text-xs font-medium py-2 rounded-lg text-brand hover:bg-info-bg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full text-center text-xs font-medium py-2 max-sm:py-3.5 rounded-lg text-brand hover:bg-info-bg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loadingMore ? 'Loading…' : 'Load more'}
           </button>

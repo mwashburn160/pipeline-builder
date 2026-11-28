@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { RefreshCw } from 'lucide-react';
 import type { RunnerLinkDto, RunnerLinkStatus } from '@pipeline-builder/api-core/pipeline-runners';
 import { Button } from '@/components/ui/Button';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { WarningAlert } from '@/components/ui/WarningAlert';
@@ -156,11 +157,11 @@ export function RunnerLinkRow({ link, stalled = false, canRefresh, onFindAgain }
   return (
     <div className="flex justify-between gap-2" data-testid="runner-link">
       <dt className="text-fg-muted">Runs via</dt>
-      <dd className="text-right space-y-0.5" data-testid="runner-link-status" data-status={link.status}>
+      <dd className="min-w-0 break-words text-right space-y-0.5" data-testid="runner-link-status" data-status={link.status}>
         {view?.({ link, stalled })}
         {kept && <div className="text-xs text-fg-muted" data-testid="runner-link-kept">Still linked to {kept.label}.</div>}
         {canRefresh && (
-          <Button type="button" size="xs" variant="ghost" className="inline-flex items-center gap-1" disabled={checking}
+          <Button type="button" size="xs" variant="ghost" className={`inline-flex items-center gap-1 ${TAP_TARGET}`} disabled={checking}
             onClick={onFindAgain}>
             <RefreshCw className="w-3.5 h-3.5" /> Find runner again
           </Button>

@@ -16,8 +16,9 @@
  * list says what a spec might want to stub.
  */
 
+import { randomBytes } from 'node:crypto';
 import type { Page, Request } from '@playwright/test';
-import { ROLE_PERMISSIONS } from '../../../packages/api-core/src/types/permissions';
+import { ALL_PERMISSIONS, ROLE_PERMISSIONS } from '../../../packages/api-core/src/types/permissions';
 
 export interface StubReply {
   status?: number;
@@ -57,13 +58,63 @@ export const OWNER = {
   organizations: [{ organizationId: 'org-1', organizationName: 'Acme', role: 'owner', joinedAt: '2026-01-01T00:00:00Z', childOrgCount: 0 }],
 };
 
-/** `GET /config` — the deployment's feature switches (all on). */
-const CONFIG = { serviceFeatures: {}, deployTarget: 'local', adminConsolesEnabled: false };
+/** The profile shape the stub serves (`isSuperAdmin` only on an operator). */
+export type StubUser = typeof OWNER & { isSuperAdmin?: boolean };
 
-const ok = (data?: unknown): StubReply => ({ json: data === undefined ? { success: true } : { success: true, data } });
+/** The platform's own org: the Platform section's `systemOrgOnly` pages need it active. */
+export const SYSTEM_ORG_ID = '000000000000000000000001';
+
+/**
+ * A platform operator: superadmin, active in the system org, holding every
+ * permission — the user that sees every nav entry (Platform and its
+ * sub-groups included). The a11y walk and the screenshot specs sign in as it.
+ */
+export const SYSADMIN: StubUser = {
+  ...OWNER,
+  id: 'u-sys',
+  username: 'root',
+  email: 'root@example.test',
+  organizationId: SYSTEM_ORG_ID,
+  organizationName: 'Platform',
+  tier: 'enterprise',
+  permissions: [...ALL_PERMISSIONS],
+  authFactors: { hasPassword: true, passkeyCount: 1, hasTotp: true, providers: [] },
+  organizations: [{ organizationId: SYSTEM_ORG_ID, organizationName: 'Platform', role: 'owner', joinedAt: '2026-01-01T00:00:00Z', childOrgCount: 0 }],
+  isSuperAdmin: true,
+};
+
+/** `GET /config` — the deployment's public config, every field the real one sends. */
+export const CONFIG = {
+  serviceFeatures: {}, deployTarget: 'local', adminConsolesEnabled: false,
+  supportAlias: 'support@example.test', supportAliases: ['support@example.test', 'billing@example.test'],
+  askUiMode: 'ask-agent', cli: { npmPackage: '@pipeline-builder/cli', npmUrl: 'https://www.npmjs.com/package/@pipeline-builder/cli' },
+};
+
+/** Fixed reset date, so nothing derived from "now" renders differently per run. */
+const RESET_AT = '2026-12-01T00:00:00.000Z';
+const QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes', 'cpuCredits',
+  'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs', 'listings'] as const;
+
+/** `GET /quota` — the org's own quota: modest usage of generous limits, no banner. */
+export function quotaFor(user: StubUser) {
+  const quotas = Object.fromEntries(QUOTA_TYPES.map((t, i) => {
+    const limit = t === 'storageBytes' ? 10 * 1024 ** 3 : 1000;
+    const used = t === 'storageBytes' ? 1024 ** 3 : (i + 1) * 7;
+    return [t, { limit, used, remaining: limit - used, unlimited: false, resetAt: RESET_AT, periodDays: t === 'cpuCredits' ? 30 : 3 }];
+  }));
+  return { orgId: user.organizationId, name: user.organizationName, slug: user.organizationName.toLowerCase(), tier: user.tier, quotas, periodDays: 3 };
+}
+
+export const PREFERENCES = {
+  favorites: [] as string[],
+  recents: [] as string[],
+  notifications: { muteQuotaWarnings: false, ecosystem: { reviewsEmail: true, upgradesEmail: true, installsEmail: true, moderationDigestEmail: true } },
+};
+
+export const ok = (data?: unknown): StubReply => ({ json: data === undefined ? { success: true } : { success: true, data } });
 
 /** The reads every signed-in page makes; a spec overrides what it asserts on. */
-function signedInDefaults(user: typeof OWNER): Record<string, Handler> {
+function signedInDefaults(user: StubUser): Record<string, Handler> {
   return {
     'GET /api/user/profile': () => ok({ user }),
     'GET /api/user/organizations': () => ok({ organizations: user.organizations }),
@@ -71,7 +122,9 @@ function signedInDefaults(user: typeof OWNER): Record<string, Handler> {
     'GET /api/billing/config': () => ok({ enabled: true, provider: 'stripe' }),
     'GET /api/pipelines': () => ok({ pipelines: [], pagination: { total: 0, limit: 25, offset: 0, hasMore: false } }),
     'GET /api/plugins': () => ok({ plugins: [], pagination: { total: 0, hasMore: false } }),
-    'GET /api/messages/unread-count': () => ok({ count: 0 }),
+    'GET /api/messages/unread/count': () => ok({ count: 0 }),
+    'GET /api/quota': () => ok({ quota: quotaFor(user) }),
+    'GET /api/user/preferences': () => ok({ preferences: PREFERENCES }),
   };
 }
 
@@ -85,7 +138,7 @@ export interface Backend {
   /** Uncaught exceptions the page threw (a spec asserts this stays empty). */
   pageErrors: string[];
   /** Make the stubbed session signed in as `user` (profile + token refresh). */
-  signIn(user?: typeof OWNER): void;
+  signIn(user?: StubUser): void;
 }
 
 export async function stubBackend(page: Page): Promise<Backend> {
@@ -115,7 +168,20 @@ export async function stubBackend(page: Page): Promise<Backend> {
   handlers.set('GET /api/config', () => ok(CONFIG));
   handlers.set('GET /api/billing/config', () => ok({ enabled: true, provider: 'stripe' }));
   handlers.set('GET /api/auth/oauth/providers', () => ok({ providers: [] }));
-  handlers.set('POST /api/auth/webauthn/login/options', () => ({ status: 404, json: { success: false } }));
+  // The sign-in card's passkey autofill: the options read answers as the
+  // platform does, and the browser reports no conditional mediation (headless
+  // Chromium has no platform authenticator, and would otherwise fail the
+  // autofill with an error that hides the card's own banners). The explicit
+  // "Sign in with a passkey" still works against a virtual authenticator.
+  handlers.set('POST /api/auth/webauthn/login/options', () => ok({
+    ceremonyId: 'cer-login',
+    options: { challenge: randomBytes(32).toString('base64url'), rpId: 'localhost', timeout: 300_000, userVerification: 'preferred', allowCredentials: [] },
+  }));
+  await page.addInitScript(() => {
+    try {
+      Object.defineProperty(PublicKeyCredential, 'isConditionalMediationAvailable', { value: async () => false, configurable: true });
+    } catch { /* no WebAuthn at all — nothing to quieten */ }
+  });
 
   await page.route('**/api/**', async (route) => {
     const req = route.request();
@@ -145,7 +211,7 @@ export async function stubBackend(page: Page): Promise<Backend> {
  * marker is set, so the app trades the (stubbed) refresh cookie for a token on
  * boot and loads the profile.
  */
-export async function signedInPage(page: Page, user = OWNER): Promise<Backend> {
+export async function signedInPage(page: Page, user: StubUser = OWNER): Promise<Backend> {
   const api = await stubBackend(page);
   api.signIn(user);
   await page.addInitScript(() => {

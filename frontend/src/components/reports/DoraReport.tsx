@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useState } from 'react';
 import Link from 'next/link';
 import type { ExecutionCountRow } from '@/types';
@@ -13,6 +14,8 @@ import {
 import { LEAD_TIME_GAP_COPY, leadTimeGapTooltip } from './report-copy';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { CopyableId } from '@/components/ui/CopyableId';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import { formatDurationSeconds } from '@/lib/format';
 
 /** Billing deep-link that rings the DORA-History pack on the add-ons grid. */
@@ -261,7 +264,9 @@ export function DoraReport({
 
           {doraTrend.length > 0 && (
             <div className="mt-4">
-              <DoraTrendSparkline points={doraTrend} />
+              <ErrorBoundary boundary="chart" compact label="Deployment trend">
+                <DoraTrendSparkline points={doraTrend} />
+              </ErrorBoundary>
             </div>
           )}
 
@@ -359,7 +364,7 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
 
   return (
     <Card className="mt-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-3">
         <SectionHeading>Deployments</SectionHeading>
         {canMark && pipelineSelected && (
           <span className="text-xs text-fg-subtle">
@@ -372,9 +377,13 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
       ) : deployments.length === 0 ? (
         <ReportEmpty text="No deployments for this pipeline in the window." />
       ) : (
+        // On a phone each deployment stacks into a card-like row (the header row
+        // stays for screen readers only): id, status and time, then the two
+        // outcome actions as full-width targets. Wider screens keep the table,
+        // which scrolls inside this container rather than the page.
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
+          <table className="w-full text-sm max-sm:block">
+            <thead className="max-sm:sr-only">
               <tr className="text-left text-xs text-fg-subtle border-b border-default">
                 <th scope="col" className="py-2 pr-3 font-medium">Execution</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Status</th>
@@ -382,13 +391,13 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
                 {canMark && <th scope="col" className="py-2 pr-3 font-medium text-right">Outcome</th>}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="max-sm:block">
               {deployments.map((d) => (
-                <tr key={d.execution_id} className="border-b border-default last:border-0">
-                  <td className="py-2 pr-3 font-mono text-xs text-fg-muted truncate max-w-[14rem]" title={d.execution_id}>
-                    {d.execution_id}
+                <tr key={d.execution_id} className="border-b border-default last:border-0 max-sm:flex max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:gap-y-2 max-sm:py-3">
+                  <td className="py-2 pr-3 max-w-[14rem] max-sm:block max-sm:w-full max-sm:max-w-none max-sm:p-0">
+                    <CopyableId value={d.execution_id} size="sm" label="Copy execution id" />
                   </td>
-                  <td className="py-2 pr-3">
+                  <td className="py-2 pr-3 max-sm:block max-sm:p-0">
                     <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-2xs font-medium ${
                       d.status === 'Succeeded'
                         ? 'bg-success-bg text-success'
@@ -399,9 +408,9 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
                       {d.status}
                     </span>
                   </td>
-                  <td className="py-2 pr-3 text-xs text-fg-muted tabular-nums">{fmtDate(d.ended_at || d.started_at)}</td>
+                  <td className="py-2 pr-3 text-xs text-fg-muted tabular-nums max-sm:block max-sm:p-0">{fmtDate(d.ended_at || d.started_at)}</td>
                   {canMark && (
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pr-3 max-sm:block max-sm:w-full max-sm:p-0">
                       <div className="flex items-center justify-end gap-2">
                         <Button
                           variant="ghost"
@@ -409,6 +418,7 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
                           readOnly={readOnly}
                           disabled={pending === d.execution_id}
                           onClick={() => mark(d.execution_id, 'failed')}
+                          className={`max-sm:flex-1 max-sm:border max-sm:border-default ${TAP_TARGET}`}
                           title='Mark this deployment as failed in production (post-deploy failure)'
                         >
                           Mark failed
@@ -419,6 +429,7 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
                           readOnly={readOnly}
                           disabled={pending === d.execution_id}
                           onClick={() => mark(d.execution_id, 'restored')}
+                          className={`max-sm:flex-1 max-sm:border max-sm:border-default ${TAP_TARGET}`}
                           title='Mark this deployment as restored (recovery — feeds median time to restore)'
                         >
                           Mark restored

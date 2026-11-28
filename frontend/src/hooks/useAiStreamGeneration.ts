@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState, type MutableRefObject } from 'react';
-import type { StreamEvent } from '@/lib/api/core';
+import type { StreamEvent } from '@/lib/api/client/stream';
 import { formatAIError, streamEventError } from '@/lib/ai-errors';
 import { formatJSON } from '@/lib/constants';
 

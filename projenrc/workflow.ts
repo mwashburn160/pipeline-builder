@@ -45,6 +45,20 @@ import { TypeScriptProject } from 'projen/lib/typescript';
  * GHRC_TOKEN / NPM token / id-token. A SHA cannot move. Bump deliberately:
  * `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`.
  */
+/**
+ * The frontend's `@playwright/test` pin, and the official Playwright image of
+ * the SAME version the frontend e2e job runs in (pinned by its multi-arch
+ * index digest, like the actions above). The screenshot baselines are renders
+ * from this image (frontend/e2e/README.md), so the two move together: bump
+ * the version, re-pin the digest (`docker buildx imagetools inspect
+ * mcr.microsoft.com/playwright:v<version>-noble`) and regenerate baselines.
+ */
+export const PLAYWRIGHT_VERSION = '1.64.1';
+const PLAYWRIGHT_IMAGE = `mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f`;
+
+/** The frontend e2e suite's CI shards (`playwright test --shard=<n>/<count>`). */
+const FRONTEND_E2E_SHARDS = 2;
+
 const ACTIONS = {
     checkout: 'actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803', // v6
     setupPnpm: 'pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86', // v6
@@ -293,17 +307,27 @@ export class Workflow extends Component {
     }
 
     /**
-     * Frontend browser smoke + accessibility: Playwright against `next dev` with
-     * every `/api/**` request answered by route stubs inside the test (no
-     * platform, no services, no secrets). Flows: sign-in + token refresh, the
-     * pipeline form builder's create request, a step-up prompt replaying the
-     * refused write, the billing checkout return and marketplace fulfillment;
-     * plus axe scans of the key pages, failing on serious/critical violations.
+     * Frontend e2e: Playwright against `next dev` with every `/api/**` request
+     * answered by route stubs inside the test (no platform, no services, no
+     * secrets) — the user journeys, axe scans of every nav page and the main
+     * modals (failing on serious/critical violations), and the screenshot
+     * baselines (frontend/e2e/README.md).
+     *
+     * Runs INSIDE the official Playwright image of the frontend's pinned
+     * version: its browsers and fonts are what the Linux baselines were
+     * rendered with. Sharded across {@link FRONTEND_E2E_SHARDS} jobs (each with
+     * two workers); a failing shard uploads its HTML report and the
+     * test-results directory (traces, and the actual/expected/diff images of a
+     * screenshot mismatch).
      */
     private createFrontendE2eJob() {
+        const shards = Array.from({ length: FRONTEND_E2E_SHARDS }, (_, i) => i + 1);
         return {
-            name: 'frontend e2e (playwright + axe)',
+            name: 'frontend e2e (playwright + axe + screenshots) ${{ matrix.shard }}/' + FRONTEND_E2E_SHARDS,
             runsOn: ['ubuntu-latest'],
+            container: { image: PLAYWRIGHT_IMAGE, options: ['--ipc=host'] },
+            timeoutMinutes: 30,
+            strategy: { failFast: false, matrix: { domain: { shard: shards.map(String) } } },
             permissions: {
                 contents: JobPermission.READ,
                 packages: JobPermission.READ,
@@ -316,19 +340,24 @@ export class Workflow extends Component {
                     run: 'pnpm nx run-many -t compile --projects=@pipeline-builder/api-core,@pipeline-builder/pipeline-core',
                 },
                 {
-                    name: 'Install Playwright chromium',
-                    run: 'cd frontend && npx playwright install --with-deps chromium',
+                    // The image ships the browsers; this only proves the pins agree.
+                    name: 'Check the Playwright image matches the pinned version',
+                    run: `cd frontend && test "$(node -p "require('@playwright/test/package.json').version")" = "${PLAYWRIGHT_VERSION}"`,
                 },
                 {
                     name: 'Run e2e',
-                    run: 'cd frontend && npx playwright test',
+                    run: `cd frontend && npx playwright test --shard=\${{ matrix.shard }}/${FRONTEND_E2E_SHARDS}`,
                     env: { CI: 'true' },
                 },
                 {
-                    name: 'Upload Playwright report',
+                    name: 'Upload Playwright report and diffs',
                     if: 'failure()',
                     uses: ACTIONS.uploadArtifact,
-                    with: { name: 'playwright-report', path: 'frontend/playwright-report', 'retention-days': 7 },
+                    with: {
+                        'name': 'playwright-report-${{ matrix.shard }}',
+                        'path': 'frontend/playwright-report\nfrontend/test-results',
+                        'retention-days': 7,
+                    },
                 },
             ],
         };

@@ -2,6 +2,7 @@ import { type ReactNode, type RefObject, useEffect, useId, useRef, useCallback, 
 import { createPortal } from 'react-dom';
 import { useDialogBehavior } from '@/hooks/useDialogBehavior';
 import { ConfirmDialog } from './ConfirmDialog';
+import { TAP_TARGET } from './responsive';
 
 /** Props for the Modal component. */
 interface ModalProps {
@@ -70,13 +71,18 @@ export function Modal({
     else onClose();
   }, [dirty, onClose]);
 
+  // On a phone (below `sm`) every dialog is a full-height sheet: header pinned
+  // at the top, footer at the bottom, and only the body scrolls. A centred box
+  // taller than the screen otherwise loses its header off the top, out of
+  // reach, with the backdrop's flex centring.
   const panelClasses = [
     'modal-panel', maxWidth,
-    tall && 'max-h-[90vh] flex flex-col',
+    'max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:p-0 max-sm:flex max-sm:flex-col',
+    tall && 'sm:max-h-[90vh] flex flex-col',
   ].filter(Boolean).join(' ');
 
   const contentClasses = [
-    'px-6 py-4',
+    'px-4 sm:px-6 py-4 max-sm:flex-1 max-sm:overflow-y-auto max-sm:min-h-0',
     tall && 'flex-1 overflow-y-auto',
   ].filter(Boolean).join(' ');
 
@@ -91,7 +97,7 @@ export function Modal({
 
   return createPortal(
     <>
-    <div className="modal-backdrop" onClick={requestClose} role="presentation">
+    <div className="modal-backdrop max-sm:p-0" onClick={requestClose} role="presentation">
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- stopPropagation only, see onClick */}
       <div
         ref={panelRef}
@@ -105,12 +111,12 @@ export function Modal({
         aria-labelledby={titleId}
       >
         {/* Header */}
-        <div className="flex justify-between items-center px-6 py-4 border-b border-default">
+        <div className="flex justify-between items-center px-4 sm:px-6 py-4 max-sm:py-2 border-b border-default shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             {titleIcon}
             <h2 id={titleId} className="h2 text-lg truncate">{title}</h2>
           </div>
-          <button onClick={requestClose} aria-label="Close dialog" className="text-fg-subtle hover:text-fg transition-colors ml-3 shrink-0">
+          <button onClick={requestClose} aria-label="Close dialog" className={`text-fg-subtle hover:text-fg transition-colors ml-3 shrink-0 max-sm:-mr-2.5 ${TAP_TARGET}`}>
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -130,7 +136,7 @@ export function Modal({
 
         {/* Footer */}
         {footer && (
-          <div className="border-t border-default px-6 py-4 bg-surface-muted rounded-b-2xl">
+          <div className="border-t border-default px-4 sm:px-6 py-4 max-sm:pb-[max(1rem,env(safe-area-inset-bottom))] bg-surface-muted sm:rounded-b-2xl shrink-0">
             {footer}
           </div>
         )}

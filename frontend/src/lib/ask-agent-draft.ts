@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import api from '@/lib/api';
-import type { StreamEvent } from '@/lib/api/core';
+import type { StreamEvent } from '@/lib/api/client/stream';
 import { splitAskAgentModel } from '@/lib/ai-constants';
 
 /**

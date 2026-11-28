@@ -1,37 +1,26 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { VISIBILITY_RUNGS_WIDEST_FIRST } from '@/components/ui/visibility-rungs';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { useToast } from '@/components/ui/Toast';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { formatError } from '@/lib/constants';
-import { Search, Puzzle, Plus, Upload, Star } from 'lucide-react';
-import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/plugin-categories';
+import { Plus, Upload } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
-import { useFetch } from '@/hooks/useFetch';
-import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
-import { TabBar } from '@/components/ui/TabBar';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Button } from '@/components/ui/Button';
-import { FilterInput } from '@/components/ui/FilterInput';
-import { FilterSelect } from '@/components/ui/FilterSelect';
-import { DataTable } from '@/components/ui/DataTable';
-import { ResourceList } from '@/components/ui/ResourceList';
-import { FilterBar } from '@/components/ui/FilterBar';
 import { PluginDetailModal } from '@/components/plugin/PluginDetailModal';
 import { PluginLifecycleModal, type PluginLifecycleAction } from '@/components/plugin/PluginLifecycleModal';
-import { usePluginColumns, PLUGIN_SORT_FIELD } from '@/components/plugin/usePluginColumns';
-import { BulkActionBar, BulkActionBarSpacer, useRowSelection } from '@/components/dashboard/BulkActionBar';
+import { usePluginColumns } from '@/components/plugin/usePluginColumns';
+import { BulkActionBar } from '@/components/dashboard/BulkActionBar';
 import api from '@/lib/api';
-import { PLUGIN_LIST_FIELDS, type PluginSummary } from '@/lib/api/domains/plugins';
-import { mapCommonParams, canModify } from '@/lib/resource-helpers';
-import { buildListSummary } from '@/lib/list-summary';
+import type { PluginSummary } from '@/lib/api/domains/plugins';
+import { canModify } from '@/lib/resource-helpers';
 import { visitedPluginsKey } from '@/lib/onboarding';
 import { useFavorites } from '@/lib/favorites';
 import { useUrlTab } from '@/hooks/useUrlTab';
@@ -41,36 +30,23 @@ import { PLUGINS_TABS, resolvePluginsTab, type PluginsSection, type PluginsTab }
 import { settleTabLocation, SECTION_KEY } from '@/lib/page-tabs/grouped';
 import { CatalogTab } from '@/components/plugin-installs/CatalogTab';
 import { InstallsTab } from '@/components/plugin-installs/InstallsTab';
-import { ApprovalsTab } from '@/components/plugin-installs/ApprovalsTab';
-import { PolicyTab } from '@/components/plugin-installs/PolicyTab';
-import { AdvisorySearchPanel } from '@/components/plugin/AdvisorySearchPanel';
 import { OrgFailedBuildsPanel } from '@/components/plugin/OrgFailedBuildsPanel';
-import { RemediationsPanel } from '@/components/plugin/RemediationsPanel';
 import { PluginInUseModal, pluginInUseRefusal, type PluginInUseRefusal } from '@/components/plugin/PluginInUseModal';
 import { DeletePluginDialog, usePluginDeleteJobWatcher } from '@/components/plugin/DeletePluginDialog';
-import { DeletedPluginBatches } from '@/components/plugin/DeletedPluginBatches';
 import { TidyKeepBanner } from '@/components/plugin/PluginTidyControls';
-import { invalidate, queryTags } from '@/lib/api-cache';
+import { MyPluginsTab } from '@/components/plugin/tabs/MyPluginsTab';
+import { PluginSecurityTab, SECURITY_SECTIONS } from '@/components/plugin/tabs/PluginSecurityTab';
+import { useMyPluginsList } from '@/components/plugin/tabs/useMyPluginsList';
+import { usePluginBulkActions } from '@/components/plugin/tabs/usePluginBulkActions';
+import { usePluginLookups } from '@/components/plugin/tabs/usePluginLookups';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
 import { pluginPagePath } from '@/lib/public-directory/links';
-import type { ListingState, ListingView } from '@/types/ecosystem';
+import type { ListingState } from '@/types/ecosystem';
 
-// Modals and the recently-deleted panel load on first use — none of them is
-// part of the list's first paint, and the create modal carries the AI builder.
+// Modals load on first use — none of them is part of the list's first paint,
+// and the create modal carries the AI builder.
 const CreatePluginModal = dynamic(() => import('@/components/plugin/CreatePluginModal'), { ssr: false });
 const EditPluginModal = dynamic(() => import('@/components/plugin/EditPluginModal'), { ssr: false });
-const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedPanel').then((m) => m.RecentlyDeletedPanel), { ssr: false });
-
-/** `fields` for the list request — every rendered column, never the build spec. */
-const LIST_FIELDS = PLUGIN_LIST_FIELDS.join(',');
-
-/** Sub-tabs of Security, in order. Approvals is an approver's surface (`plugin_installs:manage`). */
-const SECURITY_SECTIONS: readonly { id: PluginsSection; label: string }[] = [
-  { id: 'vulnerabilities', label: 'Vulnerability search' },
-  { id: 'remediations', label: 'Remediations' },
-  { id: 'policy', label: 'Policy' },
-  { id: 'approvals', label: 'Approvals' },
-];
 
 // ─── Page ───────────────────────────────────────────────
 
@@ -139,126 +115,14 @@ export default function PluginsPage() {
   // and never lets that load revert a toggle made while it was in flight.
   const { favorites, toggle: handleToggleFavorite } = useFavorites(user?.id, user?.organizationId);
 
-  // Plugin usage counts (how many of the org's pipelines reference each plugin).
-  // Non-blocking — on failure the "Used by" badge just doesn't render.
-  const { data: usageData } = useFetch(async () => {
-    if (!isAuthenticated) return {};
-    try {
-      return (await api.getPluginUsage()).data?.counts ?? {};
-    } catch {
-      return {};
-    }
-  }, [isAuthenticated]);
-  const pluginUsage = useMemo(() => usageData ?? {}, [usageData]);
-
-  // Plugins whose names override something this org would otherwise resolve:
-  // a catalog LISTING, or — for a team — the PARENT ORG's plugin of the same
-  // name. Both come from one call. Non-blocking too.
-  const { data: shadowingData } = useFetch(async () => {
-    if (!isAuthenticated) return null;
-    try {
-      return (await api.getPluginShadowing()).data ?? null;
-    } catch {
-      return null;
-    }
-  }, [isAuthenticated]);
-  const shadowedById = useMemo(() => {
-    const m = new Map<string, { kind: 'listing' | 'parent-org'; publisherHandle: string; name: string }>();
-    for (const s of shadowingData?.shadowing ?? []) {
-      for (const id of s.pluginIds) m.set(id, { kind: 'listing', ...s.listing });
-    }
-    // The parent-org shadow has no listing and no publisher. It was reported by
-    // the API and rendered nowhere, so a team silently overriding its parent's
-    // plugin — the likeliest collision once an org has teams — was invisible.
-    // `pluginIds` are the TEAM's (the shadowing side); `parentPluginIds` are
-    // the ones being hidden and belong to another org, so they are not keyed.
-    for (const s of shadowingData?.parentOrg ?? []) {
-      for (const id of s.pluginIds) m.set(id, { kind: 'parent-org', publisherHandle: '', name: s.name });
-    }
-    return m;
-  }, [shadowingData]);
-
-  // The org's own publisher listings, each with its versions: whether a version
-  // is already in the ecosystem (no "Publish to ecosystem…"; "View public page"
-  // instead). Read once per page, only by someone who may publish. Null while
-  // unknown or on failure — then the publish link shows and the server refuses
-  // a duplicate on its own.
-  const { data: ownListings } = useFetch(async () => {
-    if (!isAuthenticated || !canPublish) return null;
-    try {
-      return (await api.listPublisherListings()).data?.listings ?? null;
-    } catch {
-      return null;
-    }
-  }, [isAuthenticated, canPublish]);
-  /** `name@version` → the own listing that holds that version. */
-  const listedVersions = useMemo(() => {
-    const m = new Map<string, ListingView>();
-    for (const l of ownListings ?? []) {
-      for (const v of l.versions ?? []) m.set(`${l.name}@${v.version}`, l);
-    }
-    return m;
-  }, [ownListings]);
+  // Usage counts, shadowing, and the org's own listings (all non-blocking).
+  const { pluginUsage, shadowedById, listedVersions } = usePluginLookups(isAuthenticated, canPublish);
 
   // ── Data ──
 
-  // Offset-paged (page numbers, page size and a URL-synced offset), so the
-  // keyset `cursor` the endpoint also offers doesn't fit here; `fields` does —
-  // the list never renders the build spec (commands, dockerfile, env, …).
-  const list = useListPage<PluginSummary>({
-    fields: [
-      { key: 'name', type: 'text', defaultValue: '', primary: true },
-      { key: 'id', type: 'text', defaultValue: '' },
-      { key: 'orgId', type: 'text', defaultValue: '' },
-      { key: 'version', type: 'text', defaultValue: '' },
-      { key: 'keyword', type: 'text', defaultValue: '' },
-      // Category and type are the most-used narrowing, so they sit in the
-      // always-visible quick row (not counted as "advanced" filters).
-      { key: 'category', type: 'select', defaultValue: 'all', primary: true },
-      { key: 'pluginType', type: 'select', defaultValue: 'all', primary: true },
-      { key: 'computeType', type: 'select', defaultValue: 'all' },
-      { key: 'visibility', type: 'select', defaultValue: 'all' },
-      { key: 'status', type: 'select', defaultValue: 'all' },
-      { key: 'default', type: 'select', defaultValue: 'all' },
-    ],
-    // Server-side default sort mirrors the previous client-side default
-    // (name ascending) so the initial view is unchanged.
-    initialSort: { sortBy: 'name', sortOrder: 'asc' },
-    fetcher: async (params, signal) => {
-      const p: Record<string, string> = {
-        ...mapCommonParams(params),
-        limit: params.limit,
-        offset: params.offset,
-        includeTotal: 'true',
-        fields: LIST_FIELDS,
-      };
-      if (params.name) p.name = params.name;
-      if (params.id) p.id = params.id;
-      if (params.orgId) p.orgId = params.orgId;
-      if (params.version) p.version = params.version;
-      if (params.keyword) p.keyword = params.keyword;
-      if (params.category && params.category !== 'all') p.category = params.category;
-      if (params.pluginType) p.pluginType = params.pluginType;
-      // NOTE: computeType is intentionally NOT forwarded — PluginFilterSchema
-      // strips it server-side, so it's applied as a client-side filter below.
-      if (params.sortBy) p.sortBy = params.sortBy;
-      if (params.sortOrder) p.sortOrder = params.sortOrder;
-      const response = await api.listPlugins(p, { signal });
-      return { items: response.data?.plugins || [], pagination: response.data?.pagination };
-    },
-    // Only the "My plugins" tab reads (and URL-syncs) the list: its write-back
-    // replaces the whole query and would drop another tab's `?tab=`.
-    enabled: isAuthenticated && mineActive,
-    urlSync: mineActive,
-    // A plugin write anywhere (upload, build, install change) re-reads the page.
-    tags: [queryTags.plugins],
-  });
-
-  // Any write here re-reads this page AND drops the pipeline builder's cached
-  // plugin catalog (usePlugins), which would otherwise offer a deleted or
-  // deactivated plugin until its TTL ran out.
-  const { refresh: refreshList } = list;
-  const afterWrite = useCallback(() => { invalidate.plugins(); refreshList(); }, [refreshList]);
+  // The "My plugins" list (see useMyPluginsList): page-owned so it survives a tab switch.
+  const mine = useMyPluginsList({ isAuthenticated, mineActive, favorites, seedQuery: router.query.q });
+  const { list, refreshList, afterWrite } = mine;
 
   // A version pipelines still reference is never deleted: the 409 names them
   // (with the version to move to), shown in its own dialog rather than an error line.
@@ -283,137 +147,15 @@ export default function PluginsPage() {
     },
   );
 
-  // "Show favorites only" quick-chip (client-side over the fetched page).
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   // Active vs. Recently-deleted view (tabs); the tab is write-gated like restore.
   // In the URL: the deleted view is where someone goes to RESTORE something, so
   // "here is the one that got deleted" needs to be a link, and a refresh after a
   // restore should not bounce back to the active list.
   const [deletedView, setDeletedView] = useUrlTab<'active' | 'deleted'>('view', DELETED_VIEWS, 'active');
 
-  // Seed the name search from a `?q=` deep-link (e.g. ⌘K "find plugin X" or a
-  // My Services plugin link) so the list lands filtered to that plugin.
-  // `updateFilter` is a stable callback (useListPage), so this fires on `?q=` only.
-  const { updateFilter } = list;
-  const seedQuery = router.query.q;
-  useEffect(() => {
-    if (typeof seedQuery === 'string' && seedQuery) updateFilter('name', seedQuery);
-  }, [seedQuery, updateFilter]);
-
-  // Server-side sort: translate a column click into sortBy/sortOrder query
-  // params, instead of an in-memory reorder of one page.
-  const { setSort, clearFilters } = list;
-  const handleServerSort = useCallback((columnId: string, direction: 'asc' | 'desc') => {
-    setSort(PLUGIN_SORT_FIELD[columnId] ?? columnId, direction);
-  }, [setSort]);
-
-  // Clear both the useListPage filters and the favorites-only chip (the chip
-  // is page-local state the hook doesn't know about).
-  const clearAllFilters = useCallback(() => {
-    clearFilters();
-    setShowFavoritesOnly(false);
-  }, [clearFilters]);
-
-  // Backend returns the right scope (own org + system-public catalog). The
-  // remaining client-side filters compose over that page: `computeType`
-  // (PluginFilterSchema strips it, so there's no server support) and the
-  // "favorites only" chip.
-  const computeTypeFilter = list.filters.computeType;
-  const filteredPlugins = useMemo(() => {
-    let result = list.data;
-    if (computeTypeFilter && computeTypeFilter !== 'all') {
-      result = result.filter((p) => p.computeType === computeTypeFilter);
-    }
-    if (showFavoritesOnly) {
-      result = result.filter((p) => favorites.has(p.id));
-    }
-    return result;
-  }, [list.data, computeTypeFilter, showFavoritesOnly, favorites]);
-
-  // Either an advanced/search filter or the favorites chip narrows the page.
-  const hasActiveFilters = list.hasActiveFilters || showFavoritesOnly;
-
-  // Always-on result feedback + current-page exception surfacing (server-
-  // paginated, so inactive/private counts are scoped to this page).
-  const listSummary = useMemo(
-    () => buildListSummary(filteredPlugins, list.pagination.total, {
-      noun: 'plugin',
-      isLoading: list.isLoading,
-      flags: [
-        { label: 'inactive', pred: (p) => !p.isActive },
-        { label: 'private', pred: (p) => p.visibility === 'private' },
-      ],
-    }),
-    [filteredPlugins, list.isLoading, list.pagination.total],
-  );
-
   // ── Bulk Operations ──
 
-  const selection = useRowSelection();
-  const { selectedIds, clear: clearSelection } = selection;
-  const [bulkLoading, setBulkLoading] = useState(false);
-  // Gate bulk delete behind a confirmation modal (mirrors single-row delete's
-  // DeleteConfirmModal), since the bulk action is destructive and irreversible.
-  const [showBulkDelete, setShowBulkDelete] = useState(false);
-
-  const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return;
-    setBulkLoading(true);
-    try {
-      const res = await api.bulkDeletePlugins(Array.from(selectedIds));
-      clearSelection();
-      setShowBulkDelete(false);
-      afterWrite();
-      const deleted = res.data?.deleted ?? 0;
-      const skipped = res.data?.skipped ?? [];
-      if (deleted > 0) toast.success(`${deleted} plugin${deleted > 1 ? 's' : ''} deleted`);
-      if (skipped.length > 0) {
-        const count = (reason: string) => skipped.filter((s) => s.reason === reason).length;
-        const inUseCount = count('in_use');
-        const toolchain = count('managed_toolchain');
-        const published = skipped.length - inUseCount - toolchain;
-        const why = [
-          inUseCount > 0 && `${inUseCount} still used by pipelines (delete each on its own to see which, then upgrade them)`,
-          published > 0 && `${published} published or under a publish request`,
-          toolchain > 0 && `${toolchain} managed toolchain${toolchain === 1 ? '' : 's'} (use the Toolchain console)`,
-        ].filter(Boolean).join('; ');
-        toast.warning(`${skipped.length} not deleted — ${why}.`, 12000);
-      }
-    } catch (err) {
-      list.setError(formatError(err, 'Failed to delete plugins'));
-    } finally {
-      setBulkLoading(false);
-    }
-  };
-
-  const handleBulkActivate = async (isActive: boolean) => {
-    if (selectedIds.size === 0) return;
-    setBulkLoading(true);
-    try {
-      const res = await api.bulkUpdatePlugins(Array.from(selectedIds), { isActive });
-      clearSelection();
-      afterWrite();
-      // The server skips frozen/listed versions and managed toolchains rather
-      // than failing the batch: report what it actually changed.
-      const count = res.data?.updated ?? 0;
-      const skipped = res.data?.skipped ?? [];
-      const verb = isActive ? 'activated' : 'deactivated';
-      if (count > 0) toast.success(`${count} plugin${count === 1 ? '' : 's'} ${verb}`);
-      if (skipped.length > 0) {
-        const toolchain = skipped.filter((s) => s.reason === 'managed_toolchain').length;
-        const frozen = skipped.length - toolchain;
-        const why = [
-          frozen > 0 && `${frozen} published or under a publish request`,
-          toolchain > 0 && `${toolchain} managed toolchain${toolchain === 1 ? '' : 's'} (use the Toolchain console)`,
-        ].filter(Boolean).join('; ');
-        toast.warning(`${skipped.length} not ${verb} — ${why}.`, 12000);
-      }
-    } catch (err) {
-      list.setError(formatError(err, `Failed to ${isActive ? 'activate' : 'deactivate'} plugins`));
-    } finally {
-      setBulkLoading(false);
-    }
-  };
+  const { selection, selectedIds, clearSelection, bulkLoading, showBulkDelete, setShowBulkDelete, handleBulkDelete, handleBulkActivate } = usePluginBulkActions({ afterWrite, setError: list.setError });
 
   // ── Modals ──
 
@@ -481,12 +223,6 @@ export default function PluginsPage() {
     ? `/dashboard/publisher?tab=requests&section=publish&pluginId=${encodeURIComponent(viewPlugin.id)}`
     : undefined;
 
-  const emptyDescription = canWrite
-    ? 'Get started by creating your first plugin.'
-    : 'No private plugins available for your organization.';
-  const emptyAction = canWrite
-    ? <Button onClick={() => setCreateInitialTab('ai')}>Create plugin</Button>
-    : undefined;
 
   return (
     <DashboardLayout
@@ -537,171 +273,33 @@ export default function PluginsPage() {
           />
         )}
         {tab === 'installs' && <InstallsTab canInstall={canInstall} usage={pluginUsage} />}
-        {section === 'approvals' && canManageInstalls && <ApprovalsTab />}
-        {section === 'policy' && <PolicyTab canManage={canManageInstalls} />}
-        {section === 'vulnerabilities' && <AdvisorySearchPanel />}
-        {section === 'remediations' && (
-          <RemediationsPanel
-            canWrite={canWrite}
-            isSystemOrg={isSystemOrgActive(user)}
-            focusId={typeof router.query.remediation === 'string' ? router.query.remediation : undefined}
-            onOpenPlugin={openPluginById}
-          />
-        )}
+        <PluginSecurityTab
+          section={section}
+          canManageInstalls={canManageInstalls}
+          canWrite={canWrite}
+          isSystemOrg={isSystemOrgActive(user)}
+          focusRemediationId={typeof router.query.remediation === 'string' ? router.query.remediation : undefined}
+          onOpenPlugin={openPluginById}
+        />
         {tab === 'builds' && canWrite && (
           <OrgFailedBuildsPanel seesEveryOrg={isSystemOrgActive(user) && can('plugin_queue:manage')} />
         )}
 
         {tab === 'mine' && (
-        <>
-        {/* Active / Recently-deleted tabs (restore is write-gated). */}
-        {canWrite && (
-          <TabBar
-            className="mb-4"
-            items={[{ id: 'active', label: 'Active' }, { id: 'deleted', label: 'Recently deleted' }]}
-            activeId={deletedView}
-            onSelect={(id) => setDeletedView(id as 'active' | 'deleted')}
-          />
-        )}
-
-        {canWrite && deletedView === 'deleted' ? (
-          <>
-            <DeletedPluginBatches onChanged={afterWrite} />
-            <RecentlyDeletedPanel resource="plugin" onRestored={afterWrite} canRestoreRow={(r) => canWriteRow({ visibility: r.visibility, createdBy: r.createdBy })} />
-          </>
-        ) : (
-        <>
-        {/* Sticky search + advanced-filter panel stays above the list shell.
-            FilterBar is its own sticky surface with a "/" hotkey and a
-            collapsible advanced panel — pulling it into ResourceList's
-            inline header would defeat both. */}
-        <FilterBar
-          sticky
-          searchValue={list.filters.name}
-          onSearchChange={(v) => list.updateFilter('name', v)}
-          searchPlaceholder="Search plugins... (press /)"
-          showAdvanced={showAdvanced}
-          onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
-          advancedFilterCount={list.advancedFilterCount}
-          onClearAll={clearAllFilters}
-          summary={listSummary}
-          advancedContent={
-            <>
-              <FilterInput type="text" aria-label="Filter by keyword" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="max-w-[160px]" />
-              <FilterSelect aria-label="Filter by compute" value={list.filters.computeType} onChange={(e) => list.updateFilter('computeType', e.target.value)}>
-                <option value="all">All compute</option>
-                <option value="SMALL">SMALL</option>
-                <option value="MEDIUM">MEDIUM</option>
-                <option value="LARGE">LARGE</option>
-                <option value="X2_LARGE">X2_LARGE</option>
-              </FilterSelect>
-              <FilterSelect aria-label="Filter by status" value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)}>
-                <option value="all">All status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </FilterSelect>
-              <FilterSelect aria-label="Filter by default" value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)}>
-                <option value="all">All plugins</option>
-                <option value="default">Default only</option>
-              </FilterSelect>
-              {canViewPublic && (
-                <FilterSelect aria-label="Filter by visibility" value={list.filters.visibility} onChange={(e) => list.updateFilter('visibility', e.target.value)}>
-                  <option value="all">All visibility</option>
-                  {VISIBILITY_RUNGS_WIDEST_FIRST.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-                </FilterSelect>
-              )}
-            </>
-          }
-        />
-
-        {/* Quick filters — the most-used narrowing, always visible: category,
-            step type, and favorites (localStorage-backed, same source as the
-            star toggles). Everything else lives under Filters. */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <FilterSelect aria-label="Filter by category" value={list.filters.category} onChange={(e) => list.updateFilter('category', e.target.value)}>
-            <option value="all">All categories</option>
-            {PLUGIN_CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>{CATEGORY_DISPLAY_NAMES[cat]}</option>
-            ))}
-          </FilterSelect>
-          <FilterSelect aria-label="Filter by type" value={list.filters.pluginType} onChange={(e) => list.updateFilter('pluginType', e.target.value)}>
-            <option value="all">All step types</option>
-            <option value="CodeBuildStep">CodeBuildStep</option>
-            <option value="ShellStep">ShellStep</option>
-            <option value="ManualApprovalStep">ManualApprovalStep</option>
-          </FilterSelect>
-          <button
-            type="button"
-            onClick={() => setShowFavoritesOnly((v) => !v)}
-            aria-pressed={showFavoritesOnly}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-              showFavoritesOnly
-                ? 'border-warning-border bg-warning-bg text-warning'
-                : 'border-default text-fg hover:bg-surface-muted'
-            }`}
-          >
-            <Star className={`w-3.5 h-3.5 ${showFavoritesOnly ? 'fill-current' : ''}`} aria-hidden="true" />
-            Favorites only
-          </button>
-          {hasActiveFilters && (
-            <button type="button" onClick={clearAllFilters} className="action-link-muted text-xs">
-              Clear filters
-            </button>
-          )}
-        </div>
-
-        {/* Spacer when sticky bulk bar is visible */}
-        {canBulk && <BulkActionBarSpacer count={selectedIds.size} />}
-
-        {/* ResourceList owns: error+retry, refresh button, empty state, and
-            offset Pagination. Body is custom so we preserve DataTable's
-            defaultSortColumn + showColumnToggle features (which ResourceList's
-            table-mode slot doesn't forward). We swap emptyState manually when
-            filters are active because ResourceList's built-in
-            `filteredEmptyState` keys off the filter input it renders itself,
-            and our filter input lives in FilterBar above. */}
-        <ResourceList<PluginSummary>
-          loading={list.isLoading}
-          error={list.error}
-          onRefresh={list.refresh}
-          isEmpty={filteredPlugins.length === 0}
-          pagination={list.pagination}
-          onPageChange={list.handlePageChange}
-          onPageSizeChange={list.handlePageSizeChange}
-          errorTitle="Failed to load plugins"
-          emptyState={hasActiveFilters ? {
-            icon: Search,
-            title: 'No plugins match your filters',
-            description: 'Try adjusting your search or filter criteria.',
-            action: <Button variant="secondary" onClick={clearAllFilters}>Clear filters</Button>,
-          } : {
-            icon: Puzzle,
-            title: 'No plugins yet',
-            description: emptyDescription,
-            action: emptyAction,
-          }}
-        >
-          <DataTable
-            data={filteredPlugins}
+          <MyPluginsTab
+            mine={mine}
             columns={pluginColumns}
-            isLoading={list.isLoading}
-            emptyState={{
-              icon: Puzzle,
-              title: 'No plugins yet',
-              description: emptyDescription,
-              action: emptyAction,
-            }}
-            getRowKey={(p) => p.id}
-            defaultSortColumn="name"
-            showColumnToggle
-            serverSort
-            onSortChange={handleServerSort}
+            canWrite={canWrite}
+            canViewPublic={canViewPublic}
+            canBulk={canBulk}
+            selectedCount={selectedIds.size}
+            canWriteRow={canWriteRow}
+            deletedView={deletedView}
+            onDeletedViewChange={setDeletedView}
+            showAdvanced={showAdvanced}
+            onShowAdvancedChange={setShowAdvanced}
+            onCreate={() => setCreateInitialTab('ai')}
           />
-        </ResourceList>
-
-        </>
-        )}
-        </>
         )}
         </GroupedTabs>
       </div>

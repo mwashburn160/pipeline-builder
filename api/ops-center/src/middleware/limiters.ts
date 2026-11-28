@@ -46,3 +46,27 @@ export const observabilityLimiter: RequestHandler = rateLimitByOrg({
   max: config.rateLimit.observability.max,
   message: 'Observability rate limit exceeded for your organization. Please slow down or batch your queries.',
 });
+
+/**
+ * `POST /observability/client-vitals` (browser telemetry). The client batches
+ * — a page view posts a handful of times at most — so these are generous for
+ * a person and tight for a script. Per USER: one person across all their tabs.
+ * Per IP: a cap a single host cannot reset by signing in as other accounts.
+ */
+const CLIENT_VITALS_WINDOW_MS = 60_000;
+
+export const clientVitalsUserLimiter: RequestHandler = rateLimitByOrg({
+  name: 'client-vitals-user',
+  keyBy: 'user',
+  windowMs: CLIENT_VITALS_WINDOW_MS,
+  max: 60,
+  message: 'Telemetry rate limit exceeded.',
+});
+
+export const clientVitalsIpLimiter: RequestHandler = rateLimitByOrg({
+  name: 'client-vitals-ip',
+  keyBy: 'ip',
+  windowMs: CLIENT_VITALS_WINDOW_MS,
+  max: 300,
+  message: 'Telemetry rate limit exceeded.',
+});

@@ -19,7 +19,7 @@ import { listAllOrgMembers } from '@/lib/list-all';
 import { formatError } from '@/lib/constants';
 import { responseTargetLabel } from '@/components/message/MessageList';
 import { FEATURE_METADATA, SUPPORT_FEATURE_FLAGS, type SupportFeatureFlag } from '@pipeline-builder/api-core/feature-flags';
-import type { SupportContactDto, SupportContactsDto } from '@/lib/api/domains/organizations';
+import type { SupportContactDto, SupportContactsDto } from '@/lib/api/domains/organizations-settings';
 import type { OrganizationMember } from '@/types';
 
 /** Whether a level off the wire is a support level — asking api-core's list

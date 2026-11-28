@@ -12,7 +12,7 @@ import { TS_JEST_DEP, TS_NATIVE_DEP } from './projenrc/shared-config';
 import { pnpmWorkspaceYamlOptions, setWorkspacePackages } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
-import { Workflow } from './projenrc/workflow';
+import { PLAYWRIGHT_VERSION, Workflow } from './projenrc/workflow';
 import { ManagerProject } from './projenrc/manager';
 import { FrontEndProject } from './projenrc/frontend';
 import { FunctionProject } from './projenrc/function';
@@ -192,6 +192,10 @@ root.npmrc.addConfig('engine-strict', 'true');
 // writes its own, which then drifts silently (packages/api-core carried one from
 // the initial commit). test/deploy-contracts lockfile-contract holds this.
 root.gitignore.exclude('/*/pnpm-lock.yaml', '/*/*/pnpm-lock.yaml');
+// Claude Code agent worktrees: local git checkouts, never committed (they land
+// as gitlinks with no .gitmodules entry and break submodule checkouts). Declared
+// here because .gitignore is projen-generated — a hand edit is lost on synth.
+root.gitignore.exclude('.claude/worktrees/');
 // The floor for version managers (nvm, fnm, asdf): the bare MAJOR.MINOR of
 // `minNodeVersion`, so they install the newest patch of the line.
 const nodeMajorMinor = root.minNodeVersion!.split('.').slice(0, 2).join('.');
@@ -1103,6 +1107,10 @@ const frontend = new FrontEndProject({
     // `react-resizable` is a transitive dep of react-grid-layout but must be
     // declared directly so pnpm strict mode lets the editor import its CSS.
     'react-grid-layout@2.3.0', 'react-resizable@4.0.2',
+    // Real-user monitoring: LCP, INP, CLS, FCP and TTFB from the browser,
+    // reported by src/lib/telemetry/web-vitals.ts to ops-center. Dependency-free
+    // (~2 KB gzip) and the reference implementation of the metrics' definitions.
+    'web-vitals@6.2.3',
   ],
   devDeps: [
     typesNode, '@types/react@19.3.0', '@types/react-dom@19.3.0',
@@ -1122,18 +1130,27 @@ const frontend = new FrontEndProject({
     // every jsdom test. jest core and jest-environment-jsdom release together,
     // so keep this equal to jestVersion.
     'jest-environment-jsdom@30.5.2',
-    // Browser smoke suite (e2e/, `test:e2e`): the app under `next dev` with every
-    // `/api/**` call answered by Playwright route stubs — no services. Pinned
-    // exactly; axe-core scans key pages and fails on serious/critical findings.
-    '@playwright/test@1.64.1',
+    // Browser suite (e2e/, `test:e2e`): journeys, axe scans and screenshot
+    // baselines against `next dev` with every `/api/**` call answered by
+    // Playwright route stubs — no services. Pinned exactly, to the SAME version
+    // as the Playwright image CI runs it in (the baselines are its renders).
+    `@playwright/test@${PLAYWRIGHT_VERSION}`,
     '@axe-core/playwright@4.14.0',
   ],
 });
 // Not part of `test`/`build`: it needs a browser (`npx playwright install
 // chromium`) and boots `next dev`. CI runs it as its own job (frontend e2e).
+// Off Linux the screenshot project skips itself; `test:e2e:screenshots` runs
+// it in the Playwright Docker image (add `--update-snapshots` to rewrite the
+// baselines). See frontend/e2e/README.md.
 frontend.addTask('test:e2e', {
-  description: 'Playwright smoke + axe suite against next dev with the backend stubbed',
+  description: 'Playwright journeys, axe scans and screenshots against next dev with the backend stubbed',
   exec: 'playwright test',
+  receiveArgs: true,
+});
+frontend.addTask('test:e2e:screenshots', {
+  description: 'Screenshot tests inside the Playwright Docker image (Linux baselines); pass --update-snapshots to rewrite them',
+  exec: 'e2e/scripts/screenshots-docker.sh',
   receiveArgs: true,
 });
 frontend.gitignore.exclude('/test-results/', '/playwright-report/');
@@ -1150,6 +1167,13 @@ frontend.addScripts({ 'generate:api-reference': 'node scripts/generate-api-refer
 frontend.addScripts({ 'generate:plugin-icons': 'node scripts/generate-plugin-icons.mjs' });
 frontend.preCompileTask.exec('node scripts/generate-plugin-icons.mjs');
 frontend.gitignore.exclude('/public/plugin-icons/');
+// Per-route first-load JS budget (gzipped), checked against the `next build`
+// output that `compile` just produced. In post-compile so every `build` — the
+// CI build job runs it through nx — fails when a route outgrows its entry in
+// bundle-budgets.json (or has none). Re-baseline after an intentional change:
+// `node scripts/check-bundle-budget.mjs --update`.
+frontend.postCompileTask.exec('node scripts/check-bundle-budget.mjs');
+frontend.addScripts({ 'check:bundle-budget': 'node scripts/check-bundle-budget.mjs' });
 // Type-check the test suites before running them. ts-jest only TRANSPILES, so
 // nothing else ever checked them: tsconfig.test.json sat on the removed
 // `moduleResolution: node10` (a fatal config error, so `tsc` never got as far as
@@ -1717,8 +1741,10 @@ const COVERAGE_THRESHOLDS: Record<string, {
     // area as a whole cannot slide. Measured 2026-11-17, floor(measured) - 1:
     paths: {
       // The API client: token refresh, step-up replay, impersonation storage.
-      // 91.5 / 77.6 / 88.9.
-      './src/lib/api/core.ts': { statements: 90, branches: 76, functions: 87, lines: 90 },
+      // 91.5 / 77.6 / 88.9 when it was the one file `src/lib/api/core.ts`; its
+      // layers now live in `src/lib/api/client/` (core.ts only composes them),
+      // so the same floor is held by that directory as one aggregate.
+      './src/lib/api/client/': { statements: 90, branches: 76, functions: 87, lines: 90 },
       // Billing UI (checkout return, plan/add-on change). 81.6 / 76.9 / 72.6.
       './src/components/billing/': { statements: 80, branches: 75, functions: 71, lines: 80 },
       // Pipeline authoring — builder, sections, editors, modals. 94.1 / 81.9 / 78.7.

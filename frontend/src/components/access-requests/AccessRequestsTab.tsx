@@ -33,6 +33,7 @@ import { TabbedLayout as DashboardLayout } from '@/components/ui/TabbedPage';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -276,12 +277,13 @@ export default function AccessRequestsTab() {
                         Asked {formatRelativeTime(r.createdAt)} · expires {formatRelativeTime(r.expiresAt)}
                       </p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2 max-sm:w-full">
                       <Button
                         type="button"
                         readOnly={isReadOnly}
                         disabled={busyId === r.id}
                         onClick={() => setConfirming(r)}
+                        className={`max-sm:flex-1 ${TAP_TARGET}`}
                       >
                         Approve
                       </Button>
@@ -291,6 +293,7 @@ export default function AccessRequestsTab() {
                         readOnly={isReadOnly}
                         disabled={busyId === r.id}
                         onClick={() => void decide(r, false)}
+                        className={`max-sm:flex-1 ${TAP_TARGET}`}
                       >
                         Deny
                       </Button>
@@ -335,6 +338,7 @@ export default function AccessRequestsTab() {
                     readOnly={isReadOnly}
                     disabled={busyId === s.id}
                     onClick={() => setEnding(s)}
+                    className={`max-sm:w-full ${TAP_TARGET}`}
                   >
                     End session
                   </Button>
@@ -367,7 +371,7 @@ export default function AccessRequestsTab() {
                       </p>
                     </div>
                     {openable && (
-                      <Button type="button" readOnly={isReadOnly} onClick={() => setRedeeming(r)}>
+                      <Button type="button" readOnly={isReadOnly} onClick={() => setRedeeming(r)} className={`max-sm:w-full ${TAP_TARGET}`}>
                         Open session
                       </Button>
                     )}

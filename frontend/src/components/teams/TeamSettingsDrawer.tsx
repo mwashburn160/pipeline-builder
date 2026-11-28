@@ -23,7 +23,7 @@ import api from '@/lib/api';
 import { hasPermission } from '@/lib/auth-helpers';
 import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
-import type { OrgTeamRef } from '@/lib/api/domains/organizations';
+import type { OrgTeamRef } from '@/lib/api/domains/organizations-hierarchy';
 import type { OrgIdpConfigDto } from '@/types';
 
 /**

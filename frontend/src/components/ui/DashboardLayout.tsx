@@ -27,7 +27,8 @@ import { MfaEnrolmentNudge } from './MfaEnrolmentNudge';
 import { MfaRequiredBanner } from './MfaRequiredBanner';
 import { SetupGuidePopup } from '@/components/onboarding/SetupGuidePopup';
 import { MfaRequiredDialog } from './MfaRequiredDialog';
-import { ErrorBoundary } from '../ErrorBoundary';
+import { ErrorBoundary, ErrorBoundaryRoute } from '../ErrorBoundary';
+import { KeyboardShortcuts } from './KeyboardShortcuts';
 import { FeatureLockedAction } from './FeatureLock';
 import { useToast } from './Toast';
 import { formatError } from '@/lib/constants';
@@ -247,7 +248,9 @@ function DashboardShell({
   };
 
   return (
-    <>
+    // Every error boundary in the shell and the page reports under this route
+    // PATTERN (`/dashboard/pipelines/[id]`), never the concrete path.
+    <ErrorBoundaryRoute route={router.pathname}>
       <Head>
         <title>{title} - Pipeline Builder</title>
       </Head>
@@ -291,7 +294,7 @@ function DashboardShell({
                 <Sidebar {...sidebarProps} />
                 <button
                   onClick={closeMobile}
-                  className="absolute top-4 right-[-44px] p-2 rounded-lg bg-surface/90 text-fg-muted hover:text-fg shadow-lg"
+                  className="absolute top-2 right-[-52px] p-3 rounded-lg bg-surface/90 text-fg-muted hover:text-fg shadow-lg"
                   aria-label="Close sidebar"
                 >
                   <X className="w-5 h-5" />
@@ -319,7 +322,7 @@ function DashboardShell({
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <button
                   onClick={toggleMobile}
-                  className="lg:hidden shrink-0 p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
+                  className="lg:hidden shrink-0 p-1.5 max-sm:p-3 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
                   aria-label="Open menu"
                 >
                   <Menu className="w-5 h-5" />
@@ -328,7 +331,7 @@ function DashboardShell({
                     every page. Becomes an interactive switcher at 2+ orgs. */}
                 <OrgSwitcher variant="header" className="min-w-0 shrink" />
               </div>
-              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+              <div className="flex items-center gap-0 sm:gap-2 shrink-0">
                 {/* Search / command palette (⌘K). On a wide screen it reads as
                     a search FIELD — the thing people look for when they want to
                     jump somewhere — and says its own shortcut; the bare icon was
@@ -347,7 +350,7 @@ function DashboardShell({
                   onClick={() => cmdkRef.current?.()}
                   aria-label="Open command palette"
                   title="Search & commands (⌘K)"
-                  className="sm:hidden p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
+                  className="sm:hidden p-3 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
                 >
                   <Search className="w-5 h-5" />
                 </button>
@@ -357,11 +360,11 @@ function DashboardShell({
                 <Link
                   href="/dashboard/inbox?tab=messages"
                   aria-label={unreadCount > 0 ? `Messages — ${unreadCount} unread` : 'Messages'}
-                  className="relative p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
+                  className="relative p-1.5 max-sm:p-3 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-muted transition-colors"
                 >
                   <Bell className="w-5 h-5" />
                   {unreadCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-2xs font-bold text-white bg-red-500 rounded-full">
+                    <span className="absolute -top-0.5 -right-0.5 max-sm:top-1 max-sm:right-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-2xs font-bold text-white bg-red-500 rounded-full">
                       {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                   )}
@@ -378,7 +381,7 @@ function DashboardShell({
                     onClick={() => setAskOpen(true)}
                     aria-label={askIsHelpOnly ? 'Help' : 'Ask'}
                     title={askIsHelpOnly ? 'Browse help topics' : 'Ask the platform assistant'}
-                    className="p-1.5 rounded-full transition-colors"
+                    className="p-1.5 max-sm:p-3 rounded-full transition-colors"
                     style={{ color: 'var(--pb-brand)', background: 'color-mix(in srgb, var(--pb-brand) 12%, transparent)' }}
                   >
                     <Sparkles className="w-5 h-5" />
@@ -434,7 +437,11 @@ function DashboardShell({
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:justify-end">{actions}</div>
               )}
             </div>
-            <ErrorBoundary resetKey={router.asPath}>
+            {/* Page-level containment: a crash in the page's content leaves the
+                shell, nav and header working. Keyed by the route PATTERN so
+                navigating to another page starts clean; `resetKey` also clears
+                it between records of one dynamic route. */}
+            <ErrorBoundary key={router.pathname} boundary="page" resetKey={router.asPath}>
               {children}
             </ErrorBoundary>
           </main>
@@ -489,8 +496,21 @@ function DashboardShell({
 
         {/* Ask agent panel — read-only, streaming, grounded in docs. Keyed on the
             identity so a user/org change discards the in-memory conversation. */}
-        {askOpen && <AskPanel key={`${user?.id ?? ''}:${user?.organizationId ?? ''}`} onClose={() => setAskOpen(false)} />}
+        {askOpen && (
+          <ErrorBoundary
+            boundary="ask-panel"
+            compact
+            label="Ask"
+            onDismiss={() => setAskOpen(false)}
+            className="fixed bottom-4 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] shadow-xl"
+          >
+            <AskPanel key={`${user?.id ?? ''}:${user?.organizationId ?? ''}`} onClose={() => setAskOpen(false)} />
+          </ErrorBoundary>
+        )}
+
+        {/* `?` (outside a field) and Help → Keyboard shortcuts. */}
+        <KeyboardShortcuts />
       </div>
-    </>
+    </ErrorBoundaryRoute>
   );
 }

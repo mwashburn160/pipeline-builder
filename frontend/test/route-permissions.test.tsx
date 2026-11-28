@@ -3429,6 +3429,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform POST /auth/sso/:orgId/saml/acs': { category: 'external-callback', why: 'The IdP form-POSTs the SAML assertion to this SERVER endpoint; the browser never runs frontend code for it (pages/auth/sso/[orgId]/saml.tsx documents exactly this, and redeems the resulting handoff instead).' },
   'platform POST /auth/sso/:orgId/saml/slo': { category: 'external-callback', why: 'IdP-initiated single logout: an IdP form POST to the backend. The dashboard-initiated leg is POST /auth/sso/logout, which api.logout() fires.' },
   'ops-center POST /observability/alert-webhook': { category: 'external-callback', why: 'Inbound webhook from an external alert source; no frontend reference exists.' },
+  'ops-center POST /observability/client-vitals': { category: 'session-plumbing', why: 'Real-user monitoring the app sends on its own: src/lib/telemetry/web-vitals.ts (started once in pages/_app.tsx) batches web vitals and ErrorBoundary catches and posts them with fetch keepalive. No control drives it and no permission applies — any signed-in session may report.' },
   'ops-center POST /observability/oncall-ack': { category: 'external-callback', why: 'PagerDuty posts incident state changes (acknowledged / escalated / resolved) here and the handler turns them into the ack-latency histogram and a hash-chained audit row. Signature-verified with PAGERDUTY_WEBHOOK_SECRET over the RAW body (so index.ts mounts express.raw for this path) and fail-CLOSED without it; there is no user identity — the acting agent is recorded as the provider knows them, never resolved to a local user — and no frontend reference.' },
   'ops-center POST /observability/oncall-webhook': { category: 'external-callback', why: 'Alertmanager posts support criticals here and the handler pages the on-call engineer through PagerDuty Events v2. Server-to-server, authorized by the same per-instance bearer token as the relay above; there is no user identity and no frontend reference. Paging CONFIGURATION stays operator-side (ONCALL_ENABLED plus the routing key, changed by re-deploying); what the dashboard does surface is the resulting POSTURE and a test page, on pages/dashboard/admin/settings.tsx.' },
   'ops-center POST /observability/pvc-autoexpand': { category: 'external-callback', why: 'Alertmanager posts the PersistentVolume storage alerts here and the handler expands the claim. Server-to-server, authorized by the same per-instance bearer token as the relay above; there is no user identity and no frontend reference.' },
@@ -3463,7 +3464,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform POST /auth/device/deny': { category: 'pre-session', why: '"Deny" on the CLI device-approval page (pages/auth/device.tsx); deliberately NOT step-up gated — approve is.' },
 
   // ── Session plumbing: chrome and the fetch core, not a gated control ──────
-  'platform POST /auth/refresh': { category: 'session-plumbing', why: 'The fetch core alone (src/lib/api/core.ts): proactive pre-expiry timer, pre-request check and the one-shot 401 retry. No UI.' },
+  'platform POST /auth/refresh': { category: 'session-plumbing', why: 'The fetch core alone (src/lib/api/client/refresh.ts): proactive pre-expiry timer, pre-request check and the one-shot 401 retry. No UI.' },
   'platform POST /auth/logout': { category: 'session-plumbing', why: 'User-menu sign-out (DashboardLayout → useAuth.logout) and the forced sign-out in MfaRequiredDialog.' },
   'platform POST /auth/sso/logout': { category: 'session-plumbing', why: 'Fired best-effort inside api.logout() before the local logout; no separate control.' },
   'platform POST /auth/switch-org': { category: 'session-plumbing', why: 'Org-switcher dropdown (src/components/ui/OrgSwitcher.tsx) and "switch to this team" on the Members page; membership is enforced server-side.' },
@@ -3941,8 +3942,8 @@ function readRoutes(): string[] {
 // reach never looks unreachable because of a proxy rewrite.
 
 const CLIENT_DIR = 'src/lib/api/domains';
-/** The fetch core drives a few routes itself (refresh, impersonation revoke). */
-const CLIENT_CORE = 'src/lib/api/core.ts';
+/** The fetch core's layers drive a few routes themselves (refresh, impersonation revoke). */
+const CLIENT_CORE_DIR = 'src/lib/api/client';
 
 /** The `/api/…` path the browser asks for when it wants `service <path>`. */
 function clientPathFor(service: string, path: string): string {
@@ -3985,7 +3986,7 @@ const CLIENT_CALLS: Map<string, string[]> = (() => {
   const endpoint = /[`'](?:\$\{API_URL\})?(\/api[^`'\n]*)[`']/g;
   const files = [
     ...readdirSync(resolve(FRONTEND_DIR, CLIENT_DIR)).filter((n) => n.endsWith('.ts')).map((n) => `${CLIENT_DIR}/${n}`),
-    CLIENT_CORE,
+    ...readdirSync(resolve(FRONTEND_DIR, CLIENT_CORE_DIR)).filter((n) => n.endsWith('.ts')).map((n) => `${CLIENT_CORE_DIR}/${n}`),
   ];
   for (const file of files) {
     const src = readFileSync(resolve(FRONTEND_DIR, file), 'utf8');
@@ -4261,7 +4262,7 @@ describe('no write route lands unmapped', () => {
     // calls of each shape: a plain path, a path parameter, an nginx-rewritten
     // mount, a query-tail template, and an SSE stream.
     expect(CLIENT_CALLS.size).toBeGreaterThan(350);
-    expect(clientCallers('platform POST /auth/refresh')).toEqual([CLIENT_CORE]);
+    expect(clientCallers('platform POST /auth/refresh')).toEqual([`${CLIENT_CORE_DIR}/refresh.ts`]);
     expect(clientCallers('platform POST /user/generate-token')).toEqual([`${CLIENT_DIR}/auth.ts`]);
     expect(clientCallers('quota POST /quotas/:orgId/reset')).toEqual([`${CLIENT_DIR}/admin.ts`]);
     expect(clientCallers('pipeline GET /pipelines')).toEqual([`${CLIENT_DIR}/pipelines.ts`]);
@@ -4408,7 +4409,7 @@ describe('MFA refusals are handled app-wide', () => {
   // dashboard shell opens the MFA-required dialog (with the way to enrol) —
   // never a sign-out, and never just a generic error.
   it('the fetch core emits the mfa-required event', () => {
-    const core = readFileSync(resolve(FRONTEND_DIR, 'src/lib/api/core.ts'), 'utf8');
+    const core = readFileSync(resolve(FRONTEND_DIR, 'src/lib/api/client/request.ts'), 'utf8');
     expect(core).toContain("'mfa-required'");
   });
 
@@ -4472,7 +4473,7 @@ describe('step-up refusals are resumable app-wide', () => {
   // event carrying a `retry`, and the dashboard shell prompts and replays it.
   // The `step-up-resume` dispositions lean on this, so assert it exists.
   it('the fetch core emits a resumable step-up event', () => {
-    const core = readFileSync(resolve(FRONTEND_DIR, 'src/lib/api/core.ts'), 'utf8');
+    const core = readFileSync(resolve(FRONTEND_DIR, 'src/lib/api/client/request.ts'), 'utf8');
     expect(core).toContain("'step-up-required'");
     expect(core).toContain('retry:');
   });

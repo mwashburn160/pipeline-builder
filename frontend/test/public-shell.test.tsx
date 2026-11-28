@@ -40,6 +40,8 @@ jest.mock('@/lib/api', () => ({
   ApiError: class extends Error {},
 }));
 jest.mock('@/lib/error-reporter', () => ({ initClientErrorReporting: () => undefined }));
+const initWebVitals = jest.fn<AnyFn>();
+jest.mock('@/lib/telemetry/web-vitals', () => ({ initWebVitals: (...a: unknown[]) => initWebVitals(...a), reportBoundaryError: () => undefined }));
 jest.mock('@/styles/globals.css', () => ({}), { virtual: true });
 
 import App from '../pages/_app';
@@ -72,5 +74,14 @@ describe('the app shell', () => {
     await act(async () => { render(<App Component={Page} pageProps={{}} router={{} as never} />); });
     expect(getConfig).toHaveBeenCalled();
     expect(restoreSession).toHaveBeenCalled();
+  });
+
+  it('starts real-user monitoring once, labelled by the route PATTERN the document loaded on', async () => {
+    pathname = '/plugins/[publisher]/[name]';
+    await act(async () => { render(<App Component={Page} pageProps={{}} router={{} as never} />); });
+    expect(initWebVitals).toHaveBeenCalledTimes(1);
+    expect(initWebVitals.mock.calls[0]![0]).toBe('/plugins/[publisher]/[name]');
+    const opts = initWebVitals.mock.calls[0]![1] as { send: (s: unknown[]) => boolean };
+    expect(typeof opts.send).toBe('function');
   });
 });

@@ -16,11 +16,11 @@ export function RunRequestStatus({ request: r }: { request: TrackedRunRequest })
     <div data-testid="run-request-status" className="mb-4">
       <InfoAlert
         message={(
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex items-start gap-2 min-w-0">
             <LoadingSpinner size="sm" label={null} />
             {r.phase === 'running' ? (
-              <span>
-                Execution {r.executionId ? <code className="text-xs">{r.executionId}</code> : null} (via runner <strong>{r.runnerLabel}</strong>):{' '}
+              <span className="min-w-0 break-words">
+                Execution {r.executionId ? <code className="text-xs break-all">{r.executionId}</code> : null} (via runner <strong>{r.runnerLabel}</strong>):{' '}
                 <span data-testid="run-request-execution-status">{r.executionStatus}</span>
               </span>
             ) : (

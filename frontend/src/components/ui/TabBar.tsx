@@ -102,7 +102,10 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
     // tight to the label without disturbing the underline.
     // Brand tokens, not a raw blue: the selected tab is the same colour as every
     // other "this is current" signal in the app (sidebar row, focus ring).
-    `py-2.5 px-1 border-b-2 font-medium text-sm transition-colors rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+    // Labels never wrap or shrink: on a phone the bar scrolls sideways inside
+    // its own container (`max-sm:overflow-x-auto` below) rather than widening
+    // the page.
+    `py-2.5 max-sm:py-3 px-1 shrink-0 whitespace-nowrap border-b-2 font-medium text-sm transition-colors rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
       active
         ? 'border-brand text-brand'
         : 'border-transparent text-fg-muted hover:text-fg hover:border-default'
@@ -127,7 +130,7 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
 
   if (isNav) {
     return (
-      <div className={`border-b border-default mb-6 ${className}`}>
+      <div className={`border-b border-default mb-6 max-sm:overflow-x-auto ${className}`}>
         <nav className="-mb-px flex space-x-6" aria-label={ariaLabel}>
           {items.map((item) => {
             const active = item.id === activeId;
@@ -150,7 +153,7 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
 
   const pill = variant === 'pill';
   return (
-    <div className={pill ? className : `border-b border-default mb-6 ${className}`}>
+    <div className={pill ? className : `border-b border-default mb-6 max-sm:overflow-x-auto ${className}`}>
       <div role="tablist" tabIndex={-1} aria-label={ariaLabel} aria-orientation="horizontal" className={pill ? 'flex flex-wrap gap-2' : '-mb-px flex space-x-6'} onKeyDown={onKeyDown}>
         {items.map((item) => {
           const active = item.id === activeId;

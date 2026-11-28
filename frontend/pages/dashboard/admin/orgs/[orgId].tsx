@@ -40,7 +40,7 @@ import { OrgSupportIncidentsCard } from '@/components/admin/org-detail/OrgSuppor
 import { useBillingEnabled } from '@/hooks/useBillingEnabled';
 import { redactString } from '@/lib/redact';
 import api, { ApiError } from '@/lib/api';
-import type { OrganizationDetail } from '@/lib/api/domains/organizations';
+import type { OrganizationDetail } from '@/lib/api/domains/organizations-lifecycle';
 
 const ORG_TABS = [
   { id: 'configuration', label: 'Configuration' },

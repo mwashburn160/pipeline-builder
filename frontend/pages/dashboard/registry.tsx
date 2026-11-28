@@ -18,7 +18,7 @@ import { DeleteTagConfirm } from '@/components/registry/DeleteTagConfirm';
 import { DeleteRepoConfirm } from '@/components/registry/DeleteRepoConfirm';
 import { BulkDeleteConfirm } from '@/components/registry/BulkDeleteConfirm';
 import { RecentActionsPanel, type RecentAction } from '@/components/registry/RecentActionsPanel';
-import { KeyboardShortcutsModal } from '@/components/registry/KeyboardShortcutsModal';
+import { openShortcutsOverlay, useShortcutsOverlayOpen } from '@/lib/keyboard-shortcuts';
 import { RegistryGcModal } from '@/components/registry/RegistryGcModal';
 import { StorageUsageModal } from '@/components/registry/StorageUsageModal';
 import { useRepositoryList } from '@/hooks/useRepositoryList';
@@ -106,7 +106,8 @@ export default function RegistryPage() {
   const [deleteTag, setDeleteTag] = useState<string | null>(null);
   const [deleteRepo, setDeleteRepo] = useState<string | null>(null);
   const [bulkDelete, setBulkDelete] = useState<string[] | null>(null);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // The app-wide `?` overlay (it lists this page's keys too); these stand down while it is open.
+  const shortcutsOpen = useShortcutsOverlayOpen();
   const [health, setHealth] = useState<HealthState>('checking');
   const [recentActions, setRecentActions] = useState<RecentAction[]>([]);
   const [narrowViewport, setNarrowViewport] = useState(false);
@@ -286,10 +287,9 @@ export default function RegistryPage() {
   // The repo names string list — used for CopyTagModal target-repo autocomplete.
   const knownRepoNames = useMemo(() => repos.map((r) => r.name), [repos]);
 
-  // Keyboard shortcuts (bound at window level). Skipped when typing in a
-  // form field or when a destructive/data-entry modal is open intercepting
-  // keys. The shortcuts overlay (`?`) is allowed even when other modals
-  // are closed, and Esc on it is handled by the Modal primitive.
+  // Keyboard shortcuts (bound at window level), listed in the app-wide `?`
+  // overlay (REGISTRY_SHORTCUTS in src/lib/keyboard-shortcuts.ts). Skipped
+  // when typing in a form field or while any modal is open intercepting keys.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -313,11 +313,6 @@ export default function RegistryPage() {
           e.preventDefault();
           const input = document.getElementById('registry-repo-filter') as HTMLInputElement | null;
           input?.focus();
-          break;
-        }
-        case '?': {
-          e.preventDefault();
-          setShortcutsOpen(true);
           break;
         }
       }
@@ -357,7 +352,7 @@ export default function RegistryPage() {
             </Button>
           )}
           <button
-            onClick={() => setShortcutsOpen(true)}
+            onClick={openShortcutsOverlay}
             title="Keyboard shortcuts (?)"
             className="text-xs text-fg-muted hover:text-fg"
           >
@@ -493,9 +488,6 @@ export default function RegistryPage() {
 
       <StorageUsageModal open={storageOpen} onClose={closeStorage} />
 
-      {shortcutsOpen && (
-        <KeyboardShortcutsModal onClose={() => setShortcutsOpen(false)} />
-      )}
     </DashboardLayout>
   );
 }

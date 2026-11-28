@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { TOKEN_SCOPE_OPTIONS } from '@/components/settings/token-scopes';
-import type { ServiceAccount } from '@/lib/api/domains/organizations';
+import type { ServiceAccount } from '@/lib/api/domains/organizations-service-accounts';
 import type { ServiceAccountAction } from './service-account-actions';
 
 interface ServiceAccountKeysProps {

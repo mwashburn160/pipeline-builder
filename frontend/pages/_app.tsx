@@ -1,6 +1,6 @@
 import type { AppContext, AppProps } from 'next/app';
 import type { NextPage } from 'next';
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { MotionConfig } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
@@ -9,6 +9,8 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { IdleSessionGuard } from '@/components/auth/IdleSessionGuard';
 import { ToastProvider } from '@/components/ui/Toast';
 import { initClientErrorReporting } from '@/lib/error-reporter';
+import { initWebVitals } from '@/lib/telemetry/web-vitals';
+import api from '@/lib/api';
 import { isPublicDirectoryRoute } from '@/lib/public-directory/routes';
 import '@/styles/globals.css';
 
@@ -98,9 +100,17 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
   const publicPage = isPublicDirectoryRoute(pathname);
   const page = getLayout(<Component {...pageProps} />);
 
+  // The route PATTERN the document loaded on (`/dashboard/pipelines/[id]`, never
+  // the concrete path): web vitals measure that load, so they carry its label.
+  const loadRoute = useRef(pathname);
+
   // Install global handlers for async/unhandled-rejection faults the React
-  // error boundary can't catch. Once, client-side only.
-  useEffect(() => { initClientErrorReporting(); }, []);
+  // error boundary can't catch, and start real-user monitoring (web vitals and
+  // error-boundary counts to ops-center). Once, client-side only.
+  useEffect(() => {
+    initClientErrorReporting();
+    initWebVitals(loadRoute.current, { send: (samples) => api.sendClientTelemetry(samples) });
+  }, []);
 
   return (
     // `reducedMotion="user"` makes EVERY framer-motion component in the app
@@ -111,7 +121,7 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
     // The animation FEATURES are not loaded here: see MotionFeatures
     // (src/components/ui/MotionFeatures.tsx), mounted by the shells that animate.
     <MotionConfig reducedMotion="user">
-    <ErrorBoundary>
+    <ErrorBoundary boundary="app" route={pathname}>
       <AuthProvider deferInit={publicPage}>
         <ToastProvider>
           {publicPage ? page : (

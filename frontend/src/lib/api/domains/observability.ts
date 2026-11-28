@@ -28,6 +28,26 @@ function logQueryToParams(params: LogQueryParams): Record<string, unknown> {
 
 export function observabilityApi(core: ApiCore) {
   return {
+    /**
+     * POST /api/observability/client-vitals — one batch of real-user-monitoring
+     * samples (src/lib/telemetry/web-vitals.ts builds them). Through the fetch
+     * core like every session call, with `keepalive` so a batch sent as the
+     * page is hidden outlives the page (a beacon would too, but cannot carry
+     * the bearer header the endpoint requires). Fire-and-forget: a refusal is
+     * swallowed, never surfaced. Returns `false` — nothing sent, the caller
+     * keeps or drops the batch — when there is no session to send under.
+     */
+    sendClientTelemetry: (samples: readonly unknown[]): boolean => {
+      if (!core.isAuthenticated()) return false;
+      core.requestRaw('/api/observability/client-vitals', {
+        method: 'POST',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ samples }),
+      }).catch(() => { /* telemetry must never surface to the user */ });
+      return true;
+    },
+
     // ==========================================================================
     // Observability (sysadmin-only; consumed by /dashboard/observability/*)
     //

@@ -24,7 +24,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import type { ServiceAccount } from '@/lib/api/domains/organizations';
+import type { ServiceAccount } from '@/lib/api/domains/organizations-service-accounts';
 import { localDay } from '@/lib/local-day';
 
 /** The service account SCIM keys are issued against. One per org, created on

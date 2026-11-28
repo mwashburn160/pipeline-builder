@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useFormState } from '@/hooks/useFormState';
-import type { OrganizationDetail } from '@/lib/api/domains/organizations';
+import type { OrganizationDetail } from '@/lib/api/domains/organizations-lifecycle';
 
 /**
  * Pooled account seat usage plus the sysadmin seat-limit override.

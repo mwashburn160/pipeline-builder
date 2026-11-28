@@ -13,7 +13,7 @@
  * not handled here — `QuotaExceededError` raises the global notice already.
  */
 
-import type { StreamEvent } from '@/lib/api/core';
+import type { StreamEvent } from '@/lib/api/client/stream';
 import { ApiError, QuotaExceededError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 

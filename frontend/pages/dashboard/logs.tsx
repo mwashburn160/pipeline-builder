@@ -35,6 +35,7 @@ import { api } from '@/lib/api';
 import { triggerBlobDownload } from '@/lib/download';
 import { formatError } from '@/lib/constants';
 import { withoutAnchor } from '@/lib/log-context';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import type { LogEntry, LogQueryParams, LogRangePreset, LogWindow } from '@/types/logs';
 
 const PRESETS: Array<{ value: LogRangePreset; label: string }> = [
@@ -281,7 +282,9 @@ export default function LogsPage() {
       </Card>
 
       <Card className="mb-4">
-        <LogVolumeChart data={volume ?? undefined} loading={volumeLoading} error={!!volumeError} onSelectBucket={zoomTo} />
+        <ErrorBoundary boundary="chart" compact label="Log volume" className="border-0">
+          <LogVolumeChart data={volume ?? undefined} loading={volumeLoading} error={!!volumeError} onSelectBucket={zoomTo} />
+        </ErrorBoundary>
       </Card>
 
       <Card className="!p-0">

@@ -1,103 +1,38 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useEventCallback, useKeyedValue } from '@/hooks/useLatest';
-import { MESSAGE_PRIORITY_IDS, MESSAGE_PRIORITY_META } from '@/lib/message-priority';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
-import { Plus, MessageCircle, Search, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
-import { useMessages, type MessageView } from '@/hooks/useMessages';
-import { useInboxQuery, inboxListFilters, inboxFiltersActive, type ReadFilter, type PriorityFilter, type ChannelFilter, type FromFilter } from '@/hooks/useInboxQuery';
-import { useInboxSelection } from '@/hooks/useInboxSelection';
+import { useMessages } from '@/hooks/useMessages';
+import { useInboxQuery, inboxListFilters, inboxFiltersActive } from '@/hooks/useInboxQuery';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useDelete } from '@/hooks/useDelete';
-import { useMutation } from '@/hooks/useMutation';
 import { TabbedLayout as DashboardLayout } from '@/components/ui/TabbedPage';
 import { Card } from '@/components/ui/Card';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
-import { Button } from '@/components/ui/Button';
-import { MessageList } from '@/components/message/MessageList';
-import { ThreadView } from '@/components/message/ThreadView';
-import { EmptyState } from '@/components/ui/EmptyState';
-import { FilterSelect } from '@/components/ui/FilterSelect';
-import { RetryError } from '@/components/ui/RetryError';
+import { LoadingPage } from '@/components/ui/Loading';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
 import { MessageBadge } from '@/components/message/MessageBadge';
-import { LiveStatusIndicator } from '@/components/message/LiveStatusIndicator';
-import { MessageBulkBar, SelectAllCheckbox } from '@/components/message/MessageBulkBar';
+import { BELOW_LG, useMediaQuery } from '@/components/ui/responsive';
 import api from '@/lib/api';
-import { aliasLocalPart } from '@/lib/support-label';
-import { SYSTEM_ORG_ID, formatError } from '@/lib/constants';
-import type { Message, SupportCaseSummary } from '@/types';
-import type { MemberOption } from '@/components/message/RecipientPicker';
+import { formatError } from '@/lib/constants';
+import type { Message } from '@/types';
+import { FILTER_NOUN, MESSAGE_QUERY_KEY, type MessageFilter } from './messages-tab-shared';
+import { InboxFilterBar } from './InboxFilterBar';
+import { MessagesComposer } from './MessagesComposer';
+import { MessagesThreadList } from './MessagesThreadList';
+import { MessagesThreadPanel } from './MessagesThreadPanel';
+import { useInboxBulkActions } from './useInboxBulkActions';
+import { useInboxCompose } from './useInboxCompose';
+import { useInboxFilterOptions, useInboxOrgNames, useSupportDesk } from './useInboxData';
 
-// Loaded on demand: compose only mounts while open, and the recently-deleted
-// panel only for writers — neither belongs in the inbox's first paint.
-const ComposeModal = dynamic(() => import('@/components/message/ComposeModal').then((m) => m.ComposeModal), { ssr: false });
+// Loaded on demand: the recently-deleted panel only for writers — it does not
+// belong in the inbox's first paint. (Compose loads on demand in MessagesComposer.)
 const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedPanel').then((m) => m.RecentlyDeletedPanel), { ssr: false });
-
-
-/**
- * Inbox tab. Each value is a distinct SERVER endpoint (`/messages`,
- * `/messages/conversations`, `/messages/announcements`) with its own pagination
- * — not a client-side filter over the mixed inbox, which only ever saw the
- * pages already loaded and so under-reported both the list and its count.
- */
-type MessageFilter = MessageView;
-
-const FILTER_TABS: { key: MessageFilter; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'conversations', label: 'Conversations' },
-  { key: 'announcements', label: 'Announcements' },
-];
-
-/** Plural noun for the active tab (heading + empty states). */
-const FILTER_NOUN: Record<MessageFilter, string> = {
-  all: 'messages',
-  conversations: 'conversations',
-  announcements: 'announcements',
-};
-
-/**
- * What a confirmed remove-from-inbox acts on: the ticked rows, or EVERY
- * message the active tab + filters + search match on the server.
- */
-type RemoveScope = { kind: 'ids'; ids: string[] } | { kind: 'matching'; count: number };
-
-/** Most ids one bulk call takes (mirrors api-core's `MESSAGE_BULK_MAX_IDS`); larger selections are chunked. */
-const MESSAGE_BULK_MAX_IDS = 200;
-
-/** Split `ids` into bulk-route-sized chunks. */
-function chunks(ids: string[]): string[][] {
-  const out: string[][] = [];
-  for (let i = 0; i < ids.length; i += MESSAGE_BULK_MAX_IDS) out.push(ids.slice(i, i + MESSAGE_BULK_MAX_IDS));
-  return out;
-}
-
-/** "1 message" / "3 messages". */
-const plural = (n: number, noun = 'message') => `${n} ${noun}${n === 1 ? '' : 's'}`;
-
-/** Query-string key of the message deep link: `/dashboard/inbox?tab=messages&message=<id>`. */
-export const MESSAGE_QUERY_KEY = 'message';
-
-/** Placeholder shown in the thread panel when no conversation is selected. */
-function EmptyChat() {
-  return (
-    <div className="flex-1 flex items-center justify-center">
-      <EmptyState
-        icon={MessageCircle}
-        illustration="messages"
-        title="Select a conversation"
-        description="Choose from your conversations or start a new one"
-      />
-    </div>
-  );
-}
 
 /** Message inbox page. Displays conversations in a split-panel layout with compose, thread view, and unread tracking. */
 export default function MessagesTab() {
@@ -161,51 +96,11 @@ export default function MessagesTab() {
 
   const currentOrgId = user?.organizationId?.toLowerCase() || '';
 
-  // Client-side org id → name map for DISPLAY backfill. Prefers the authoritative
-  // `orgName`/`recipientOrgName` the server enriches onto each message, falls back
-  // to the caller's own org memberships, and special-cases the system support org.
-  // Lets the UI show a name even before/without server-side name resolution.
-  const orgNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const o of organizations) m.set(o.id.toLowerCase(), o.name);
-    for (const msg of messages) {
-      if (msg.orgName) m.set(msg.orgId.toLowerCase(), msg.orgName);
-      if (msg.recipientOrgName && msg.recipientOrgId !== '*') {
-        m.set(msg.recipientOrgId.toLowerCase(), msg.recipientOrgName);
-      }
-    }
-    // The system tenant is the support desk: show the primary support alias's
-    // local-part (e.g. "support") — override its raw org name ("system"), which is
-    // enriched onto messages and would otherwise win.
-    m.set(SYSTEM_ORG_ID, aliasLocalPart(supportAlias));
-    return m;
-  }, [organizations, messages, supportAlias]);
+  const { orgNameById, resolveOrgName } = useInboxOrgNames(organizations, messages, supportAlias);
 
-  const resolveOrgName = useCallback(
-    (id?: string | null): string | undefined => (id ? orgNameById.get(id.toLowerCase()) : undefined),
-    [orgNameById],
-  );
-
-  // Recent recipients — distinct counterparty orgs from the loaded inbox,
-  // most-recent first, for a one-tap quick-pick in compose. Excludes broadcasts
-  // and the caller's own org; labels resolve to names (id fallback).
-  const recentRecipients = useMemo(() => {
-    const seen = new Set<string>();
-    const out: { value: string; label: string }[] = [];
-    for (const m of messages) {
-      if (m.messageType === 'announcement') continue;
-      const isMine = m.orgId.toLowerCase() === currentOrgId;
-      const otherId = isMine ? m.recipientOrgId : m.orgId;
-      const otherName = isMine ? m.recipientOrgName : m.orgName;
-      if (!otherId || otherId === '*') continue;
-      const key = otherId.toLowerCase();
-      if (key === currentOrgId || seen.has(key)) continue;
-      seen.add(key);
-      out.push({ value: otherId, label: otherName || resolveOrgName(otherId) || otherId });
-      if (out.length >= 6) break;
-    }
-    return out;
-  }, [messages, currentOrgId, resolveOrgName]);
+  const { recentRecipients, handleSend, fetchMembers, searchRecipients, recipientSuggestions, uploadAttachment } = useInboxCompose({
+    messages, currentOrgId, resolveOrgName, sendMessage, isSuperAdmin, canWrite, showCompose,
+  });
 
   // Heading count: the SERVER's total for the active tab + search + filters —
   // not `messages.length`, which is just the pages fetched so far. Every filter
@@ -238,11 +133,30 @@ export default function MessagesTab() {
     writeMessageParam(msg.id);
   }, [openMessage, writeMessageParam]);
 
+  // Below `lg` the list and the thread are one column at a time: only the pane
+  // in use is rendered, and focus follows the swap (to the thread's Back on
+  // open, back to the row it came from on Back) — the element that had focus
+  // just left the screen. The `hidden lg:flex` classes on the panes carry the
+  // first paint, before this can read the viewport.
+  const compact = useMediaQuery(BELOW_LG);
+  const returnFocusTo = useRef<string | null>(null);
+
   const handleBack = useCallback(() => {
+    if (compact) returnFocusTo.current = selectedMessage?.id ?? null;
     setSelectedMessage(null);
     writeMessageParam(null);
     void fetchMessages();
-  }, [fetchMessages, writeMessageParam]);
+  }, [compact, fetchMessages, selectedMessage?.id, writeMessageParam]);
+
+  // Back refetches the list, so the row exists again only once that settles.
+  useEffect(() => {
+    const id = returnFocusTo.current;
+    if (!id || selectedMessage || loading) return;
+    returnFocusTo.current = null;
+    Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]'))
+      .find((el) => el.dataset.messageId === id)
+      ?.focus();
+  }, [selectedMessage, loading, messages]);
 
   // Deep link: `?message=<id>` opens that message even when it isn't on the
   // loaded page (or in the active tab/filters) — it's fetched by id through the
@@ -279,271 +193,20 @@ export default function MessagesTab() {
     const closeIfOpen = () => setSelectedMessage((prev) => (prev?.id === id ? null : prev));
     if (await deleteMessage(id, closeIfOpen)) closeIfOpen();
   }, [deleteMessage]);
-
-  const toast = useToast();
   const del = useDelete<string>(handleDelete);
 
-  // ── Bulk selection ────────────────────────────────────────────────────────
-  // Resets whenever the query changes: a selection made under one tab / filter
-  // / search must never be acted on under another.
-  const selection = useInboxSelection(messages, `${messageFilter}|${listFiltersKey}|${debouncedSearch}`);
-  const { selectedMessages, selectedIds, allMatching, clear: clearSelection } = selection;
-
-  /** The list's active filters as the hide route takes them (`'all'` sends no type). */
-  const activeHideFilters = useMemo(() => {
-    const { hidden: _hidden, ...rest } = listFilters;
-    return {
-      ...(messageFilter === 'conversations' ? { messageType: 'conversation' as const } : {}),
-      ...(messageFilter === 'announcements' ? { messageType: 'announcement' as const } : {}),
-      ...rest,
-      ...(debouncedSearch ? { search: debouncedSearch } : {}),
-    };
-  }, [messageFilter, listFilters, debouncedSearch]);
-
-  /** Close the open thread when a bulk action took it out of the list. */
-  const closeIfAffected = useCallback((ids: string[] | 'all') => {
-    if (selectedMessage && (ids === 'all' || ids.includes(selectedMessage.id))) {
-      setSelectedMessage(null);
-      writeMessageParam(null);
-    }
-  }, [selectedMessage, writeMessageParam]);
-
-  /** After any bulk write: drop the selection, refetch the page AND the badge. */
-  const afterBulk = useCallback(async () => {
-    clearSelection();
-    await Promise.all([fetchMessages(), fetchUnreadCount()]);
-  }, [clearSelection, fetchMessages, fetchUnreadCount]);
-
-  /** Put rows back into the inbox (Restore in the Removed view, and Undo). */
-  const restoreM = useMutation({
-    fn: async (ids: string[]) => {
-      let restored = 0;
-      for (const part of chunks(ids)) restored += (await api.unhideMessages(part)).data?.restored ?? 0;
-      return restored;
-    },
-    errorFallback: 'Could not restore those messages',
-    toast: { error: true },
-    onSuccess: async (restored, ids) => {
-      toast.success(`Restored ${plural(restored)} to your inbox`);
-      if (removedView) closeIfAffected(ids);
-      await afterBulk();
-    },
+  const bulk = useInboxBulkActions({
+    messages, messageFilter, listFilters, listFiltersKey, debouncedSearch, removedView, total,
+    selectedMessage, setSelectedMessage, writeMessageParam, fetchMessages, fetchUnreadCount, setQuery, canDeleteMessage,
   });
-  const { run: restoreToInbox } = restoreM;
+  const { pendingRemove, setPendingRemove, removeFromInbox, hiding, removeCount, pendingBulkDelete, setPendingBulkDelete, deleteSelected, bulkDeleting } = bulk;
 
-  // Remove-from-inbox. Its own confirm rather than `useDelete`, which keys on a
-  // single target id — this one acts on a selection or a whole filter.
-  const [pendingRemove, setPendingRemove] = useState<RemoveScope | null>(null);
-  const removeM = useMutation({
-    fn: async (scope: RemoveScope) => {
-      // A selection sends ONLY its ids: the rows were picked off this screen,
-      // and a filter added on top could silently skip one whose read state
-      // moved since. "All matching" sends the filters the list is showing.
-      let removed = 0;
-      if (scope.kind === 'ids') {
-        for (const part of chunks(scope.ids)) removed += (await api.hideMessages({ ids: part })).data?.hidden ?? 0;
-      } else {
-        removed = (await api.hideMessages(activeHideFilters)).data?.hidden ?? 0;
-      }
-      return removed;
-    },
-    errorFallback: 'Could not remove those messages',
-    toast: { error: true },
-    onSuccess: async (removed, scope) => {
-      // Undo for a selection (the ids are known); for "all matching" the ids
-      // never reached the client, so point at the Removed view instead.
-      toast.success(
-        `Removed ${plural(removed)} from your inbox`,
-        undefined,
-        scope.kind === 'ids'
-          ? { label: 'Undo', onClick: () => void restoreToInbox(scope.ids) }
-          : { label: 'View removed', onClick: () => setQuery({ removed: true }) },
-      );
-      setPendingRemove(null);
-      closeIfAffected(scope.kind === 'ids' ? scope.ids : 'all');
-      await afterBulk();
-    },
+  const { setMembersWanted, teammateOptions, counterpartyOptions } = useInboxFilterOptions({
+    user, currentOrgId, from: inboxQuery.from, org: inboxQuery.org, orgNameById,
   });
-  const { run: removeFromInbox, pending: hiding } = removeM;
-  const removeSelected = useCallback(() => {
-    setPendingRemove(allMatching ? { kind: 'matching', count: total ?? messages.length } : { kind: 'ids', ids: [...selectedIds] });
-  }, [allMatching, total, messages.length, selectedIds]);
-  const removeCount = pendingRemove ? (pendingRemove.kind === 'ids' ? pendingRemove.ids.length : pendingRemove.count) : 0;
-
-  /** Bulk read / unread for the ticked rows — no confirm: it is reversible view state. */
-  const readStateM = useMutation({
-    fn: async (ids: string[], isRead: boolean) => {
-      for (const part of chunks(ids)) await api.setMessagesReadState(part, isRead);
-    },
-    onSuccess: async (_r, ids, isRead) => {
-      toast.success(`Marked ${plural(ids.length)} ${isRead ? 'read' : 'unread'}`);
-      await afterBulk();
-    },
-    onError: (err, _message, _ids, isRead) => {
-      toast.error(formatError(err, `Could not mark those messages ${isRead ? 'read' : 'unread'}`));
-    },
-  });
-  const setReadState = (isRead: boolean) => readStateM.run([...selectedIds], isRead);
-  const bulkBusy = restoreM.pending || readStateM.pending;
-
-  // Bulk delete — the ticked rows only, and only when EVERY one is deletable by
-  // this viewer (the bar disables it otherwise). One `POST /messages/delete`
-  // per chunk: the server runs the same per-row rule as the single delete and
-  // reports any row it refused instead of failing the whole call.
-  const [pendingBulkDelete, setPendingBulkDelete] = useState<string[] | null>(null);
-  const canDeleteSelected = selectedMessages.length > 0 && selectedMessages.every(canDeleteMessage);
-  // A PARTIAL outcome, not a pass/fail: chunks that landed stay deleted even
-  // when a later one fails, so `fn` reports what happened rather than throwing.
-  const bulkDeleteM = useMutation({
-    fn: async (ids: string[]) => {
-      const deleted: string[] = [];
-      let leftOver = 0;
-      let failure: unknown = null;
-      try {
-        for (const part of chunks(ids)) {
-          const res = await api.deleteMessages(part);
-          deleted.push(...(res.data?.deleted ?? []));
-          leftOver += (res.data?.refused?.length ?? 0) + (res.data?.notFound?.length ?? 0);
-        }
-      } catch (err) {
-        failure = err;
-      }
-      return { deleted, leftOver, failure };
-    },
-    onSuccess: async ({ deleted, leftOver, failure }, ids) => {
-      setPendingBulkDelete(null);
-      closeIfAffected(deleted);
-      if (deleted.length > 0) toast.success(`Deleted ${plural(deleted.length)}`);
-      const notDeleted = ids.length - deleted.length;
-      if (failure) toast.error(`${formatError(failure, 'Delete failed')} — ${plural(notDeleted)} not deleted`);
-      else if (leftOver > 0) toast.error(`${plural(leftOver)} could not be deleted (already gone, or not yours to delete)`);
-      await afterBulk();
-    },
-  });
-  const { run: deleteSelected, pending: bulkDeleting } = bulkDeleteM;
-
-  // ── Sender / counterparty filter options ───────────────────────────────────
-  // Teammates for "Sent by <person>": fetched on first use of the sender
-  // select (or when a linked URL already names one), not on every inbox load.
-  const [membersWanted, setMembersWanted] = useState(false);
-  const wantMembers = membersWanted || inboxQuery.from.startsWith('user:');
-  const membersQ = useFetch(async () => {
-    if (!wantMembers || !user?.organizationId) return [];
-    try {
-      const res = await api.getOrganizationMembers(user.organizationId, { limit: 50, status: 'active' });
-      return (res.data?.members ?? []).map((m) => ({ id: m.id, label: m.username || m.email || m.id }));
-    } catch {
-      return []; // best-effort: no teammate options, the relative choices still work
-    }
-  }, [wantMembers, currentOrgId]);
-  const teammateOptions = useMemo(() => {
-    const list = (membersQ.data ?? []).filter((m) => m.id !== user?.id);
-    const linked = inboxQuery.from.startsWith('user:') ? inboxQuery.from.slice('user:'.length) : '';
-    if (linked && !list.some((m) => m.id === linked) && linked !== user?.id) list.unshift({ id: linked, label: linked });
-    return list;
-  }, [membersQ.data, inboxQuery.from, user?.id]);
-  // Counterparty orgs: every org this inbox knows a name for (memberships +
-  // orgs on loaded rows), minus our own, plus a linked one not yet seen.
-  const counterpartyOptions = useMemo(() => {
-    const out = [...orgNameById.entries()]
-      .filter(([id]) => id !== currentOrgId && id !== '*')
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    if (inboxQuery.org && !out.some((o) => o.id === inboxQuery.org.toLowerCase())) out.unshift({ id: inboxQuery.org, name: inboxQuery.org });
-    return out;
-  }, [orgNameById, currentOrgId, inboxQuery.org]);
   const pendingSubject = messages.find((m) => m.id === del.target)?.subject;
 
-  // A failed send REJECTS with the server's reason; letting it propagate is
-  // what puts that reason in the composer's alert (ComposeModal's
-  // send mutation surfaces it) while the form stays open for a retry.
-  const handleSend = useCallback(async (data: Parameters<typeof sendMessage>[0]): Promise<boolean> => {
-    const result = await sendMessage(data);
-    return result !== null;
-  }, [sendMessage]);
-
-  // Member search backing the compose "specific user" typeahead. Server-side
-  // search over the selected org's roster; caps the page and maps to the minimal
-  // shape the picker needs. Best-effort — a failure yields no suggestions.
-  const fetchMembers = useCallback(async (orgId: string, search: string): Promise<MemberOption[]> => {
-    try {
-      const res = await api.getOrganizationMembers(orgId, { search, limit: 10, status: 'active' });
-      return (res.data?.members ?? []).map((m) => ({ id: m.id, username: m.username, email: m.email }));
-    } catch {
-      return [];
-    }
-  }, []);
-
-  // Cross-org directory search backing the compose recipient combobox —
-  // SYSADMIN ONLY, since only sysadmins may message an org they don't belong to
-  // (the send-reachability gate is bypassed for isSystemAdmin). Reuses the
-  // sysadmin org roster (GET /api/organizations, supports `search`); best-effort.
-  const searchRecipients = useCallback(async (query: string): Promise<{ value: string; label: string }[]> => {
-    const q = query.trim();
-    if (!isSuperAdmin || !q) return [];
-    try {
-      const res = await api.listOrganizations({ search: q, limit: 10 });
-      return (res.data?.organizations ?? [])
-        .filter((o) => o.id.toLowerCase() !== currentOrgId)
-        .map((o) => ({ value: o.id, label: o.name }));
-    } catch {
-      return [];
-    }
-  }, [isSuperAdmin, currentOrgId]);
-
-  // Compose recipients: every org in the caller's account (root + teams), from
-  // the message service's own reachability listing — the same set its send gate
-  // admits, not just the orgs this user happens to belong to. Fetched only while
-  // composing, and only for `messages:write` holders (the endpoint's gate).
-  const recipientOrgsQ = useFetch(async () => {
-    if (!canWrite || !showCompose) return [];
-    const res = await api.getRecipientOrgs();
-    return res.data?.orgs ?? [];
-  }, [canWrite, showCompose, currentOrgId]);
-  const recipientSuggestions = useMemo(
-    () => (recipientOrgsQ.data ?? [])
-      .filter((o) => o.orgId.toLowerCase() !== currentOrgId)
-      .map((o) => ({ value: o.orgId, label: o.name, isTeam: o.isTeam })),
-    [recipientOrgsQ.data, currentOrgId],
-  );
-
-  /**
-   * The org's support cases, keyed by `threadId` so a row looks itself up.
-   *
-   * Fetched once per org rather than per row: the case identity IS the root
-   * message id, so one list joins onto every support row in the inbox without
-   * an N+1. Scoped server-side by RLS — there is no org parameter to get wrong.
-   *
-   * Failure resolves to `{}` rather than an error state: a missing case chip
-   * degrades a row to exactly how it looked before cases existed, which is not
-   * worth interrupting an inbox for.
-   */
-  const supportCasesQ = useFetch(async () => {
-    const res = await api.getSupportCases();
-    const byThread: Record<string, SupportCaseSummary> = {};
-    for (const c of res.data?.cases ?? []) byThread[c.threadId] = c;
-    return byThread;
-  }, [currentOrgId]);
-
-  /**
-   * This org's designated support contacts — the handover candidates.
-   *
-   * Fetched alongside the cases rather than per-case: the list is per ORG, so
-   * one request serves every case in the inbox. Failure resolves to `[]`, which
-   * hides the handover control rather than breaking the panel — a picker with no
-   * candidates is worse than no picker.
-   */
-  const supportContactsQ = useFetch(async () => {
-    const res = await api.getSupportContacts();
-    return res.data?.contacts ?? [];
-  }, [currentOrgId]);
-
-  // Upload one attachment; returns its metadata (id linked on send).
-  const uploadAttachment = useCallback(async (file: File) => {
-    const res = await api.uploadAttachment(file);
-    if (!res.data?.attachment) throw new Error('Upload failed');
-    return res.data.attachment;
-  }, []);
+  const { supportCasesQ, supportContactsQ } = useSupportDesk(currentOrgId);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -555,253 +218,86 @@ export default function MessagesTab() {
       titleExtra={unreadCount > 0 ? <MessageBadge count={unreadCount} /> : undefined}
     >
       <div className="page-section">
-        <Card className="flex overflow-hidden" style={{ height: 'calc(100vh - 140px)', minHeight: '500px' }}>
+        {/* `dvh`, not `vh`: on a phone `100vh` is the height with the browser's
+            toolbars retracted, so the composer at the bottom of the thread sat
+            under them. The floor is lower on a phone, where 500px is most of
+            the screen. */}
+        <Card className="flex overflow-hidden p-0 sm:p-5 h-[calc(100dvh-140px)] min-h-[420px] sm:min-h-[500px]">
 
           {/* Left panel: conversation list */}
-          <div className={`${selectedMessage ? 'hidden lg:flex' : 'flex'} w-full lg:w-80 flex-shrink-0 lg:border-r border-default flex-col`}>
-            {/* List header */}
-            <div className="flex items-center justify-between px-3 py-3 border-b border-default">
-              {/* Heading names the ACTIVE tab and carries the server's total for
-                  it, so the count can't disagree with what the backend holds. */}
-              <div className="flex items-center gap-2 min-w-0">
-                {!loading && !error && !isReadOnly && (
-                  <SelectAllCheckbox
-                    loadedCount={messages.length}
-                    selectedCount={selectedIds.size}
-                    allMatching={allMatching}
-                    onToggle={selection.toggleAllLoaded}
-                  />
-                )}
-              <h2 className="text-sm font-semibold text-fg-muted capitalize">
-                {removedView ? `Removed ${noun}` : noun}
-                {headingCount !== null && (
-                  <span className="ml-1.5 font-normal text-fg-subtle">{headingCount}</span>
-                )}
-              </h2>
-              </div>
-              <Button
-                size="sm"
-                onClick={() => setShowCompose(true)}
-                readOnly={isReadOnly}
-                title={canWrite ? 'New Message' : 'Contact Support'}
-                aria-label={canWrite ? 'New Message' : 'Contact Support'}
-              >
-                <Plus className="w-4 h-4" />
-              </Button>
-            </div>
-
-            {/* Search — free-text over subject/content (server-side). */}
-            <div className="px-3 py-2 border-b border-default">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-fg-subtle pointer-events-none" />
-                <input
-                  type="text"
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search messages"
-                  aria-label="Search messages"
-                  className="w-full pl-8 pr-8 py-1.5 text-xs rounded-lg border border-default bg-surface text-fg placeholder:text-fg-subtle focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand transition-colors"
-                />
-                {searchInput && (
-                  <button
-                    onClick={() => setSearchInput('')}
-                    aria-label="Clear search"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-fg-subtle hover:text-fg"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {deepLinkError && (
-              <div className="px-3 py-2 border-b border-default">
-                <RetryError message={deepLinkError} onRetry={() => { setDeepLinkError(null); writeMessageParam(null); }} />
-              </div>
-            )}
-
-            {/* Filter tabs — message type */}
-            <div className="flex items-center gap-1 px-3 py-2 border-b border-default">
-              {FILTER_TABS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setQuery({ tab: key })}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
-                    messageFilter === key
-                      ? 'bg-info-bg text-info'
-                      : 'text-fg-muted hover:text-fg hover:bg-surface-muted'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {/* Server-side filters — inbox vs removed, read state, priority,
-                channel, sender and counterparty. */}
-            <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-default">
-              <FilterSelect aria-label="Show inbox or removed" value={removedView ? 'removed' : 'inbox'} onChange={(e) => setQuery({ removed: e.target.value === 'removed' })} className="text-xs">
-                <option value="inbox">Inbox</option>
-                <option value="removed">Removed</option>
-              </FilterSelect>
-              <FilterSelect aria-label="Filter by read state" value={inboxQuery.read} onChange={(e) => setQuery({ read: e.target.value as ReadFilter })} className="text-xs">
-                <option value="">Any status</option>
-                <option value="unread">Unread</option>
-                <option value="read">Read</option>
-              </FilterSelect>
-              <FilterSelect aria-label="Filter by priority" value={inboxQuery.priority} onChange={(e) => setQuery({ priority: e.target.value as PriorityFilter })} className="text-xs">
-                <option value="">Any priority</option>
-                {MESSAGE_PRIORITY_IDS.map((p) => <option key={p} value={p}>{MESSAGE_PRIORITY_META[p].label}</option>)}
-              </FilterSelect>
-              <FilterSelect aria-label="Filter by channel" value={inboxQuery.channel} onChange={(e) => setQuery({ channel: e.target.value as ChannelFilter })} className="text-xs">
-                <option value="">All channels</option>
-                <option value="support">Support</option>
-              </FilterSelect>
-              <FilterSelect
-                aria-label="Filter by sender"
-                value={inboxQuery.from}
-                onChange={(e) => setQuery({ from: e.target.value as FromFilter })}
-                onFocus={() => setMembersWanted(true)}
-                className="text-xs"
-              >
-                <option value="">Sent by anyone</option>
-                <option value="me">Sent by me</option>
-                <option value="org">Sent by my org</option>
-                <option value="others">Received</option>
-                {teammateOptions.length > 0 && (
-                  <optgroup label="Teammate">
-                    {teammateOptions.map((m) => <option key={m.id} value={`user:${m.id}`}>{m.label}</option>)}
-                  </optgroup>
-                )}
-              </FilterSelect>
-              {counterpartyOptions.length > 0 && (
-                <FilterSelect aria-label="Filter by organization" value={inboxQuery.org} onChange={(e) => setQuery({ org: e.target.value })} className="text-xs">
-                  <option value="">Any organization</option>
-                  {counterpartyOptions.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-                </FilterSelect>
-              )}
-              {filtersActive && (
-                <button
-                  type="button"
-                  onClick={() => setQuery({ read: '', priority: '', channel: '', from: '', org: '' })}
-                  className="text-xs font-medium text-info hover:underline"
-                >
-                  Clear
-                </button>
-              )}
-              {/* "Remove all" acts on exactly what the filters describe, so it
-                  sits with them. `total` is the SERVER's count for this tab +
-                  search + filters, which is what will actually be removed. */}
-              {!removedView && (total ?? 0) > 0 && !isReadOnly && selectedIds.size === 0 && (
-                <button
-                  type="button"
-                  onClick={() => setPendingRemove({ kind: 'matching', count: total ?? 0 })}
-                  className="ml-auto text-xs font-medium text-danger hover:underline"
-                >
-                  Remove all {total}
-                </button>
-              )}
-            </div>
-
-            {/* Live-updates status — only shown when SSE has dropped after a
-                healthy connection; the list keeps refreshing via polling. */}
-            {livePaused && (
-              <div className="px-3 py-2 border-b border-default">
-                <LiveStatusIndicator paused={livePaused} />
-              </div>
-            )}
-
-            {/* Bulk actions — only once something is ticked. Hidden while the
-                list is loading or errored: there is nothing on screen to act on. */}
-            {!loading && !error && (
-              <MessageBulkBar
-                loadedCount={messages.length}
-                selectedCount={selectedIds.size}
-                allMatching={allMatching}
-                total={total}
-                onSelectAllMatching={selection.selectAllMatching}
-                onClear={clearSelection}
+          {(!compact || !selectedMessage) && (
+          <MessagesThreadList
+            messages={messages}
+            loading={loading}
+            error={error}
+            selectedMessage={selectedMessage}
+            onSelect={handleSelectMessage}
+            currentOrgId={currentOrgId}
+            resolveOrgName={resolveOrgName}
+            onDelete={canWrite ? ((id: string) => del.open(id)) : undefined}
+            canDeleteMessage={canDeleteMessage}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            loadMore={loadMore}
+            fetchMessages={fetchMessages}
+            casesByThread={supportCasesQ.data ?? undefined}
+            bulk={bulk}
+            livePaused={livePaused}
+            total={total}
+            headingCount={headingCount}
+            noun={noun}
+            messageFilter={messageFilter}
+            removedView={removedView}
+            filtersActive={filtersActive}
+            debouncedSearch={debouncedSearch}
+            canWrite={canWrite}
+            isReadOnly={isReadOnly}
+            onCompose={() => setShowCompose(true)}
+            filters={(
+              <InboxFilterBar
+                inboxQuery={inboxQuery}
+                setQuery={setQuery}
+                searchInput={searchInput}
+                setSearchInput={setSearchInput}
+                deepLinkError={deepLinkError}
+                onDismissDeepLinkError={() => { setDeepLinkError(null); writeMessageParam(null); }}
+                messageFilter={messageFilter}
                 removedView={removedView}
-                canAct={!isReadOnly}
-                canDeleteAny={canWrite && !isReadOnly}
-                canDeleteSelected={canDeleteSelected}
-                busy={bulkBusy || hiding || bulkDeleting}
-                onMarkRead={() => void setReadState(true)}
-                onMarkUnread={() => void setReadState(false)}
-                onRemove={removeSelected}
-                onRestore={() => void restoreToInbox([...selectedIds])}
-                onDelete={() => setPendingBulkDelete([...selectedIds])}
+                filtersActive={filtersActive}
+                teammateOptions={teammateOptions}
+                counterpartyOptions={counterpartyOptions}
+                onSenderFocus={() => setMembersWanted(true)}
+                total={total}
+                isReadOnly={isReadOnly}
+                selectedCount={bulk.selectedIds.size}
+                onRemoveAllMatching={() => setPendingRemove({ kind: 'matching', count: total ?? 0 })}
               />
             )}
-
-            {/* Message list */}
-            {loading ? (
-              <div className="flex-1 flex items-center justify-center">
-                <LoadingSpinner size="sm" />
-              </div>
-            ) : error ? (
-              <div className="flex-1 flex flex-col justify-center px-3">
-                <RetryError message={error} onRetry={fetchMessages} />
-              </div>
-            ) : (
-              <MessageList
-                messages={messages}
-                onSelect={handleSelectMessage}
-                selectedId={selectedMessage?.id}
-                currentOrgId={currentOrgId}
-                resolveOrgName={resolveOrgName}
-                onDelete={canWrite ? ((id: string) => del.open(id)) : undefined}
-                canDelete={canDeleteMessage}
-                hasMore={hasMore}
-                loadingMore={loadingMore}
-                onLoadMore={loadMore}
-                casesByThread={supportCasesQ.data ?? undefined}
-                selectedIds={selectedIds}
-                onToggleSelect={isReadOnly ? undefined : selection.toggle}
-                emptyTitle={removedView ? `No removed ${noun}` : debouncedSearch || messageFilter !== 'all' || filtersActive ? `No matching ${noun}` : undefined}
-                emptyDescription={
-                  // The tab and filters are server-side, so "no announcements"
-                  // means the SERVER has none for this org — not "none in the
-                  // pages we happened to load".
-                  removedView ? 'Messages you remove from your inbox show up here, and can be restored.'
-                  : debouncedSearch ? `No ${noun} match "${debouncedSearch}"`
-                    : filtersActive ? `No ${noun} match these filters — clear them to see everything.`
-                      : messageFilter === 'announcements' ? 'No announcements have been sent to your organization.'
-                        : messageFilter === 'conversations' ? 'No conversations yet — start one with the + button.'
-                          : undefined
-                }
-              />
-            )}
-          </div>
+          />
+          )}
 
           {/* Right panel: chat or empty state */}
-          <div className={`${selectedMessage ? 'flex' : 'hidden lg:flex'} flex-1 flex-col min-w-0`}>
-            {selectedMessage ? (
-              <ThreadView
-                // Keyed by thread: the reply draft, its attachments and an open
-                // inline edit belong to ONE thread — without a remount, text
-                // typed in thread A would be sent into thread B.
-                key={selectedMessage.id}
-                supportCase={selectedMessage ? supportCasesQ.data?.[selectedMessage.id] : undefined}
-                supportContacts={supportContactsQ.data ?? []}
-                onCaseChanged={supportCasesQ.refetch}
-                rootMessage={selectedMessage}
-                currentOrgId={currentOrgId}
-                currentUserId={user.id}
-                resolveOrgName={resolveOrgName}
-                fetchMembers={fetchMembers}
-                onBack={handleBack}
-                onThreadRead={markThreadAsRead}
-                onDelete={canWrite ? ((id: string) => del.open(id)) : undefined}
-                onFollowUpCreated={(root) => { handleSelectMessage(root); void fetchMessages(); }}
-                canDelete={canDeleteMessage}
-                canWrite={canWrite}
-                readOnly={isReadOnly}
-                lastEdit={lastEdit}
-              />
-            ) : (
-              <EmptyChat />
-            )}
-          </div>
+          {(!compact || selectedMessage) && (
+          <MessagesThreadPanel
+            autoFocusBack={compact}
+            selectedMessage={selectedMessage}
+            casesByThread={supportCasesQ.data ?? undefined}
+            supportContacts={supportContactsQ.data ?? []}
+            onCaseChanged={supportCasesQ.refetch}
+            currentOrgId={currentOrgId}
+            currentUserId={user.id}
+            resolveOrgName={resolveOrgName}
+            fetchMembers={fetchMembers}
+            onBack={handleBack}
+            onThreadRead={markThreadAsRead}
+            onDelete={canWrite ? ((id: string) => del.open(id)) : undefined}
+            onFollowUpCreated={(root) => { handleSelectMessage(root); void fetchMessages(); }}
+            canDelete={canDeleteMessage}
+            canWrite={canWrite}
+            readOnly={isReadOnly}
+            lastEdit={lastEdit}
+          />
+          )}
         </Card>
 
         {/* Recently deleted — restore soft-deleted messages within the retention
@@ -814,11 +310,8 @@ export default function MessagesTab() {
         )}
       </div>
 
-      {/* Compose modal — mounted only while open (it starts a fresh draft on
-          every open anyway), so its chunk loads on first use. */}
-      {showCompose && (
-      <ComposeModal
-        isOpen
+      <MessagesComposer
+        open={showCompose}
         onClose={() => setShowCompose(false)}
         onSend={handleSend}
         canWrite={canWrite}
@@ -834,7 +327,6 @@ export default function MessagesTab() {
         searchRecipients={isSuperAdmin ? searchRecipients : undefined}
         recipientSuggestions={recipientSuggestions}
       />
-      )}
 
       {/* `ConfirmDialog`, not `DeleteConfirmModal`: this deletes nothing and is
           not irreversible, and that component's copy says both. It is the

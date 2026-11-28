@@ -20,6 +20,8 @@ import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
 import { snoozeSetupGuide } from '@/lib/setup-guide';
 import { usePlans } from '@/hooks/usePlans';
 import { useMutation } from '@/hooks/useMutation';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import type { NextPageWithLayout } from '../_app';
 
 /** An org the signed-in user's verified email domain could join, annotated with
  *  where this user already stands with it (see `GET /auth/onboarding/domain-orgs`). */
@@ -55,7 +57,7 @@ const DISCOVERY_TIMEOUT_MS = 6000;
  * Landing here already onboarded shows that state instead of bouncing to the
  * dashboard.
  */
-export default function OnboardingPage() {
+function OnboardingPage() {
   const router = useRouter();
   const { user, isReady, refreshUser } = useAuthGuard({ allowOnboarding: true });
   const { markOnboardingComplete } = useAuth();
@@ -406,3 +408,10 @@ export default function OnboardingPage() {
     </>
   );
 }
+
+/** The wizard renders without DashboardLayout, so it carries its own page-level boundary. */
+(OnboardingPage as NextPageWithLayout).getLayout = (page) => (
+  <ErrorBoundary boundary="page" route="/dashboard/onboarding">{page}</ErrorBoundary>
+);
+
+export default OnboardingPage;

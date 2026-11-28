@@ -20,7 +20,7 @@ import { useTicketedSSE, type TicketedSSEOptions } from '../src/hooks/useTickete
 import { useBuildStatus } from '../src/hooks/useBuildStatus';
 import { BUILD_SSE_MAX_RETRIES } from '../src/lib/constants';
 import { ApiError } from '../src/lib/api/errors';
-import { SESSION_REFRESH_UNAVAILABLE } from '../src/lib/api/core';
+import { SESSION_REFRESH_UNAVAILABLE } from '../src/lib/api/client/shared';
 
 const getBuildLogTicket = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({

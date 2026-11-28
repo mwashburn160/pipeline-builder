@@ -21,7 +21,7 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useFormState } from '@/hooks/useFormState';
 import { formatError } from '@/lib/constants';
 import { TIER_KEYS, getTierMeta } from '@/lib/tiers';
-import type { OrganizationDetail } from '@/lib/api/domains/organizations';
+import type { OrganizationDetail } from '@/lib/api/domains/organizations-lifecycle';
 import type { PlanTier } from '@/types';
 
 type IdentityChanges = { name?: string; slug?: string; description?: string };

@@ -3,6 +3,7 @@
 
 import type { ReactNode, Ref } from 'react';
 import { Button, type ButtonVariant } from './Button';
+import { TAP_TARGET } from './responsive';
 
 interface ModalFooterProps {
   /** Secondary action (usually closes the modal). */
@@ -37,10 +38,13 @@ export function ModalFooter({
   confirmType = 'button', children, cancelRef,
 }: ModalFooterProps) {
   return (
-    <div className="flex items-center justify-end gap-2">
-      {children && <div className="mr-auto">{children}</div>}
-      <Button ref={cancelRef} variant="secondary" onClick={onCancel} disabled={loading}>{cancelLabel}</Button>
+    // On a phone the two actions split the full-width footer as 44px targets,
+    // with any left-hand note on a row of its own above them.
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {children && <div className="mr-auto max-sm:w-full">{children}</div>}
+      <Button ref={cancelRef} variant="secondary" onClick={onCancel} disabled={loading} className={`max-sm:flex-1 ${TAP_TARGET}`}>{cancelLabel}</Button>
       <Button
+        className={`max-sm:flex-1 ${TAP_TARGET}`}
         variant={confirmVariant}
         type={confirmType}
         onClick={onConfirm}

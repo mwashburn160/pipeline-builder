@@ -161,7 +161,12 @@
     },
     "post-compile": {
       "name": "post-compile",
-      "description": "Runs after successful compilation"
+      "description": "Runs after successful compilation",
+      "steps": [
+        {
+          "exec": "node scripts/check-bundle-budget.mjs"
+        }
+      ]
     },
     "pre-compile": {
       "name": "pre-compile",
@@ -218,10 +223,20 @@
     },
     "test:e2e": {
       "name": "test:e2e",
-      "description": "Playwright smoke + axe suite against next dev with the backend stubbed",
+      "description": "Playwright journeys, axe scans and screenshots against next dev with the backend stubbed",
       "steps": [
         {
           "exec": "playwright test",
+          "receiveArgs": true
+        }
+      ]
+    },
+    "test:e2e:screenshots": {
+      "name": "test:e2e:screenshots",
+      "description": "Screenshot tests inside the Playwright Docker image (Linux baselines); pass --update-snapshots to rewrite them",
+      "steps": [
+        {
+          "exec": "e2e/scripts/screenshots-docker.sh",
           "receiveArgs": true
         }
       ]

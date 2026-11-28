@@ -16,7 +16,8 @@ interface PanelProps {
   children: ReactNode;
 }
 
-const SPAN_CLASS: Record<NonNullable<PanelProps['span']>, string> = {
+/** Grid column classes per span — shared with the panel's error card so a crash keeps the layout. */
+export const PANEL_SPAN_CLASS: Record<NonNullable<PanelProps['span']>, string> = {
   3: 'col-span-12 md:col-span-3',
   4: 'col-span-12 md:col-span-4',
   6: 'col-span-12 md:col-span-6',
@@ -36,7 +37,7 @@ export function Panel({ title, span = 6, loading, error, empty, children }: Pane
     // grid mode where react-grid-layout positions panels with fixed pixel
     // heights. In span-grid mode `h-full` is a no-op (the parent doesn't
     // constrain height) so existing layouts render unchanged.
-    <div className={`${SPAN_CLASS[span]} h-full rounded-lg border border-default bg-surface p-4 flex flex-col`}>
+    <div className={`${PANEL_SPAN_CLASS[span]} h-full rounded-lg border border-default bg-surface p-4 flex flex-col`}>
       <h3 className="text-sm font-semibold text-fg-muted mb-3">{title}</h3>
       <div className="flex-1 min-h-[8rem] flex items-center justify-center">
         {error ? (

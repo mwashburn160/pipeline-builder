@@ -23,7 +23,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSSE } from './useSSE';
 import { MESSAGE_SSE_BASE_RETRY_DELAY_MS } from '@/lib/constants';
-import { SESSION_REFRESH_UNAVAILABLE } from '@/lib/api/core';
+import { SESSION_REFRESH_UNAVAILABLE } from '@/lib/api/client/shared';
 import { ApiError } from '@/lib/api/errors';
 
 /** A ticket-mint failure no retry can fix: signed out, or not allowed. */

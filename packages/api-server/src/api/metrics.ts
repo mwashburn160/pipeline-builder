@@ -251,6 +251,13 @@ const HISTOGRAM_BUCKETS: Readonly<Record<string, readonly number[]>> = {
   // real count. It rides the histogram rather than a counter-per-score so the
   // average needs no PromQL arithmetic over five series.
   support_satisfaction: [1, 2, 3, 4, 5],
+  // Browser web vitals (ops-center `POST /observability/client-vitals`): one
+  // histogram, `metric` label per vital — seconds for LCP/INP/FCP/TTFB, the
+  // unitless score for CLS. Every web.dev good/poor threshold is a boundary so
+  // the ratings and `FrontendWebVitalsPoor` (p75 LCP > 4) compare exactly:
+  // CLS 0.1/0.25, INP 0.2/0.5, TTFB 0.8/1.8, FCP 1.8/3, LCP 2.5/4. Kept short
+  // (13 boundaries) because it multiplies by every page pattern.
+  frontend_web_vitals: [0.05, 0.1, 0.2, 0.25, 0.5, 0.8, 1, 1.8, 2.5, 3, 4, 6, 10],
 };
 
 /** The lazy business-metric helpers, bound to one registry. */

@@ -13,6 +13,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { RetryError } from '@/components/ui/RetryError';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { remediationHref } from '@/lib/plugin-remediation';
@@ -262,7 +263,7 @@ export default function NotificationsTab() {
       title="Inbox"
       subtitle="Your action items across pipelines, compliance, plugin security fixes, and messages"
       actions={
-        <IconButton onClick={fetchAll} title="Refresh" aria-label="Refresh" disabled={loading}>
+        <IconButton onClick={fetchAll} title="Refresh" aria-label="Refresh" disabled={loading} className={TAP_TARGET}>
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </IconButton>
       }
@@ -294,8 +295,8 @@ export default function NotificationsTab() {
                     <Link href={item.href} className="flex items-start gap-3 py-3 hover:bg-surface-muted/40 -mx-2 px-2 rounded-lg transition-colors">
                       <span role="img" aria-label={`${item.severity} priority`} className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${SEVERITY_DOT[item.severity]}`} />
                       <Icon className="w-4 h-4 mt-0.5 text-fg-subtle shrink-0" />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-fg">{item.title}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium text-fg break-words">{item.title}</span>
                         {item.detail && <span className="block text-xs text-fg-muted truncate">{item.detail}</span>}
                       </span>
                     </Link>

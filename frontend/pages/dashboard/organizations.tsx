@@ -36,7 +36,7 @@ import { continueAfterStepUp } from '@/lib/api/errors';
 import { invalidate } from '@/lib/api-cache';
 import { ALL_TIER_KEYS, getTierMeta } from '@/lib/tiers';
 import { Organization, type PlanTier } from '@/types';
-import type { OrganizationListItem } from '@/lib/api/domains/organizations';
+import type { OrganizationListItem } from '@/lib/api/domains/organizations-lifecycle';
 
 /**
  * Trash / "Deleted items" resources exposed in the admin restore view. Keys are

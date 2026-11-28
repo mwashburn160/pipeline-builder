@@ -25,7 +25,7 @@ import { useDelete } from '@/hooks/useDelete';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import type { OrgDomainDto } from '@/lib/api/domains/organizations';
+import type { OrgDomainDto } from '@/lib/api/domains/organizations-sso';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { JoinRequestsPanel } from './JoinRequestsPanel';
 

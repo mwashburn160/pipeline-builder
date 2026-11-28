@@ -1,0 +1,11 @@
+/* Applied only while Playwright takes a screenshot (toHaveScreenshot stylePath). */
+
+/* Next's dev-mode indicator and overlay are not the app. */
+nextjs-portal { display: none !important; }
+
+/* A blinking caret or a mid-transition element never makes it into a baseline. */
+*, *::before, *::after {
+  caret-color: transparent !important;
+  transition: none !important;
+  animation: none !important;
+}

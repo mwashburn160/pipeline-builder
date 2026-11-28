@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { KeyRound, LogIn, ShieldAlert, Smartphone } from 'lucide-react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -274,7 +275,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
                   type="button"
                   fullWidth
                   ref={preferred === 'passkey' ? assignFocus : undefined}
-                  className="inline-flex items-center justify-center gap-2"
+                  className={`inline-flex items-center justify-center gap-2 ${TAP_TARGET}`}
                   disabled={busy}
                   onClick={() => void handlePasskey()}
                 >
@@ -304,12 +305,13 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
                     autoComplete="one-time-code"
                     placeholder="123456"
                     aria-label="Authentication code"
-                    className="flex-1"
+                    // 16px on a phone: iOS zooms the page into any smaller field.
+                    className="flex-1 min-w-0 max-sm:text-base"
                     disabled={inFlight}
                   />
                   <Button
                     type="button"
-                    className="inline-flex items-center justify-center gap-2 shrink-0"
+                    className={`inline-flex items-center justify-center gap-2 shrink-0 ${TAP_TARGET}`}
                     disabled={busy || !totpCode.trim()}
                     onClick={() => void handleTotp()}
                   >
@@ -333,7 +335,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
                   placeholder="Password"
-                  className="w-full"
+                  className="w-full max-sm:text-base"
                   disabled={inFlight}
                 />
               </>
@@ -356,7 +358,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
                       variant="secondary"
                       fullWidth
                       ref={preferred === 'provider' && index === 0 ? assignFocus : undefined}
-                      className="inline-flex items-center justify-center gap-2"
+                      className={`inline-flex items-center justify-center gap-2 ${TAP_TARGET}`}
                       disabled={busy}
                       onClick={() => void handleProvider(option)}
                     >
@@ -398,11 +400,11 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
         <ErrorAlert message={error} />
 
         <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="secondary" onClick={handleClose} disabled={submitting}>
+          <Button type="button" variant="secondary" onClick={handleClose} disabled={submitting} className={`max-sm:flex-1 ${TAP_TARGET}`}>
             Cancel
           </Button>
           {hasPassword && (
-            <Button type="submit" className="inline-flex items-center gap-2" disabled={busy || !password}>
+            <Button type="submit" className={`inline-flex items-center gap-2 max-sm:flex-1 ${TAP_TARGET}`} disabled={busy || !password}>
               {submitting && <LoadingSpinner size="sm" />}
               Confirm
             </Button>

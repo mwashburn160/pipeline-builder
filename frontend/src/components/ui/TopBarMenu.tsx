@@ -92,7 +92,7 @@ export function TopBarMenu({ label, trigger, triggerClassName = '', children, wi
         <div
           role="menu"
           aria-label={label}
-          className={`absolute right-0 top-full mt-1.5 z-50 max-w-[calc(100vw-2rem)] bg-surface border border-default rounded-xl shadow-xl overflow-hidden py-1 ${widthClassName}`}
+          className={`absolute right-0 top-full mt-1.5 z-50 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-4rem)] overflow-y-auto bg-surface border border-default rounded-xl shadow-xl py-1 ${widthClassName}`}
         >
           {children(close)}
         </div>
@@ -101,7 +101,8 @@ export function TopBarMenu({ label, trigger, triggerClassName = '', children, wi
   );
 }
 
-const ITEM_CLASS = 'w-full flex items-center gap-2 px-3 py-2 text-sm text-fg-muted hover:bg-surface-muted hover:text-fg focus:bg-surface-muted focus:text-fg focus:outline-none transition-colors';
+// `max-sm:py-3`: a 44px row on a phone, the touch-target size.
+const ITEM_CLASS = 'w-full flex items-center gap-2 px-3 py-2 max-sm:py-3 text-sm text-fg-muted hover:bg-surface-muted hover:text-fg focus:bg-surface-muted focus:text-fg focus:outline-none transition-colors';
 
 /** A link row in a {@link TopBarMenu}. */
 export function TopBarMenuLink({ href, icon: Icon, children, onSelect }: { href: string; icon: LucideIcon; children: ReactNode; onSelect: () => void }) {

@@ -25,7 +25,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import type { ServiceAccount, ServiceAccountBilling } from '@/lib/api/domains/organizations';
+import type { ServiceAccount, ServiceAccountBilling } from '@/lib/api/domains/organizations-service-accounts';
 import type { OrganizationRole } from '@/types';
 
 /** What the page loads in one go: the accounts plus the org's role catalog. */

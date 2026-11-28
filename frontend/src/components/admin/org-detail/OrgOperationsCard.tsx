@@ -17,7 +17,7 @@ import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/download';
-import type { OrganizationDetail } from '@/lib/api/domains/organizations';
+import type { OrganizationDetail } from '@/lib/api/domains/organizations-lifecycle';
 
 /**
  * Scaffolding + destructive operations for one org: the k8s namespace manifest

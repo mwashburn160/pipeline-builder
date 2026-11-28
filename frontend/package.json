@@ -16,6 +16,7 @@
     "telemetry": "pnpm dlx projen telemetry",
     "test": "pnpm dlx projen test",
     "test:e2e": "pnpm dlx projen test:e2e",
+    "test:e2e:screenshots": "pnpm dlx projen test:e2e:screenshots",
     "test:update": "pnpm dlx projen test:update",
     "test:watch": "pnpm dlx projen test:watch",
     "typecheck:tests": "pnpm dlx projen typecheck:tests",
@@ -23,6 +24,7 @@
     "generate:help": "node scripts/generate-help.mjs",
     "generate:api-reference": "node scripts/generate-api-reference.mjs",
     "generate:plugin-icons": "node scripts/generate-plugin-icons.mjs",
+    "check:bundle-budget": "node scripts/check-bundle-budget.mjs",
     "start": "next start",
     "docker:build": "PB_EXPECTED_PNPM=$(jq -r .packageManager package.json | sed \"s/^pnpm@//\"); PB_ACTUAL_PNPM=$(pnpm --version); [ \"$PB_EXPECTED_PNPM\" = \"$PB_ACTUAL_PNPM\" ] || { echo \"ERROR: pnpm $PB_ACTUAL_PNPM is active but package.json pins pnpm@$PB_EXPECTED_PNPM. Run: corepack prepare pnpm@$PB_EXPECTED_PNPM --activate\" >&2; exit 1; }; pnpm nx run-many -t build --projects=frontend --with-deps; rm -rf .docker-build; pnpm deploy --filter frontend --prod --legacy .docker-build; for d in .docker-build/node_modules/@pipeline-builder/*; do test -e \"$d/package.json\" || { echo \"ERROR: staged bundle dep $d is a dangling workspace symlink (wrong pnpm version staged the bundle). See the docker:build pnpm guard.\" >&2; exit 1; }; done; docker buildx build --pull --provenance=false --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) --load -t ${PROJECT_NAME:-frontend}:$(jq -r .version package.json) .; status=$?; rm -rf .docker-build; exit $status",
     "docker:tag": "docker image tag ${PROJECT_NAME:-frontend}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-frontend}:$(jq -r .version package.json)",
@@ -71,7 +73,8 @@
     "react-grid-layout": "2.3.0",
     "react-resizable": "4.0.2",
     "tailwindcss": "4.3.5",
-    "uqr": "0.1.3"
+    "uqr": "0.1.3",
+    "web-vitals": "6.2.3"
   },
   "engines": {
     "node": ">= 26.13.0"
@@ -211,7 +214,7 @@
         "functions": 69,
         "lines": 90
       },
-      "./src/lib/api/core.ts": {
+      "./src/lib/api/client/": {
         "statements": 90,
         "branches": 76,
         "functions": 87,

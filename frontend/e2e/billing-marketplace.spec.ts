@@ -83,7 +83,7 @@ test('marketplace register: a stashed ref is linked to the signed-in org', async
   await page.goto('/marketplace/register');
   await expect(page.getByText('Team')).toBeVisible();
   await page.getByRole('button', { name: 'Link to Acme' }).click();
-  await expect(page).toHaveURL(/\/dashboard\/billing/);
+  await expect(page).toHaveURL(/\/dashboard\/usage\?tab=billing/);
   expect(api.calls('POST /api/billing/marketplace/claim')[0].json).toEqual({ registrationRef: 'ref-123' });
   // Claimed exactly once: the dashboard's pending-claim hook finds nothing left.
   await page.waitForLoadState('networkidle');

@@ -19,9 +19,13 @@ import LogsPage from '../pages/dashboard/logs';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
+let volumeChartThrows = false;
 jest.mock('@/components/observability/LogVolumeChart', () => ({
   __esModule: true,
-  LogVolumeChart: () => null,
+  LogVolumeChart: () => {
+    if (volumeChartThrows) throw new Error('chart exploded');
+    return null;
+  },
 }));
 
 const ENTRY = {
@@ -49,6 +53,7 @@ jest.mock('@/lib/download', () => ({ __esModule: true, triggerBlobDownload: (...
 
 beforeEach(() => {
   jest.clearAllMocks();
+  volumeChartThrows = false;
   mockAuthGuard({ isAuthenticated: true, user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
   logSearch.mockResolvedValue({ data: { entries: [ENTRY], window: { from: 0, to: 1, clamped: false } } });
   logVolume.mockResolvedValue({ data: { series: [], step: 60 } });
@@ -198,5 +203,17 @@ describe('tenant cap note', () => {
     render(<LogsPage />);
     await screen.findByText('connection refused');
     expect(screen.queryByText(/first 99 organizations/)).toBeNull();
+  });
+});
+
+describe('a crashing volume chart is contained', () => {
+  it('shows a chart-sized Retry card and keeps the log list working', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    volumeChartThrows = true;
+    render(<LogsPage />);
+    expect(await screen.findByText('connection refused')).toBeInTheDocument();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Log volume could not be displayed');
+    expect(within(alert).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/Toast';
-import type { ServiceAccount } from '@/lib/api/domains/organizations';
+import type { ServiceAccount } from '@/lib/api/domains/organizations-service-accounts';
 import { BUDGET_ERROR, BUDGET_HINT, parseTokenBudget, type ServiceAccountAction } from './service-account-actions';
 
 interface ServiceAccountDetailsProps {

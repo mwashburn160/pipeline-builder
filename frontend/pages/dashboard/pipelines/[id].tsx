@@ -12,118 +12,44 @@
  * filtered out of the org-wide aggregate).
  */
 
-import type { BadgeColor } from '@/components/ui/Badge';
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import Link from 'next/link';
-import { ArrowLeft, Ban, ExternalLink, GitBranch, LayoutTemplate, Pencil, Play, Rocket, Trash2 } from 'lucide-react';
+import { ArrowLeft, Ban } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
-import { useEntityFetch } from '@/hooks/useEntityFetch';
-import { useFetch } from '@/hooks/useFetch';
-import { useQuery } from '@/hooks/useQuery';
-import { useToast } from '@/components/ui/Toast';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import { TabBar } from '@/components/ui/TabBar';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { RetryError } from '@/components/ui/RetryError';
-import { visibilityColor } from '@/components/ui/visibility-rungs';
-import { Badge } from '@/components/ui/Badge';
-import { CopyableId } from '@/components/ui/CopyableId';
-import { DataTable, type Column } from '@/components/ui/DataTable';
-import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
-import { ScorecardCard } from '@/components/pipeline/ScorecardCard';
 import { PipelineSecurityTab } from '@/components/pipeline/security/PipelineSecurityTab';
-import type { ExecutionFailure } from '@/lib/api/domains/reporting';
-import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
-import { runnerErrorBanner, runnerErrorMessage } from '@/components/pipeline/RunnerError';
 import { RunRequestStatus } from '@/components/pipeline/RunRequestStatus';
 import { PipelineRegistrationBanner } from '@/components/pipeline/PipelineDeployGuidance';
 import { DeployPipelinePanel } from '@/components/pipeline/DeployPipelinePanel';
 import { RegisterDeploymentModal } from '@/components/deployments/RegisterDeploymentModal';
 import { RunWithRunnerModal } from '@/components/pipeline/RunWithRunnerModal';
 import { PipelineStackNotice } from '@/components/pipeline/PipelineStackNotice';
-import { RunnerLinkBanners, RunnerLinkRow, useRunnerLink } from '@/components/pipeline/RunnerLinkStatus';
-import { StepUpModal } from '@/components/admin/StepUpModal';
-import { useRunRequestTracker, type RunRequestOutcome } from '@/hooks/useRunRequestTracker';
-import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
+import { RunnerLinkBanners, useRunnerLink } from '@/components/pipeline/RunnerLinkStatus';
+import { DETAIL_TABS, DETAIL_TAB_IDS, type DetailTab } from '@/components/pipeline/detail/pipeline-detail-model';
+import { usePipelineDetailData } from '@/components/pipeline/detail/usePipelineDetailData';
+import { usePipelineDetailActions } from '@/components/pipeline/detail/usePipelineDetailActions';
+import { PipelineDetailHeaderActions } from '@/components/pipeline/detail/PipelineDetailHeaderActions';
+import { PipelineOverviewTab } from '@/components/pipeline/detail/PipelineOverviewTab';
+import { PipelineRunsTab } from '@/components/pipeline/detail/PipelineRunsTab';
+import { RunnerStepUpDialogs } from '@/components/pipeline/detail/RunnerStepUpDialogs';
 import { canWritePipeline } from '@/lib/resource-helpers';
-import api from '@/lib/api';
-import { queries } from '@/lib/api-cache';
-import type { PipelineDeployment, PipelineRegistrationStatus } from '@/lib/api/domains/pipelines';
-import { runnerTestFailureCopy } from '@/lib/pipeline-runners';
-import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
-import { MfaRequiredError } from '@/lib/api/errors';
-import { formatDuration } from '@/lib/format';
-import { awsStackConsoleUrl } from '@/lib/deploy-target';
-import { toolchainChangeRunId } from '@/lib/pipeline-security';
-import type { PipelineBuildImage } from '@/lib/api/pipeline-security-types';
-import { useMutation } from '@/hooks/useMutation';
 
 // The edit wizard and save-as-template modal load on first use.
 const EditPipelineModal = dynamic(() => import('@/components/pipeline/EditPipelineModal'), { ssr: false });
 const CreateTemplateModal = dynamic(() => import('@/components/pipeline/CreateTemplateModal').then((m) => m.CreateTemplateModal), { ssr: false });
-
-/** Registry drain page size + runaway guard (~5k rows) for the deployment lookup. */
-const REGISTRY_PAGE = 200;
-const REGISTRY_MAX_PAGES = 25;
-
-/**
- * The pipeline plus the registration that arrived with it. Carried on the entity
- * so the banner and the record it describes come from one response.
- */
-type PipelineWithRegistration = Pipeline & { registration?: PipelineRegistrationStatus };
-
-interface PipelineExecution {
-  execution_id: string;
-  status: string;
-  started_at: string | null;
-  ended_at: string | null;
-  duration_ms: number | null;
-  failing_stage: string | null;
-  failing_action: string | null;
-  /** Why a failed run failed (e.g. a plugin runtime check), when an event said. */
-  failure?: ExecutionFailure | null;
-}
-
-/** Map a rolled-up execution status to a Badge color. */
-function statusColor(status: string): BadgeColor {
-  if (status === 'succeeded') return 'green';
-  if (status === 'failed') return 'red';
-  if (status === 'in-progress') return 'yellow';
-  return 'gray'; // canceled / unknown
-}
-
-
-/** The plugin refs a failure names (`plugins` may be strings or `{ plugin, version }` objects). */
-function failurePlugins(f: ExecutionFailure): string[] {
-  if (!Array.isArray(f.plugins)) return [];
-  return f.plugins.map((p) => {
-    if (typeof p === 'string') return p;
-    if (p && typeof p === 'object') {
-      const o = p as Record<string, unknown>;
-      const name = typeof o.plugin === 'string' ? o.plugin : typeof o.name === 'string' ? o.name : '';
-      return name && typeof o.version === 'string' ? `${name}@${o.version}` : name;
-    }
-    return '';
-  }).filter(Boolean);
-}
-
-const DETAIL_TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'runs', label: 'Runs' },
-  { id: 'security', label: 'Plugin security' },
-] as const;
-type DetailTab = (typeof DETAIL_TABS)[number]['id'];
-const DETAIL_TAB_IDS: readonly DetailTab[] = DETAIL_TABS.map((t) => t.id);
 
 export default function PipelineDetailPage() {
   const router = useRouter();
@@ -139,7 +65,6 @@ export default function PipelineDetailPage() {
 function PipelineDetail({ id }: { id: string }) {
   const router = useRouter();
   const { accessDenied, isReady, user, isSuperAdmin, can } = useAuthGuard();
-  const toast = useToast();
   // The pipeline's link to its runner (every run goes through one): the
   // Deployment card's "Runs via", Find runner again, and the pause / unhealthy banners.
   const runnerLink = useRunnerLink(id);
@@ -150,212 +75,15 @@ function PipelineDetail({ id }: { id: string }) {
   // separate from the `?id` route param).
   const [activeTab, changeTab] = useUrlTab<DetailTab>('tab', DETAIL_TAB_IDS, 'overview');
 
-  // The registration rides the SAME response as the pipeline, so it is carried on
-  // the fetched entity rather than fetched again — one request, and the banner can
-  // never disagree with the record it describes.
-  const fetchPipeline = useCallback(async (pipelineId: string): Promise<PipelineWithRegistration> => {
-    const response = await api.getPipelineById(pipelineId);
-    if (!response.success || !response.data?.pipeline) {
-      throw new Error(response.message || 'Pipeline not found');
-    }
-    return { ...response.data.pipeline, registration: response.data.registration };
-  }, []);
-  const { entity: pipeline, fetching, error: fetchError, reload: reloadPipeline } = useEntityFetch<PipelineWithRegistration>(
-    id || null,
-    fetchPipeline,
-  );
+  const data = usePipelineDetailData(id, user?.organizationId, activeTab);
+  const { pipeline, fetching, fetchError, reloadPipeline, executions } = data;
 
-  // Recent runs — filtered from the org-wide execution-count report (shared
-  // cache: Executions and the home page read the same aggregate). The report
-  // has no per-pipeline endpoint, so pick this pipeline's row. Non-blocking;
-  // absence just hides the panel.
-  const execCounts = useQuery(id ? queries.executionCount() : null);
-  const execStats = useMemo(
-    () => execCounts.data?.data?.pipelines.find((p) => p.id === id) ?? null,
-    [execCounts.data, id],
-  );
-
-  // Resolve owner/creator/updater user-ids → usernames (raw ids are unfriendly).
-  // Non-blocking: falls back to the id if the roster can't be loaded.
-  const roster = useQuery(user?.organizationId ? queries.allOrgMembers(user.organizationId) : null);
-  const memberNames = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const m of roster.data ?? []) map[m.id] = m.username;
-    return map;
-  }, [roster.data]);
-
-  // Live deployment (from the registry) for this pipeline — powers the Deployment
-  // card + the "View stack in AWS" link. Non-blocking; absent → card hidden.
-  // The registry endpoint is page-limited and has no per-pipeline filter, so
-  // page through until this pipeline's row is found (early-exit) or the list is
-  // drained — a single-page fetch would miss it in orgs with >200 deployments.
-  const deploymentQ = useFetch(async (signal): Promise<{ match: PipelineDeployment | null }> => {
-    if (!id) return { match: null };
-    try {
-      for (let i = 0, offset = 0; i < REGISTRY_MAX_PAGES; i++) {
-        const r = await api.listPipelineDeployments({ limit: REGISTRY_PAGE, offset }, { signal });
-        if (!r.data) break;
-        const rows = r.data.registry;
-        const match = rows.find((d) => d.pipelineId === id);
-        if (match) return { match };
-        if (!r.data.pagination.hasMore || rows.length === 0) break;
-        offset += rows.length;
-      }
-    } catch {
-      /* non-blocking — card just won't render */
-    }
-    return { match: null };
-  }, [id]);
-  const deployment = deploymentQ.data?.match ?? null;
-  const stackConsoleUrl = awsStackConsoleUrl(deployment?.region, deployment?.stackName);
-
-  // Per-pipeline execution history — list of recent runs from the reporting
-  // service (the events the pipeline-events Lambda persists). The read is a
-  // query against already-ingested data; the trigger/cancel actions below call
-  // AWS CodePipeline directly, then refetch this list to surface the change.
-  const execQ = useFetch(async (signal): Promise<PipelineExecution[] | null> => {
-    if (!id) return null;
-    const r = await api.listPipelineExecutions(id, { limit: 50 }, { signal });
-    if (!r.success) throw new Error(r.message || 'Failed to load executions');
-    return r.data?.executions ?? [];
-  }, [id]);
-  const executions = execQ.data;
-  const execLoading = execQ.loading;
-  const execError = execQ.error ? formatError(execQ.error, 'Failed to load executions') : null;
-  const loadExecutions = execQ.refetch;
-
-  // The run-history "toolchain X → Y" marker: the Build image row's last
-  // release change (from consecutive deploys' build-image entries), placed on
-  // the first run after it. Read only on the Runs tab; non-blocking.
-  const toolchainQ = useFetch(async (signal): Promise<PipelineBuildImage['change']> => {
-    if (!id) return null;
-    try {
-      const r = await api.getPipelineSecurity(id, { signal });
-      return r.success ? r.data?.buildImage?.change ?? null : null;
-    } catch {
-      return null;
-    }
-  }, [id], { enabled: activeTab === 'runs' });
-  const toolchainChange = toolchainQ.data;
-  const toolchainMarkerRunId = useMemo(() => toolchainChangeRunId(executions, toolchainChange), [executions, toolchainChange]);
-
-  // Write actions (AWS CodePipeline trigger / cancel). Ingestion of the new
-  // event is asynchronous, so we refetch after a short delay to let the
-  // pipeline-events Lambda persist the run before we re-query.
-  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
-  const REFETCH_DELAY_MS = 2500;
-
-  // Each action reports into the page's shared `actionError` banner, and is
-  // bound to the pipeline it started for: an id switch mid-flight drops it.
-  // A refusal with a pipeline-runner error code (NO_RUNNER, RUNNER_UNREACHABLE,
-  // …) gets specific copy and the way to fix it, not the bare server sentence.
-  // An MFA refusal is the shell's (its enrol / sign-in-again dialog): no second error here.
-  const reportActionError = (e: unknown, message: string) => {
-    if (e instanceof MfaRequiredError) return;
-    setActionError(runnerErrorMessage(e) ?? message);
-  };
-
-  // Every run goes through the pipeline's runner: the write answers 202
-  // `{ requestId, status: 'queued', runnerLabel }` and the page follows the
-  // request until it starts / stops / fails / expires. The polls stop when the
-  // page unmounts.
-  const onRunRequestSettled = useCallback((o: RunRequestOutcome) => {
-    if (o.kind === 'failed') {
-      setActionError(runnerErrorBanner(o.errorCode, { runnerLabel: o.request.runnerLabel }));
-      return;
-    }
-    if (o.kind === 'lost') {
-      // The page could not READ the request any more — its outcome is unknown.
-      const what = o.request.action === 'start' ? 'Re-run' : 'Stop';
-      setActionError(`Could not follow the ${what} request: ${formatError(o.error, 'its status could not be read')}. It may still go ahead — check the Runs tab before trying again.`);
-      setTimeout(loadExecutions, REFETCH_DELAY_MS);
-      return;
-    }
-    if (o.kind === 'finished') {
-      const what = o.executionId ? `Execution ${o.executionId}` : 'Execution';
-      const st = o.executionStatus.toLowerCase();
-      if (st === 'succeeded') toast.success(`${what} succeeded`);
-      else toast.warning(`${what} ${st}`);
-      setTimeout(loadExecutions, REFETCH_DELAY_MS);
-      return;
-    }
-    toast.success(o.kind === 'started'
-      ? `Started execution ${o.executionId ?? ''}`.trim()
-      : 'Execution canceled');
-    setTimeout(loadExecutions, REFETCH_DELAY_MS);
-  }, [toast, loadExecutions]);
-  const runRequests = useRunRequestTracker(id, onRunRequestSettled);
-  const { track: trackRunRequest } = runRequests;
-  const startQueued = runRequests.active.some((r) => r.action === 'start' && r.phase === 'queued');
-
-  const trigger = useMutation({
-    fn: async (pipelineId: string, runnerId?: string | null) => {
-      const res = runnerId ? await api.triggerPipelineExecution(pipelineId, { runnerId }) : await api.triggerPipelineExecution(pipelineId);
-      if (!res.success) throw new Error(res.message || 'Failed to trigger execution');
-      return res.data;
-    },
-    scopeKey: id,
-    errorFallback: 'Failed to trigger execution',
-    onSuccess: (data) => {
-      if (data) trackRunRequest(data, 'start');
-    },
-    onError: reportActionError,
-  });
-  const triggering = trigger.pending || startQueued;
-  const { run: runTrigger } = trigger;
-  /**
-   * Run pipeline, by where the pipeline stands:
-   *  - registered and linked to a runner (or a link check running) → run;
-   *  - not registered → Register and run: register it with a runner, then run
-   *    once that runner finds it;
-   *  - registered, no runner linked → choose the runner to run it with.
-   * When the registration or the link can't be read, it just runs (the server
-   * finds the runner).
-   */
-  const registration = pipeline?.registration;
-  const link = runnerLink.link;
-  const handleTrigger = useCallback(async () => {
-    if (!id) return;
-    setActionError(null);
-    if (registration && !registration.registered && can('pipeline_registry:write')) {
-      setRunAfterRegister(true);
-      setShowRegister(true);
-      return;
-    }
-    if (registration?.registered && link && link.status !== 'checking' && !(link.status === 'linked' && link.runner)) {
-      setShowRunWith(true);
-      return;
-    }
-    await runTrigger(id);
-  }, [id, runTrigger, registration, link, can]);
-  const runWith = useCallback(async (runnerId: string | null) => {
-    if (!id) return;
-    setShowRunWith(false);
-    await runTrigger(id, runnerId);
-    void runnerLink.refetch();
-  }, [id, runTrigger, runnerLink]);
-
-  const cancelExecution = useMutation({
-    fn: async (pipelineId: string, executionId: string) => {
-      const res = await api.stopPipelineExecution(pipelineId, executionId, { reason: 'Canceled from dashboard' });
-      if (!res.success) throw new Error(res.message || 'Failed to cancel execution');
-      return res.data;
-    },
-    scopeKey: id,
-    errorFallback: 'Failed to cancel execution',
-    onSuccess: (data) => {
-      if (data) trackRunRequest(data, 'stop');
-    },
-    onError: reportActionError,
-  });
-  const canceling = cancelExecution.pending;
-  const { run: runCancel } = cancelExecution;
-  const confirmCancel = useCallback(async () => {
-    if (!id || !cancelTarget) return;
-    setActionError(null);
-    await runCancel(id, cancelTarget);
-    setCancelTarget(null);
-  }, [id, cancelTarget, runCancel]);
+  const actions = usePipelineDetailActions({ id, pipeline, runnerLink, can, loadExecutions: data.loadExecutions });
+  const {
+    actionError, setActionError, reportActionError, runRequests, trigger, triggering, runTrigger, handleTrigger, runWith,
+    cancelTarget, setCancelTarget, canceling, confirmCancel, showDelete, setShowDelete, deleting, confirmDelete,
+    showRegister, setShowRegister, runAfterRegister, setRunAfterRegister, showRunWith, setShowRunWith,
+  } = actions;
 
   const [showEdit, setShowEdit] = useState(false);
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
@@ -364,104 +92,9 @@ function PipelineDetail({ id }: { id: string }) {
   // pipeline write, which a member can hold without either.
   const canWriteTemplate = can('templates:write');
   const canPublishTemplate = can('templates:publish');
-  const [showDelete, setShowDelete] = useState(false);
-  // Register deployment opens here (not on the Deployments page) for a pipeline with no registration.
-  const [showRegister, setShowRegister] = useState(false);
-  // Run pipeline on an unregistered pipeline: register it with a runner, then run.
-  const [runAfterRegister, setRunAfterRegister] = useState(false);
-  // Run pipeline on a registered pipeline no runner is linked to: choose the runner to run with.
-  const [showRunWith, setShowRunWith] = useState(false);
-  const [actionError, setActionError] = useState<ReactNode>(null);
-
-  const deletion = useMutation({
-    fn: async (pipelineId: string) => {
-      const res = await api.deletePipeline(pipelineId);
-      if (!res.success) throw new Error(res.message || 'Delete failed');
-    },
-    scopeKey: id,
-    // Every cached pipeline list still holds the deleted row — drop them
-    // before landing on the list page.
-    invalidates: ['pipelines'],
-    errorFallback: 'Failed to delete pipeline',
-    onSuccess: () => {
-      toast.success('Pipeline deleted');
-      void router.push('/dashboard/pipelines');
-    },
-    onError: reportActionError,
-  });
-  const deleting = deletion.pending;
-  const { run: runDelete } = deletion;
-  const confirmDelete = useCallback(async () => {
-    if (!pipeline) return;
-    await runDelete(pipeline.id);
-    setShowDelete(false);
-  }, [pipeline, runDelete]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
-
-  const execColumns: Column<PipelineExecution>[] = [
-    {
-      id: 'status',
-      header: 'Status',
-      render: (ex) => (
-        <>
-          <Badge color={statusColor(ex.status)}>{ex.status}</Badge>
-          {toolchainChange && ex.execution_id === toolchainMarkerRunId && (
-            <span className="mt-1 block font-mono text-2xs text-fg-muted" data-testid={`toolchain-marker-${ex.execution_id}`}>
-              toolchain {toolchainChange.from} → {toolchainChange.to}
-            </span>
-          )}
-        </>
-      ),
-    },
-    { id: 'started', header: 'Started', render: (ex) => (ex.started_at ? <RelativeTime value={ex.started_at} /> : <span className="text-fg-subtle">—</span>) },
-    { id: 'duration', header: 'Duration', cellClassName: 'font-mono text-xs', render: (ex) => formatDuration(ex.duration_ms) },
-    {
-      id: 'failing',
-      header: 'Failing step',
-      render: (ex) => (ex.failing_stage || ex.failing_action
-        ? <span className="text-danger">{ex.failing_stage || ex.failing_action}</span>
-        : <span className="text-fg-subtle">—</span>),
-    },
-    {
-      id: 'failure',
-      header: 'Failure',
-      render: (ex) => {
-        const f = ex.status === 'failed' ? ex.failure : null;
-        if (!f || (!f.code && !f.message)) return <span className="text-fg-subtle">—</span>;
-        const plugins = failurePlugins(f);
-        return (
-          <span className="block max-w-md text-xs" data-testid={`execution-failure-${ex.execution_id}`}>
-            {f.code && <code className="mr-1 font-mono text-danger">{f.code}</code>}
-            {f.message && <span className="text-fg-muted">{f.message}</span>}
-            {plugins.length > 0 && <span className="block font-mono text-fg-subtle">{plugins.join(', ')}</span>}
-          </span>
-        );
-      },
-    },
-    { id: 'execution', header: 'Execution', render: (ex) => <CopyableId value={ex.execution_id} size="sm" /> },
-    {
-      id: 'actions',
-      header: 'Actions',
-      headerClassName: 'text-right',
-      cellClassName: 'text-right',
-      render: (ex) => (ex.status === 'in-progress' ? (
-        <Button
-          variant="secondary"
-          onClick={() => setCancelTarget(ex.execution_id)}
-          disabled={!canEdit || (canceling && cancelTarget === ex.execution_id)}
-          className="inline-flex items-center gap-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-          title={canEdit ? 'Cancel this execution' : 'Read-only (public catalog entry)'}
-        >
-          {canceling && cancelTarget === ex.execution_id ? <LoadingSpinner size="sm" /> : <Ban className="w-3.5 h-3.5" />}
-          Cancel
-        </Button>
-      ) : (
-        <span className="text-fg-subtle">—</span>
-      )),
-    },
-  ];
 
   // Write controls (run / cancel / edit / delete) require BOTH the
   // `pipelines:write` capability and ownership of the resource — the backend
@@ -478,46 +111,20 @@ function PipelineDetail({ id }: { id: string }) {
         { label: pipeline?.pipelineName || pipeline?.project || 'Pipeline' },
       ]}
       actions={pipeline ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            onClick={handleTrigger}
-            disabled={triggering}
-            className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabledReason={canEdit ? undefined : 'Read-only (public catalog entry)'}
-          >
-            {triggering ? <LoadingSpinner size="sm" /> : <Play className="w-4 h-4" />}
-            {executions && executions.length > 0 ? 'Re-run' : 'Run pipeline'}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => setShowEdit(true)}
-            className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabledReason={canEdit ? undefined : 'Read-only (public catalog entry)'}
-          >
-            <Pencil className="w-4 h-4" /> Edit
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => setShowSaveTemplate(true)}
-            disabled={!canWriteTemplate}
-            className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={canWriteTemplate ? 'Save this pipeline as a reusable golden-path template' : 'Requires templates:write'}
-          >
-            <LayoutTemplate className="w-4 h-4" /> Save as template
-          </Button>
-          <Button
-            variant="danger"
-            onClick={() => setShowDelete(true)}
-            className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabledReason={canEdit ? undefined : 'Read-only (public catalog entry)'}
-          >
-            <Trash2 className="w-4 h-4" /> Delete
-          </Button>
-        </div>
+        <PipelineDetailHeaderActions
+          canEdit={canEdit}
+          canWriteTemplate={canWriteTemplate}
+          triggering={triggering}
+          hasRuns={!!executions && executions.length > 0}
+          onTrigger={handleTrigger}
+          onEdit={() => setShowEdit(true)}
+          onSaveTemplate={() => setShowSaveTemplate(true)}
+          onDelete={() => setShowDelete(true)}
+        />
       ) : undefined}
     >
       <div className="mb-4">
-        <Link href="/dashboard/pipelines" className="action-link inline-flex items-center gap-1 text-sm">
+        <Link href="/dashboard/pipelines" className="action-link inline-flex items-center gap-1 text-sm max-sm:min-h-11">
           <ArrowLeft className="w-4 h-4" /> Back to pipelines
         </Link>
       </div>
@@ -591,215 +198,21 @@ function PipelineDetail({ id }: { id: string }) {
         <TabBar items={[...DETAIL_TABS]} activeId={activeTab} onSelect={(tabId) => changeTab(tabId as DetailTab)} className="mb-4" />
 
         {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Per-pipeline maturity scorecard (renders only when advanced_reporting is on) */}
-          <ScorecardCard pipelineId={pipeline.id} />
-          {/* Cross-resource context: plugins used + live compliance posture */}
-          <PipelineContextCard pipeline={pipeline} />
-          {/* Live deployment (registry) — where this pipeline is deployed + a
-              deep link to its CloudFormation stack. Hidden until registered. */}
-          {deployment && (
-            <Card>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Rocket className="w-5 h-5 text-fg-muted" />
-                  <h3 className="text-base font-semibold text-fg">Deployment</h3>
-                </div>
-                <Link href="/dashboard/deployments" className="action-link text-xs">All deployments →</Link>
-              </div>
-              <dl className="text-sm space-y-2">
-                <div className="flex justify-between">
-                  <dt className="text-fg-muted">Region</dt>
-                  <dd>{deployment.region || '—'}</dd>
-                </div>
-                {/* The pipeline runner every run goes through, by LABEL — the
-                    registry never carries the customer's account number. */}
-                {runnerLink.link && (
-                  <RunnerLinkRow link={runnerLink.link} stalled={runnerLink.stalled} canRefresh={canEdit} onFindAgain={() => setRunnerStepUp('find')} />
-                )}
-                <div className="flex justify-between gap-2">
-                  <dt className="text-fg-muted">Stack</dt>
-                  <dd className="font-mono text-xs truncate">{deployment.stackName || '—'}</dd>
-                </div>
-                {deployment.lastDeployed && (
-                  <div className="flex justify-between">
-                    <dt className="text-fg-muted">Deployed</dt>
-                    <dd><RelativeTime value={deployment.lastDeployed} /></dd>
-                  </div>
-                )}
-              </dl>
-              {stackConsoleUrl && (
-                <a
-                  href={stackConsoleUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="action-link text-xs inline-flex items-center gap-1 mt-3"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" /> View stack in AWS
-                </a>
-              )}
-            </Card>
-          )}
-          {/* Identity card */}
-          <Card>
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <GitBranch className="w-5 h-5 text-fg-muted" />
-                <h3 className="text-base font-semibold text-fg">Identity</h3>
-              </div>
-              <div className="flex flex-wrap items-center gap-1">
-                <Badge color={visibilityColor(pipeline.visibility)}>{pipeline.visibility}</Badge>
-                <Badge color={pipeline.isActive ? 'green' : 'red'}>{pipeline.isActive ? 'Active' : 'Inactive'}</Badge>
-                {pipeline.isDefault && <Badge color="blue">Default</Badge>}
-              </div>
-            </div>
-            <dl className="text-sm space-y-2">
-              <div>
-                <dt className="text-fg-muted">Pipeline id</dt>
-                <dd><CopyableId value={pipeline.id} size="sm" /></dd>
-              </div>
-              <div>
-                <dt className="text-fg-muted">Name</dt>
-                <dd>{pipeline.pipelineName || <span className="text-fg-subtle">Unnamed</span>}</dd>
-              </div>
-              <div>
-                <dt className="text-fg-muted">Project</dt>
-                <dd>{pipeline.project}</dd>
-              </div>
-              <div>
-                <dt className="text-fg-muted">Organization</dt>
-                <dd>{pipeline.organization}</dd>
-              </div>
-              <div>
-                <dt className="text-fg-muted">Owner</dt>
-                <dd>
-                  {pipeline.ownerId
-                    ? <>{memberNames[pipeline.ownerId] ?? <code className="text-xs">{pipeline.ownerId}</code>}{pipeline.ownerType ? <span className="text-fg-subtle"> ({pipeline.ownerType})</span> : null}</>
-                    : <span className="text-fg-subtle">Unassigned</span>}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-fg-muted">Lifecycle</dt>
-                <dd className="flex items-center gap-1">
-                  <LifecycleBadge value={pipeline.lifecycle} />
-                  {pipeline.criticality ? <span className="text-fg-subtle"> · {pipeline.criticality} criticality</span> : null}
-                </dd>
-              </div>
-              {pipeline.description && (
-                <div>
-                  <dt className="text-fg-muted">Description</dt>
-                  <dd>{pipeline.description}</dd>
-                </div>
-              )}
-              {pipeline.keywords && pipeline.keywords.length > 0 && (
-                <div>
-                  <dt className="text-fg-muted">Keywords</dt>
-                  <dd className="flex flex-wrap gap-1">
-                    {pipeline.keywords.map((k, i) => (
-                      <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-surface-muted text-fg-muted">{k}</span>
-                    ))}
-                  </dd>
-                </div>
-              )}
-              <div>
-                <dt className="text-fg-muted">Created</dt>
-                <dd><RelativeTime value={pipeline.createdAt} /> by {pipeline.createdBy ? (memberNames[pipeline.createdBy] ?? <code className="text-xs">{pipeline.createdBy}</code>) : '—'}</dd>
-              </div>
-              <div>
-                <dt className="text-fg-muted">Updated</dt>
-                <dd><RelativeTime value={pipeline.updatedAt} /> by {pipeline.updatedBy ? (memberNames[pipeline.updatedBy] ?? <code className="text-xs">{pipeline.updatedBy}</code>) : '—'}</dd>
-              </div>
-            </dl>
-          </Card>
-        </div>
+          <PipelineOverviewTab
+            pipeline={pipeline}
+            deployment={data.deployment}
+            stackConsoleUrl={data.stackConsoleUrl}
+            runnerLink={runnerLink}
+            canEdit={canEdit}
+            memberNames={data.memberNames}
+            onFindRunnerAgain={() => setRunnerStepUp('find')}
+          />
         )}
 
         {activeTab === 'security' && <PipelineSecurityTab pipelineId={pipeline.id} canWrite={canEdit} />}
 
         {activeTab === 'runs' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Recent runs card — derived from the org-wide execution-count
-              aggregate. */}
-          <Card>
-            <h3 className="text-base font-semibold text-fg mb-3">Recent runs</h3>
-            {execStats ? (
-              <dl className="text-sm space-y-1.5">
-                <div className="flex justify-between">
-                  <dt className="text-fg-muted">Total executions</dt>
-                  <dd className="font-mono text-xs">{execStats.total}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-fg-muted">Succeeded</dt>
-                  <dd className="font-mono text-xs text-success">{execStats.succeeded}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-fg-muted">Failed</dt>
-                  <dd className="font-mono text-xs text-danger">{execStats.failed}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-fg-muted">Canceled</dt>
-                  <dd className="font-mono text-xs">{execStats.canceled}</dd>
-                </div>
-                {execStats.last_execution && (
-                  <div className="flex justify-between">
-                    <dt className="text-fg-muted">Last run</dt>
-                    <dd><RelativeTime value={execStats.last_execution} /></dd>
-                  </div>
-                )}
-                {executions && executions.length > 0 && (
-                  <div className="pt-2 mt-1 border-t border-default space-y-1.5">
-                    {executions.slice(0, 3).map((ex) => (
-                      <div key={ex.execution_id} className="flex items-center justify-between">
-                        <Badge color={statusColor(ex.status)}>{ex.status}</Badge>
-                        <span className="text-xs text-fg-subtle">
-                          {ex.started_at ? <RelativeTime value={ex.started_at} /> : '—'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="pt-2">
-                  <Link href="/dashboard/executions" className="action-link text-xs">
-                    View all executions →
-                  </Link>
-                </div>
-              </dl>
-            ) : execCounts.error ? (
-              // A failed org-wide read is not "no runs": say so, with a retry.
-              <RetryError message="Run totals could not be loaded" onRetry={execCounts.refetch} />
-            ) : execCounts.loading ? (
-              <div className="flex items-center gap-2 text-sm text-fg-muted"><LoadingSpinner size="sm" label={null} /> Loading runs…</div>
-            ) : (
-              <p className="text-sm text-fg-muted">No recorded runs yet.</p>
-            )}
-          </Card>
-
-          {/* Executions card — per-pipeline run history from the reporting
-              service, plus the AWS CodePipeline trigger / cancel write path.
-              "Run pipeline" calls StartPipelineExecution; per-row "Cancel"
-              (in-progress only) calls StopPipelineExecution. Both refetch the
-              list after a short delay so the change surfaces. */}
-          <Card className="lg:col-span-2">
-            <h3 className="text-base font-semibold text-fg mb-3">Executions</h3>
-            {execLoading && !executions && <LoadingSpinner />}
-            {execError && <RetryError message={execError} onRetry={loadExecutions} />}
-            {!execLoading && !execError && executions && executions.length === 0 && (
-              <p className="text-sm text-fg-muted">No executions recorded yet.</p>
-            )}
-            {!execError && executions && executions.length > 0 && (
-              <div className="overflow-x-auto">
-                <DataTable
-                  data={executions}
-                  columns={execColumns}
-                  isLoading={false}
-                  animated={false}
-                  getRowKey={(ex) => ex.execution_id}
-                  emptyState={{ icon: Play, title: 'No executions', description: 'No executions recorded yet.' }}
-                />
-              </div>
-            )}
-          </Card>
-        </div>
+          <PipelineRunsTab data={data} canEdit={canEdit} canceling={canceling} cancelTarget={cancelTarget} onCancel={setCancelTarget} />
         )}
         </>
       )}
@@ -828,10 +241,10 @@ function PipelineDetail({ id }: { id: string }) {
           onClose={() => { if (!canceling) setCancelTarget(null); }}
           footer={(
             <div className="flex justify-end gap-3">
-              <Button variant="secondary" onClick={() => setCancelTarget(null)} disabled={canceling}>
+              <Button variant="secondary" onClick={() => setCancelTarget(null)} disabled={canceling} className={`max-sm:flex-1 ${TAP_TARGET}`}>
                 Keep running
               </Button>
-              <Button variant="danger" onClick={confirmCancel} disabled={canceling} className="inline-flex items-center gap-2">
+              <Button variant="danger" onClick={confirmCancel} disabled={canceling} className={`inline-flex items-center gap-2 max-sm:flex-1 ${TAP_TARGET}`}>
                 {canceling ? <LoadingSpinner size="sm" /> : <Ban className="w-4 h-4" />}
                 Cancel execution
               </Button>
@@ -839,53 +252,19 @@ function PipelineDetail({ id }: { id: string }) {
           )}
         >
           <p className="text-sm text-fg-muted">
-            Stop the in-progress execution <code className="text-xs">{cancelTarget}</code>? In-progress
+            Stop the in-progress execution <code className="text-xs break-all">{cancelTarget}</code>? In-progress
             stages will be halted. This cannot be undone.
           </p>
         </Modal>
       )}
 
-      {runnerStepUp === 'find' && (
-        <StepUpModal
-          title="Find this pipeline's runner again?"
-          action="Look for this pipeline's runner again"
-          details={(
-            <p>
-              The platform asks your organization&apos;s runners which one holds this pipeline (by its pb.pipeline-id tag).
-              A single match replaces the link; anything else keeps the current link and records what was found.
-            </p>
-          )}
-          onConfirmed={async (stepUpToken) => {
-            try {
-              await runnerLink.refresh(stepUpToken);
-            } catch (e) {
-              reportActionError(e, formatError(e, 'Could not look for the runner again'));
-            }
-          }}
-          onClose={() => setRunnerStepUp(null)}
-        />
-      )}
-
-      {runnerStepUp === 'test' && runnerLink.link?.runner && (
-        <StepUpModal
-          title={`Test ${runnerLink.link.runner.label}?`}
-          action={`Send a test request to the pipeline runner ${runnerLink.link.runner.label}`}
-          details={<p>The platform sends the runner a signed ping now. If it answers, paused deliveries resume.</p>}
-          onConfirmed={async (stepUpToken) => {
-            const runner = runnerLink.link?.runner;
-            if (!runner) return;
-            try {
-              const r = await api.testPipelineRunner(runner.id, stepUpToken);
-              if (r.data?.ok) toast.success(`${runner.label} answered`);
-              else setActionError(`Test failed: ${runnerTestFailureCopy(r.data?.errorCode)}`);
-              void runnerLink.refetch();
-            } catch (e) {
-              reportActionError(e, formatError(e, 'Could not test the runner'));
-            }
-          }}
-          onClose={() => setRunnerStepUp(null)}
-        />
-      )}
+      <RunnerStepUpDialogs
+        open={runnerStepUp}
+        runnerLink={runnerLink}
+        reportActionError={reportActionError}
+        setActionError={setActionError}
+        onClose={() => setRunnerStepUp(null)}
+      />
 
       {showDelete && pipeline && (
         <DeleteConfirmModal

@@ -31,10 +31,17 @@ jest.mock('@/components/admin/StepUpModal', () => ({
     return <div data-testid="global-stepup">{props.action}</div>;
   },
 }));
+let askThrows = false;
 jest.mock('@/components/ask/AskPanel', () => ({
   __esModule: true,
-  AskPanel: ({ onClose }: { onClose: () => void }) => <div data-testid="ask-panel"><button onClick={onClose}>close ask</button></div>,
+  AskPanel: ({ onClose }: { onClose: () => void }) => {
+    if (askThrows) throw new Error('ask exploded');
+    return <div data-testid="ask-panel"><button onClick={onClose}>close ask</button></div>;
+  },
 }));
+const reportBoundaryError = jest.fn<AnyFn>();
+jest.mock('@/lib/telemetry/web-vitals', () => ({ reportBoundaryError: (...a: unknown[]) => reportBoundaryError(...a) }));
+jest.mock('@/lib/error-reporter', () => ({ reportClientError: () => undefined }));
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -61,7 +68,7 @@ for (const mod of ['OrgSwitcher', 'QuotaBanner', 'ImpersonationBanner', 'AuthErr
 
 import { DashboardLayout } from '../src/components/ui/DashboardLayout';
 
-beforeEach(() => { stepUpProps = null; aiEntitled = false; });
+beforeEach(() => { stepUpProps = null; aiEntitled = false; askThrows = false; reportBoundaryError.mockClear(); });
 
 describe('step-up loads on demand without dropping the request', () => {
   it('lets a wide actions bar wrap instead of crushing the title (Reports at tablet width)', () => {
@@ -132,5 +139,36 @@ describe('top bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Account menu' }));
     expect(screen.getByRole('menuitem', { name: 'Profile' })).toHaveAttribute('href', '/dashboard/settings?tab=profile');
     expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
+  });
+});
+
+describe('error containment', () => {
+  function Bomb(): never { throw new Error('page exploded'); }
+
+  it('contains a crashing page in an alert card under the page header, reported by route PATTERN', () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockRouter.pathname = '/dashboard/pipelines/[id]';
+    mockRouter.asPath = '/dashboard/pipelines/0f3c9a';
+    try {
+      render(<DashboardLayout title="Pipeline"><Bomb /></DashboardLayout>);
+      expect(screen.getByRole('heading', { level: 1, name: 'Pipeline' })).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong');
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+      expect(reportBoundaryError).toHaveBeenCalledWith('page', '/dashboard/pipelines/[id]');
+    } finally {
+      mockRouter.pathname = '/dashboard';
+      mockRouter.asPath = '/dashboard';
+    }
+  });
+
+  it('contains a crashing Ask panel without taking the page down', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    aiEntitled = true;
+    askThrows = true;
+    render(<DashboardLayout title="Home"><p>home body</p></DashboardLayout>);
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Ask/);
+    expect(screen.getByText('home body')).toBeInTheDocument();
+    expect(reportBoundaryError).toHaveBeenCalledWith('ask-panel', '/dashboard');
   });
 });

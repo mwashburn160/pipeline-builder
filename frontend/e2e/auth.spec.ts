@@ -61,12 +61,13 @@ test('an expired access token is refreshed once and the request retried', async 
 
   await page.goto('/dashboard/pipelines');
   await expect(page.getByText('web-pipeline').first()).toBeVisible();
-  // The refresh carried the CSRF proof header and no token in its body.
+  // The refresh carried the CSRF proof header and no token in its body — only
+  // the idle-clock activity signal (no input happened, so `passive`).
   const refreshCalls = api.calls('POST /api/auth/refresh');
   expect(refreshCalls.length).toBeGreaterThanOrEqual(2);
   for (const c of refreshCalls) {
     expect(c.headers['x-pb-client']).toBeTruthy();
-    expect(c.json).toEqual({});
+    expect(c.json).toEqual({ activity: 'passive' });
   }
   const listCalls = api.calls('GET /api/pipelines');
   expect(listCalls.some((c) => c.headers.authorization === `Bearer ${fresh}`)).toBe(true);

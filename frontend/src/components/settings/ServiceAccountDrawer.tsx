@@ -8,7 +8,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { AccessKeyTable, type KeyRow } from '@/components/settings/AccessKeyTable';
 import { formatDateTime } from '@/lib/format';
 import { permissionLabel } from '@pipeline-builder/api-core/permissions';
-import type { ServiceAccount } from '@/lib/api/domains/organizations';
+import type { ServiceAccount } from '@/lib/api/domains/organizations-service-accounts';
 
 /**
  * One service account in full, read fresh from

@@ -5,6 +5,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Inbox } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { RetryError } from '@/components/ui/RetryError';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -75,7 +76,7 @@ export function ApprovalsTab({ onDecided }: { onDecided?: () => void }) {
             <li key={install.id} className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between" data-testid="approval-row">
               <div className="min-w-0 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link href={pluginPagePath(install.publisherHandle, install.name)} className="font-mono text-sm font-semibold text-fg hover:text-brand hover:underline">
+                  <Link href={pluginPagePath(install.publisherHandle, install.name)} className="font-mono text-sm font-semibold text-fg hover:text-brand hover:underline break-all">
                     {install.publisherHandle}/{install.name}
                   </Link>
                   <TrustTierBadge tier={install.publisherTier} />
@@ -86,18 +87,19 @@ export function ApprovalsTab({ onDecided }: { onDecided?: () => void }) {
                   {' · '}{VERSION_POLICY_LABELS[install.versionPolicy]}
                   {install.pinnedVersion ? ` from v${install.pinnedVersion}` : ''}
                 </p>
-                {install.summary && <p className="text-sm text-fg">{install.summary}</p>}
+                {install.summary && <p className="text-sm text-fg break-words">{install.summary}</p>}
                 {install.blocked && <p className="text-xs text-danger-strong">{install.blocked.message}</p>}
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 shrink-0">
                 <Button
                   size="sm"
+                  className={`max-sm:flex-1 ${TAP_TARGET}`}
                   loading={busyId === install.id}
                   onClick={() => void decide(install, () => api.approvePluginInstall(install.id as string), `Approved ${install.name}`)}
                 >
                   Approve
                 </Button>
-                <Button size="sm" variant="secondary" disabled={busyId === install.id} onClick={() => setDenying(install)}>Deny</Button>
+                <Button size="sm" variant="secondary" className={`max-sm:flex-1 ${TAP_TARGET}`} disabled={busyId === install.id} onClick={() => setDenying(install)}>Deny</Button>
               </div>
             </li>
           ))}
@@ -165,7 +167,7 @@ function ChangeRequests({ onDecided }: { onDecided?: () => void }) {
           {rows.map((row) => (
             <li key={row.installId} className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between" data-testid="change-request-row">
               <div className="min-w-0 space-y-1">
-                <p className="font-mono text-sm font-semibold text-fg">{row.listing}</p>
+                <p className="font-mono text-sm font-semibold text-fg break-all">{row.listing}</p>
                 <p className="text-xs text-fg-muted">
                   {row.from.version ? `v${row.from.version}` : 'current'} · {VERSION_POLICY_LABELS[row.from.versionPolicy]}
                   {' → '}v{row.to.version} · {VERSION_POLICY_LABELS[row.to.versionPolicy]}
@@ -173,18 +175,19 @@ function ChangeRequests({ onDecided }: { onDecided?: () => void }) {
                 <p className="text-xs text-fg-subtle">
                   Requested by {row.requestedBy} <RelativeTime value={row.requestedAt} />
                 </p>
-                {row.note && <p className="text-sm text-fg">“{row.note}”</p>}
+                {row.note && <p className="text-sm text-fg break-words">“{row.note}”</p>}
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 shrink-0">
                 <Button
                   size="sm"
+                  className={`max-sm:flex-1 ${TAP_TARGET}`}
                   loading={busyId === row.installId}
                   onClick={() => void decide(row, () => api.approveInstallChange(row.installId), `Approved the change to ${row.listing}`)}
                   aria-label={`Approve the change to ${row.listing}`}
                 >
                   Approve
                 </Button>
-                <Button size="sm" variant="secondary" disabled={busyId === row.installId} onClick={() => setRejecting(row)} aria-label={`Reject the change to ${row.listing}`}>
+                <Button size="sm" variant="secondary" className={`max-sm:flex-1 ${TAP_TARGET}`} disabled={busyId === row.installId} onClick={() => setRejecting(row)} aria-label={`Reject the change to ${row.listing}`}>
                   Reject
                 </Button>
               </div>

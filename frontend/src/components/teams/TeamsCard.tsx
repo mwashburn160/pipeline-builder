@@ -16,7 +16,7 @@ import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import { formatDateMedium } from '@/lib/format';
 import { triggerBlobDownload } from '@/lib/download';
-import type { DeletedTeam, OrgTeamRef } from '@/lib/api/domains/organizations';
+import type { DeletedTeam, OrgTeamRef } from '@/lib/api/domains/organizations-hierarchy';
 
 /** Ties the disabled create control to the sentence that says why. */
 const TEAMS_CARD_CREATE_REASON_ID = 'teams-card-create-blocked-reason';

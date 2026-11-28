@@ -18,7 +18,8 @@
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { ApiCore, SESSION_REFRESH_UNAVAILABLE } from '../src/lib/api/core';
+import { SESSION_REFRESH_UNAVAILABLE } from '../src/lib/api/client/shared';
+import { ApiCore } from '../src/lib/api/core';
 import { ApiError } from '../src/lib/api/errors';
 import { REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, REFRESH_REQUEST_TIMEOUT_MS, REFRESH_LOCK_WAIT_MS } from '../src/lib/constants';
 

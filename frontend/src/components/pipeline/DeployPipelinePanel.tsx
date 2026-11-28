@@ -12,6 +12,7 @@ import { FormField } from '@/components/ui/FormField';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { RetryError } from '@/components/ui/RetryError';
 import { Select } from '@/components/ui/Select';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import { useFetch } from '@/hooks/useFetch';
 import { useDeployRequestTracker } from '@/hooks/useDeployRequestTracker';
 import { useMutation } from '@/hooks/useMutation';
@@ -215,7 +216,7 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
     const cancelAccepted = cancelRequested === deploy.requestId;
     body = (
       <div className="space-y-3" data-testid="deploy-progress">
-        <p className="text-sm text-fg flex items-center gap-2" role="status">
+        <p className="text-sm text-fg flex flex-wrap items-center gap-x-2 gap-y-1 break-words" role="status">
           <LoadingSpinner size="sm" label={null} />
           {DEPLOY_STATUS_LABEL[deploy.status]}: <strong>{deployTargetLabel({ label: deploy.runnerLabel, isOwn: true, ownerOrgName: null }, deploy.region)}</strong>
         </p>
@@ -225,7 +226,7 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
         )}
         {cancelError && <Callout variant="danger">{cancelError}</Callout>}
         {cancelAccepted && <p className="text-sm text-fg-muted" role="status">Cancel requested: the runner is stopping the build.</p>}
-        <Button type="button" size="sm" variant="danger-outline" disabled={cancelDeploy.pending || cancelAccepted} onClick={() => void cancelDeploy.run(deploy)}>
+        <Button type="button" size="sm" variant="danger-outline" className={`max-sm:w-full ${TAP_TARGET}`} disabled={cancelDeploy.pending || cancelAccepted} onClick={() => void cancelDeploy.run(deploy)}>
           Cancel deploy
         </Button>
       </div>
@@ -256,11 +257,11 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
         {startError && <Callout variant="danger">{startError}</Callout>}
         <div className="flex flex-wrap gap-2">
           {retryable && retryRunner && (
-            <Button type="button" size="sm" onClick={() => setConfirm({ runnerId: retryRunner.id, region: deploy.region, label: deployTargetLabel(retryRunner, deploy.region) })}>
+            <Button type="button" size="sm" className={`max-sm:flex-1 ${TAP_TARGET}`} onClick={() => setConfirm({ runnerId: retryRunner.id, region: deploy.region, label: deployTargetLabel(retryRunner, deploy.region) })}>
               Retry on {deploy.runnerLabel}
             </Button>
           )}
-          <Button type="button" size="sm" variant="secondary" onClick={changeRunner}>
+          <Button type="button" size="sm" variant="secondary" className={`max-sm:flex-1 ${TAP_TARGET}`} onClick={changeRunner}>
             {retryable ? 'Change runner' : 'Deploy again once fixed'}
           </Button>
         </div>
@@ -283,7 +284,7 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
         </p>
         {deployable.length > 1 && (
           <FormField label="Pipeline runner">
-            <Select value={runnerId ?? ''} onChange={(e) => { setPicked(e.target.value || null); setPickedRegion(null); }}>
+            <Select className="max-sm:text-base" value={runnerId ?? ''} onChange={(e) => { setPicked(e.target.value || null); setPickedRegion(null); }}>
               <option value="">Choose a runner…</option>
               {t.runners.map((r) => (
                 <option key={r.id} value={r.id} disabled={!r.deployable}>
@@ -296,7 +297,7 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
         )}
         {selected && selected.regions.length > 1 && (
           <FormField label="Region">
-            <Select value={region ?? ''} onChange={(e) => setPickedRegion(e.target.value)}>
+            <Select className="max-sm:text-base" value={region ?? ''} onChange={(e) => setPickedRegion(e.target.value)}>
               {selected.regions.map((r) => <option key={r} value={r}>{r}</option>)}
             </Select>
           </FormField>
@@ -308,8 +309,8 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
         )}
         {startError && <Callout variant="danger">{startError}</Callout>}
         {selected && region && label && (
-          <Button type="button" size="sm" onClick={() => setConfirm({ runnerId: selected.id, region, label: deployTargetLabel(selected, region) })}>
-            <Rocket className="w-4 h-4 mr-1" aria-hidden="true" />
+          <Button type="button" size="sm" className={`max-sm:w-full ${TAP_TARGET}`} onClick={() => setConfirm({ runnerId: selected.id, region, label: deployTargetLabel(selected, region) })}>
+            <Rocket className="w-4 h-4 mr-1 shrink-0" aria-hidden="true" />
             Deploy to {label}
           </Button>
         )}

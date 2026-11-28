@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Send, Megaphone, MessageCircle, Trash2, Paperclip, X, RefreshCw, Pencil, Check, User, CheckCheck } from 'lucide-react';
 import { Textarea } from '@/components/ui/Textarea';
 import { IconButton } from '@/components/ui/IconButton';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import { formatBytes, formatDateTime } from '@/lib/format';
 import { MESSAGE_PRIORITY_META, isMessagePriority } from '@/lib/message-priority';
 import { MessageAttachments } from '@/components/message/MessageAttachments';
@@ -63,6 +64,12 @@ interface ThreadViewProps {
   onCaseChanged?: () => void;
   /** Callback to navigate back to the message list (mobile). */
   onBack: () => void;
+  /**
+   * Move focus to Back on open. The one-column (phone) inbox swaps the list
+   * out for the thread, so the row the user just activated is gone and focus
+   * would otherwise fall to the page.
+   */
+  autoFocusBack?: boolean;
   /** Callback to mark the entire thread as read when opened. */
   onThreadRead: (id: string) => void;
   /** Callback to delete the conversation (root message + replies). */
@@ -116,8 +123,13 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 /** Chat-style thread view displaying a conversation with reply input. */
-export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete, onFollowUpCreated, canDelete, canWrite = false, readOnly = false, supportCase, supportContacts = [], onCaseChanged, lastEdit = null }: ThreadViewProps) {
+export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, autoFocusBack = false, onThreadRead, onDelete, onFollowUpCreated, canDelete, canWrite = false, readOnly = false, supportCase, supportContacts = [], onCaseChanged, lastEdit = null }: ThreadViewProps) {
   const { organizations } = useAuth();
+  const backRef = useRef<HTMLButtonElement>(null);
+  // Once per thread: read on mount only (the inbox keys this view by thread, so
+  // a new thread remounts), never again when the viewport later changes.
+  const [focusBackOnOpen] = useState(autoFocusBack);
+  useEffect(() => { if (focusBackOnOpen) backRef.current?.focus(); }, [focusBackOnOpen]);
   // The current org's own display name, for labelling optimistic (own) bubbles
   // before the server round-trip returns the resolved name.
   const currentOrgName = organizations.find((o) => o.id.toLowerCase() === currentOrgId.toLowerCase())?.name;
@@ -408,11 +420,12 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-default bg-surface">
+      <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 border-b border-default bg-surface">
         <IconButton
+          ref={backRef}
           onClick={onBack}
           aria-label="Back"
-          className="lg:hidden"
+          className={`lg:hidden -ml-1.5 ${TAP_TARGET}`}
         >
           <ArrowLeft className="w-5 h-5 text-fg-muted" />
         </IconButton>
@@ -447,7 +460,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
           <IconButton
             onClick={() => { onDelete(rootMessage.id); onBack(); }}
             tone="danger"
-            className="flex-shrink-0"
+            className={`flex-shrink-0 ${TAP_TARGET}`}
             title="Delete conversation"
             aria-label="Delete conversation"
           >
@@ -461,7 +474,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
           conversation. Rendered only when the thread HAS a case — correspondence from
           an org without a support entitlement has none, deliberately. */}
       {supportCase && (
-        <div className="px-4 pt-3">
+        <div className="px-3 sm:px-4 pt-3">
           <SupportCasePanel
             supportCase={supportCase}
             contacts={supportContacts}
@@ -472,7 +485,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-4">
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <LoadingSpinner label="Loading conversation" />
@@ -499,7 +512,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
                 className={`group flex flex-col ${isMine ? 'items-end' : 'items-start'}`}
               >
                 <div
-                  className={`max-w-[75%] rounded-xl px-4 py-2.5 ${
+                  className={`max-w-[85%] sm:max-w-[75%] min-w-0 break-words rounded-xl px-3 sm:px-4 py-2.5 ${
                     isMine
                       ? 'bg-brand-solid text-white'
                       : 'bg-surface-muted text-fg'
@@ -576,7 +589,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
       </div>
 
       {/* Reply input */}
-      <div className="px-4 py-3 border-t border-default bg-surface">
+      <div className="px-3 sm:px-4 py-3 border-t border-default bg-surface">
         {/* Pending reply attachments */}
         {replyAttachments.length > 0 && (
           <ul className="mb-2 space-y-1">
@@ -585,7 +598,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
                 <Paperclip className="w-3 h-3 text-fg-subtle shrink-0" />
                 <span className="truncate flex-1 text-fg-muted">{a.filename}</span>
                 <span className="text-fg-subtle shrink-0">{formatBytes(a.sizeBytes)}</span>
-                <button type="button" onClick={() => removeReplyAttachment(a.id)} className="text-fg-subtle hover:text-danger shrink-0" aria-label={`Remove ${a.filename}`}>
+                <button type="button" onClick={() => removeReplyAttachment(a.id)} className={`text-fg-subtle hover:text-danger shrink-0 ${TAP_TARGET}`} aria-label={`Remove ${a.filename}`}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               </li>
@@ -615,7 +628,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             disabled={uploading || !canReply}
             aria-label="Attach files"
             title={canReply ? (uploading ? 'Uploading…' : 'Attach files') : noReplyReason}
-            className="p-2.5 rounded-xl text-fg-muted hover:text-brand hover:bg-surface-muted disabled:opacity-50 transition-colors"
+            className={`p-2.5 rounded-xl text-fg-muted hover:text-brand hover:bg-surface-muted disabled:opacity-50 transition-colors shrink-0 ${TAP_TARGET}`}
           >
             <Paperclip className="w-5 h-5" />
           </button>
@@ -642,14 +655,15 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             title={canReply ? undefined : noReplyReason}
             disabled={!canReply}
             rows={2}
-            className="flex-1 resize-none"
+            // 16px on a phone: iOS zooms the page into any field set smaller.
+            className="flex-1 min-w-0 resize-none max-sm:text-base"
           />
           <button
             onClick={handleSendReply}
             disabled={!canReply || !replyContent.trim() || uploading}
             aria-label="Send reply"
             title={canReply ? undefined : noReplyReason}
-            className="p-2.5 rounded-xl bg-brand-solid text-white hover:bg-brand-solid-strong disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className={`p-2.5 rounded-xl bg-brand-solid text-white hover:bg-brand-solid-strong disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0 ${TAP_TARGET}`}
           >
             <Send className="w-5 h-5" />
           </button>

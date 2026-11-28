@@ -30,6 +30,18 @@ jest.mock('next/dynamic', () => ({
   },
 }));
 
+let tablePanelThrows = false;
+jest.mock('@/components/observability/TablePanel', () => {
+  const actual = jest.requireActual('@/components/observability/TablePanel') as { TablePanel: (p: object) => React.ReactElement };
+  return {
+    __esModule: true,
+    TablePanel: (props: object) => {
+      if (tablePanelThrows) throw new Error('panel exploded');
+      return actual.TablePanel(props);
+    },
+  };
+});
+
 const observabilityQueryBatch = jest.fn<AnyFn>();
 const cloneDashboard = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
@@ -58,6 +70,7 @@ beforeEach(() => {
     data: { results: Object.fromEntries(queries.map((q) => [q.id, { ok: true, data: { entries: [], range: '1h' } }])) },
   }));
   mockQuery = { id: 'd1' };
+  tablePanelThrows = false;
 });
 
 describe('Dashboard page — audit filters', () => {
@@ -100,5 +113,17 @@ describe('Dashboard page — Clone', () => {
     expect(cloneDashboard).toHaveBeenCalledTimes(1);
     resolve({ data: { dashboard: { id: 'd2', name: 'Copy' } } });
     await waitFor(() => expect(clone).toBeEnabled());
+  });
+});
+
+describe('Dashboard page — a crashing panel is contained', () => {
+  it('replaces just that panel with a Retry card naming it; the page keeps working', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    tablePanelThrows = true;
+    render(<DashboardPage />);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Recent events could not be displayed');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Request ID')).toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@
 
 import { ArchiveRestore, EyeOff, Mail, MailOpen, Trash2, X } from 'lucide-react';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { TAP_TARGET } from '@/components/ui/responsive';
 
 interface SelectAllCheckboxProps {
   loadedCount: number;
@@ -57,7 +58,7 @@ interface MessageBulkBarProps {
   onDelete: () => void;
 }
 
-const actionClass = 'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
+const actionClass = 'inline-flex items-center gap-1 px-2 py-1 max-sm:min-h-11 max-sm:min-w-11 justify-center text-xs font-medium rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
 const neutral = `${actionClass} text-fg-muted hover:text-fg hover:bg-surface-muted`;
 
 /** Why an ids-only action is unavailable once "all N matching" is selected. */
@@ -90,7 +91,7 @@ export function MessageBulkBar({
         {allMatching ? `All ${matchingCount} selected` : `${selectedCount} selected`}
       </span>
       {canEscalate && (
-        <button type="button" onClick={onSelectAllMatching} className="text-xs font-medium text-info hover:underline">
+        <button type="button" onClick={onSelectAllMatching} className="text-xs font-medium text-info hover:underline max-sm:min-h-11">
           Select all {total}
         </button>
       )}
@@ -142,7 +143,7 @@ export function MessageBulkBar({
         <button
           type="button"
           onClick={onClear}
-          className="p-1 rounded-md text-fg-subtle hover:text-fg hover:bg-surface-muted"
+          className={`p-1 rounded-md text-fg-subtle hover:text-fg hover:bg-surface-muted ${TAP_TARGET}`}
           aria-label="Clear selection"
           title="Clear selection"
         >

@@ -30,6 +30,8 @@ import { StatPanel } from '@/components/observability/StatPanel';
 import { TablePanel } from '@/components/observability/TablePanel';
 import { RangePicker } from '@/components/observability/RangePicker';
 import { canEditDashboard } from '@/components/observability/dashboard-access';
+import { PANEL_SPAN_CLASS } from '@/components/observability/Panel';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import type { RangeKey , DashboardWithPanels, DashboardPanel } from '@/types/observability';
 import { api } from '@/lib/api';
 import { formatError } from '@/lib/constants';
@@ -116,6 +118,17 @@ function LogFilterForm({ value, onApply }: { value: LogUrlFilters; onApply: (nex
  * LinePanel — keeps a misconfigured dashboard partially-functional instead
  * of blank. */
 function PanelRenderer({ panel, urlFilters }: { panel: DashboardPanel; urlFilters: LogUrlFilters }) {
+  // One panel's crash (a malformed series, an unexpected shape) costs that panel,
+  // not the dashboard: the card keeps the panel's grid span and names it.
+  return (
+    <ErrorBoundary boundary="chart" compact label={panel.title} className={`${PANEL_SPAN_CLASS[asSpan(panel.span)]} h-full`}>
+      <PanelViz panel={panel} urlFilters={urlFilters} />
+    </ErrorBoundary>
+  );
+}
+
+/** The viz component for a panel's `vizKind`. */
+function PanelViz({ panel, urlFilters }: { panel: DashboardPanel; urlFilters: LogUrlFilters }) {
   const span = asSpan(panel.span);
   const format = panel.format ? FORMATTERS[panel.format]: undefined;
   const groupBy = panel.groupBy ?? undefined;

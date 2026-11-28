@@ -14,7 +14,7 @@ import { OrgHierarchyCard } from '../src/components/admin/org-detail/OrgHierarch
 import { OrgIdentityCard } from '../src/components/admin/org-detail/OrgIdentityCard';
 import { OrgSeatsCard } from '../src/components/admin/org-detail/OrgSeatsCard';
 import { OrgOperationsCard } from '../src/components/admin/org-detail/OrgOperationsCard';
-import type { OrganizationDetail } from '../src/lib/api/domains/organizations';
+import type { OrganizationDetail } from '../src/lib/api/domains/organizations-lifecycle';
 
 const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));

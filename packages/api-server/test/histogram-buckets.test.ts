@@ -114,6 +114,18 @@ describe('support_satisfaction is a SCORE, not a duration', () => {
   });
 });
 
+describe('frontend_web_vitals carries every web-vitals threshold', () => {
+  it('puts each good/poor boundary on a bucket, so ratings and the LCP alert compare exactly', async () => {
+    // One histogram for five metrics (seconds, CLS unitless). The default set
+    // has no 0.2, 0.8, 1.8, 3 or 4 and starts at 0.05, so CLS (0.1/0.25),
+    // INP (0.2/0.5), TTFB (0.8/1.8), FCP (1.8/3) and FrontendWebVitalsPoor's
+    // p75 LCP > 4 would all be interpolated guesses.
+    const b = await bucketsOf('frontend_web_vitals', { metric: 'LCP', route: '/dashboard', rating: 'good' });
+    for (const t of [0.1, 0.25, 0.2, 0.5, 0.8, 1.8, 3, 2.5, 4]) expect([t, b.includes(t)]).toEqual([t, true]);
+    expect(ceiling(b)).toBeGreaterThan(4);
+  });
+});
+
 describe('every declared distribution is well-formed', () => {
   it('is strictly ascending, so no boundary is unreachable', async () => {
     const names: [string, Record<string, string>][] = [

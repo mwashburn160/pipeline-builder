@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Timer } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { TAP_TARGET } from '@/components/ui/responsive';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/hooks/useAuth';
 import api from '@/lib/api';
@@ -152,10 +153,10 @@ export function IdleSessionGuard() {
           {clock(remainingMs)}
         </p>
         <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <Button type="button" variant="secondary" onClick={signOut}>
+          <Button type="button" variant="secondary" onClick={signOut} className={`max-sm:flex-1 ${TAP_TARGET}`}>
             Sign out
           </Button>
-          <Button ref={stayRef} type="button" variant="primary" onClick={staySignedIn}>
+          <Button ref={stayRef} type="button" variant="primary" onClick={staySignedIn} className={`max-sm:flex-1 ${TAP_TARGET}`}>
             Stay signed in
           </Button>
         </div>

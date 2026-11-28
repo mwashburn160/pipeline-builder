@@ -10,6 +10,17 @@
 import { describe, it, expect, jest } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+let sparklineThrows = false;
+jest.mock('../src/components/reports/DoraParts', () => {
+  const actual = jest.requireActual('../src/components/reports/DoraParts') as Record<string, unknown> & { DoraTrendSparkline: (p: object) => React.ReactElement };
+  return {
+    ...actual,
+    DoraTrendSparkline: (props: object) => {
+      if (sparklineThrows) throw new Error('sparkline exploded');
+      return actual.DoraTrendSparkline(props);
+    },
+  };
+});
 import { DoraReport } from '../src/components/reports/DoraReport';
 import type { ExecutionCountRow } from '../src/types';
 import type { DoraMetrics } from '../src/lib/api/domains/reporting';
@@ -247,5 +258,21 @@ describe('DoraReport — unknown lead time explained, and how it is counted', ()
   it('links "How these are counted" under the cards to the DORA help topic', () => {
     render(<DoraReport {...baseProps} dora={doraWithData} />);
     expect(screen.getByRole('link', { name: 'How these are counted' })).toHaveAttribute('href', '/dashboard/help#topic-dora-metrics');
+  });
+});
+
+describe('DoraReport — a crashing trend chart is contained', () => {
+  it('replaces only the sparkline with a Retry card; the cards and deploy list stay', () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    sparklineThrows = true;
+    try {
+      const doraTrend = [{ bucket: '2026-07-20', deployments: 2, total: 2, failed: 0, postDeployFailures: 0 }];
+      render(<DoraReport {...baseProps} dora={doraWithData} doraTrend={doraTrend as never} />);
+      const alert = screen.getByRole('alert');
+      expect(alert).toHaveTextContent('Deployment trend could not be displayed');
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    } finally {
+      sparklineThrows = false;
+    }
   });
 });
