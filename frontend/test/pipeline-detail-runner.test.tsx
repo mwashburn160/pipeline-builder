@@ -65,6 +65,8 @@ const api = {
   getPipelineRunnerLink: jest.fn<AnyFn>(),
   refreshPipelineRunnerLink: jest.fn<AnyFn>(),
   testPipelineRunner: jest.fn<AnyFn>(),
+  getRegisterRunners: jest.fn<AnyFn>(),
+  registerPipelineDeployment: jest.fn<AnyFn>(),
 };
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -654,5 +656,102 @@ describe('review fixes', () => {
     await advance(RUN_REQUEST_POLL.initialMs);
     await advance(RUN_REQUEST_POLL.executionMs);
     await waitFor(() => expect(pageToast.warning).toHaveBeenCalledWith('Execution e-9 stopped'));
+  });
+});
+
+/**
+ * Run pipeline by where the pipeline stands: registered and linked → it just
+ * runs; not registered → register it with a runner, then run once that runner
+ * found it; registered with no runner linked → choose the runner, then run.
+ */
+describe('Run pipeline by registration and runner link', () => {
+  const runners = (list: Array<Record<string, unknown>>, extra: Record<string, unknown> = {}) => ({
+    success: true,
+    data: { pipelineId: 'p1', available: true, unavailableReason: null, registered: true, hasEvents: true, linkedRunnerId: null, runners: list, ...extra },
+  });
+  const runnerOf = (id: string, label: string, extra: Record<string, unknown> = {}) => ({ id, label, isOwn: true, ownerOrgName: null, regions: ['us-east-1'], health: 'healthy', ...extra });
+
+  it('registered and linked to a runner: Run just runs, no dialog', async () => {
+    await rerun();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.getRegisterRunners).not.toHaveBeenCalled();
+  });
+
+  it('not registered: Register and run — registers with the runner, then runs once it linked the pipeline', async () => {
+    api.getPipelineById.mockResolvedValue({ success: true, data: { pipeline, registration: { registered: false, hasEvents: true } } });
+    api.getPipelineRunnerLink.mockResolvedValue({ success: false });
+    api.getRegisterRunners.mockResolvedValue(runners([runnerOf('r1', 'default')], { registered: false }));
+    api.registerPipelineDeployment.mockImplementation(async () => {
+      api.getPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'linked', runner: { id: 'r1', label: 'default', health: 'healthy', lastDeliveryAt: null, ownerOrgName: null, isOwn: true } }));
+      return { success: true, data: { registry: { id: 'reg-1', pipelineId: 'p1' }, runnerLink: 'checking' } };
+    });
+    render(<PipelineDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Re-run/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Register and run' });
+    expect(api.triggerPipelineExecution).not.toHaveBeenCalled();
+    expect(await within(dialog).findByText(/with the pipeline runner/)).toHaveTextContent('Register acme-web with the pipeline runner default?');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Register with default and run' }));
+    await waitFor(() => expect(api.registerPipelineDeployment).toHaveBeenCalledWith(expect.objectContaining({ pipelineId: 'p1', runnerId: 'r1' })));
+
+    await advance(2000);
+    await waitFor(() => expect(api.triggerPipelineExecution).toHaveBeenCalledWith('p1'));
+    expect(screen.queryByRole('dialog', { name: 'Register and run' })).not.toBeInTheDocument();
+  });
+
+  it('not registered, and the runner does not find it: registers, says so, and does not run', async () => {
+    api.getPipelineById.mockResolvedValue({ success: true, data: { pipeline, registration: { registered: false, hasEvents: true } } });
+    api.getPipelineRunnerLink.mockResolvedValue({ success: false });
+    api.getRegisterRunners.mockResolvedValue(runners([runnerOf('r1', 'default')], { registered: false }));
+    api.registerPipelineDeployment.mockImplementation(async () => {
+      api.getPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'not_found', runner: null, detail: { runnersChecked: ['default'], matched: [], errorCode: 'PIPELINE_NOT_FOUND' } }));
+      return { success: true, data: { registry: { id: 'reg-1', pipelineId: 'p1' }, runnerLink: 'checking' } };
+    });
+    render(<PipelineDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Re-run/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Register and run' });
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Register with default and run' }));
+    await waitFor(() => expect(api.registerPipelineDeployment).toHaveBeenCalled());
+    await advance(2000);
+    await advance(2000);
+    expect(await screen.findByText(/default did not find this pipeline/)).toBeInTheDocument();
+    expect(api.triggerPipelineExecution).not.toHaveBeenCalled();
+  });
+
+  it('registered with no runner linked: choose the runner, and the run goes through it', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'unlinked', runner: null }));
+    api.getRegisterRunners.mockResolvedValue(runners([runnerOf('r1', 'default'), runnerOf('r2', 'prod'), runnerOf('r3', 'old', { health: 'unreachable' })]));
+    render(<PipelineDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Re-run/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Run pipeline' });
+    expect(api.triggerPipelineExecution).not.toHaveBeenCalled();
+    expect(await within(dialog).findByLabelText('old — unreachable')).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Run' })).toBeDisabled();
+    fireEvent.click(within(dialog).getByLabelText('prod'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Run with prod' }));
+    await waitFor(() => expect(api.triggerPipelineExecution).toHaveBeenCalledWith('p1', { runnerId: 'r2' }));
+    expect(screen.queryByRole('dialog', { name: 'Run pipeline' })).not.toBeInTheDocument();
+  });
+
+  it('registered with no runner linked and only the default runner: asks to run with it', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'not_found', runner: null }));
+    api.getRegisterRunners.mockResolvedValue(runners([runnerOf('r1', 'default')]));
+    render(<PipelineDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Re-run/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Run pipeline' });
+    expect(await within(dialog).findByText(/with the pipeline runner/)).toHaveTextContent('Run acme-web with the pipeline runner default?');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Run with default' }));
+    await waitFor(() => expect(api.triggerPipelineExecution).toHaveBeenCalledWith('p1', { runnerId: 'r1' }));
+  });
+
+  it('registered with no runner linked and no runner to run with: says why, Run is held', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'unlinked', runner: null }));
+    api.getRegisterRunners.mockResolvedValue(runners([], { available: false, unavailableReason: 'paused' }));
+    render(<PipelineDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Re-run/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Run pipeline' });
+    expect(await within(dialog).findByText('Pipeline runs are paused on this platform.')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Run' })).toBeDisabled();
   });
 });

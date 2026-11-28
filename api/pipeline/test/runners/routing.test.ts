@@ -14,7 +14,7 @@ const mockFindById = jest.fn<(id: string, orgId: string) => Promise<unknown>>();
 jest.unstable_mockModule('../../src/services/pipeline-service.js', () => ({ pipelineService: { findById: mockFindById } }));
 
 const { routeExecution } = await import('../../src/runners/execution-routing.js');
-const { eligibleRunners, linkInBackground, probeRunnerLink, rediscoverRequest, RunnerRouteError } = await import('../../src/runners/routing.js');
+const { eligibleRunners, linkInBackground, probeRunnerLink, rediscoverRequest, RunnerRouteError, startLink } = await import('../../src/runners/routing.js');
 const { claimsOf, GRANDPARENT, ORG, PARENT, PIPE, reply, runnerRow, testDeps } = await import('../helpers/runner-fakes.js');
 
 type Deps = ReturnType<typeof testDeps>;
@@ -178,6 +178,35 @@ describe('routeExecution (runners are the only path)', () => {
       expect(deps.store.registry.get(PIPE)).toMatchObject({ runnerId: old.id, linkStatus: 'ambiguous', linkDetail: { matched: ['a', 'b'], errorCode: 'AMBIGUOUS_RUNNER' } });
     });
 
+    it('Run with a chosen runner (none linked): only that runner is probed, and it is linked', async () => {
+      const deps = testDeps();
+      addRunner(deps, { label: 'a' });
+      const b = addRunner(deps, { label: 'b' });
+      deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: null });
+      // Both would match: without the choice this is AMBIGUOUS_RUNNER.
+      deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'match' }));
+      expect(await routeExecution(input({ runnerId: b.id }), deps)).toMatchObject({ runnerId: b.id, runnerLabel: 'b' });
+      expect(deps.fetchMock).toHaveBeenCalledTimes(1);
+      expect(deps.store.registry.get(PIPE)).toMatchObject({ runnerId: b.id, linkStatus: 'linked' });
+    });
+
+    it('Run with a chosen runner never overrides a usable linked runner', async () => {
+      const deps = testDeps();
+      const a = addRunner(deps, { label: 'a' });
+      const b = addRunner(deps, { label: 'b' });
+      deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: a.id, linkStatus: 'linked' });
+      expect(await routeExecution(input({ runnerId: b.id }), deps)).toMatchObject({ runnerId: a.id });
+      expect(deps.fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('Run with a runner the org cannot use → 400 VALIDATION_ERROR, nothing probed', async () => {
+      const deps = testDeps();
+      addRunner(deps, { label: 'a' });
+      deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: null });
+      expect(await refusal(routeExecution(input({ runnerId: '99999999-9999-4999-8999-999999999999' }), deps))).toMatchObject({ status: 400, code: 'VALIDATION_ERROR' });
+      expect(deps.fetchMock).not.toHaveBeenCalled();
+    });
+
     it('a runner seeing two pipelines with the tag → 409 AMBIGUOUS_PIPELINE', async () => {
       const deps = testDeps();
       addRunner(deps, { label: 'a' });
@@ -337,6 +366,64 @@ describe('background linking at registration', () => {
     deps.store.runners.set(first!.id, { ...first!, status: 'revoked' });
     expect(await routeExecution(input(), deps)).toMatchObject({ runnerLabel: 'b' });
     expect(deps.store.registry.get(PIPE)!.linkStatus).toBe('linked');
+  });
+
+  it('a runner picked at registration is the only one probed (two runners that both match link the picked one)', async () => {
+    const deps = testDeps();
+    addRunner(deps, { label: 'a' });
+    const b = addRunner(deps, { label: 'b' });
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: null });
+    deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'match' }));
+    expect(await linkInBackground(deps, { pipelineId: PIPE, orgId: ORG, requestedBy: 'system:runner-link', runnerId: b.id })).toBe('linked');
+    expect(deps.fetchMock).toHaveBeenCalledTimes(1);
+    expect(deps.store.registry.get(PIPE)).toMatchObject({ runnerId: b.id, linkStatus: 'linked' });
+  });
+
+  it('a picked runner that does not find an unlinked pipeline records not_found', async () => {
+    const deps = testDeps();
+    addRunner(deps, { label: 'a' });
+    const b = addRunner(deps, { label: 'b' });
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: null });
+    deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'no_match' }));
+    expect(await linkInBackground(deps, { pipelineId: PIPE, orgId: ORG, requestedBy: 'system:runner-link', runnerId: b.id })).toBe('not_found');
+    expect(deps.store.registry.get(PIPE)).toMatchObject({ runnerId: null, linkStatus: 'not_found', linkDetail: { runnersChecked: ['b'] } });
+  });
+
+  it('a picked runner that misses never breaks a working link to another runner: it stays linked, Run still goes there', async () => {
+    const deps = testDeps();
+    const a = addRunner(deps, { label: 'a' });
+    const b = addRunner(deps, { label: 'b' });
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: a.id, linkStatus: 'linked' });
+    deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'no_match' }));
+    expect(await linkInBackground(deps, { pipelineId: PIPE, orgId: ORG, requestedBy: 'system:runner-link', runnerId: b.id })).toBe('not_found');
+    expect(deps.store.registry.get(PIPE)).toMatchObject({ runnerId: a.id, linkStatus: 'linked' });
+    deps.fetchMock.mockClear();
+    expect(await routeExecution(input(), deps)).toMatchObject({ runnerId: a.id });
+  });
+
+  it('startLink marks the row checking before answering, and reports the outcome through done', async () => {
+    const deps = testDeps();
+    const r = addRunner(deps, { label: 'prod' });
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: null });
+    let release!: () => void;
+    deps.fetchMock.mockImplementation(() => new Promise((ok) => { release = () => ok(reply(200, { outcome: 'match' })); }));
+    const started = await startLink(deps, { pipelineId: PIPE, orgId: ORG, requestedBy: 'system:runner-link', runnerId: r.id });
+    expect(started).toMatchObject({ status: 'checking', probed: true });
+    expect(deps.store.registry.get(PIPE)!.linkStatus).toBe('checking');
+    await new Promise((ok) => setTimeout(ok, 0));
+    release();
+    expect(await started.done).toBe('linked');
+    expect(deps.store.registry.get(PIPE)).toMatchObject({ runnerId: r.id, linkStatus: 'linked' });
+  });
+
+  it('startLink probes nothing when runners are unavailable or the pipeline is already linked to the picked runner', async () => {
+    const deps = testDeps();
+    const r = addRunner(deps);
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: r.id, linkStatus: 'linked' });
+    expect(await startLink(deps, { pipelineId: PIPE, orgId: ORG, requestedBy: 'u', runnerId: r.id })).toMatchObject({ status: 'linked', probed: false });
+    deps.availability.available = false;
+    expect(await startLink(deps, { pipelineId: PIPE, orgId: ORG, requestedBy: 'u' })).toMatchObject({ status: null, probed: false });
+    expect(deps.fetchMock).not.toHaveBeenCalled();
   });
 
   it('does nothing when runners are unavailable, the pipeline is unregistered, or it is already linked', async () => {

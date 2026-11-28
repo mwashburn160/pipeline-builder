@@ -135,7 +135,8 @@ answer before any credential exists:
 | `POST` | `/pipelines/generate/from-url/stream` | Analyze Git URL + stream pipeline (consumes `aiCalls` quota); ends with a `missing-plugins` PROPOSAL — nothing is created by the stream |
 | `POST` | `/pipelines/generate/missing-plugins` | Create the placeholder plugins the user confirmed from a `missing-plugins` proposal (`{ plugins: string[] }`; `plugins:write`; each name re-checked server-side; no AI call) |
 | `GET` | `/pipelines/registry` | List deployed-stack registrations (`pipelineId`, `stackName`, `region`, `lastDeployed`) for the caller's org — no ARNs, no account id. `?limit=` (default 10, max 1000) + `?offset=` page it; the answer is `{ registry: [...], pagination: { total, limit, offset, hasMore } }`, ordered `lastDeployed` desc then `id`, so page until `hasMore` is false. `?orgId=` names the org: your own always works, another org only for a system admin (403 `INSUFFICIENT_PERMISSIONS` otherwise). This is what `pipeline-manager audit stacks` reads |
-| `POST` | `/pipelines/registry` | Upsert registry entry (deploy hook; tenant-guarded). A deployed pipeline with no entry also registers itself on its first pipeline event, through the internal `POST /pipelines/internal/registry/first-event` (reporting only) — see [DORA metrics → Registration](dora-metrics.md#registration) |
+| `GET` | `/pipelines/:pipelineId/register-runners` | `pipelines:read`: what the Register deployment dialog offers — `{ pipelineId, available, unavailableReason, runners: [{ id, label, isOwn, ownerOrgName, regions, health }], registered, hasEvents, linkedRunnerId }`. Every runner the org can use, deploys enabled or not (registering only links); `runners` is empty when not `available`. Labels only — no account id or runner URL |
+| `POST` | `/pipelines/registry` | Upsert registry entry (deploy hook; tenant-guarded). Optional `runnerId` (the dashboard's Register deployment dialog) names the pipeline runner to link it through: the link probe asks only that runner, which still links only when it finds the pipeline's tag, and a miss never replaces a working link to another runner; a runner the org can't use is a 400. The answer is `{ registry, runnerLink }`: `runnerLink` is `checking` while the probe runs (poll `GET /pipelines/:pipelineId/runner-link`), `linked` when it already was, null when no probe ran; the outcome is audited `pipeline.runner.link.refresh` with `details.trigger: 'registration'`. A deployed pipeline with no entry also registers itself on its first pipeline event, through the internal `POST /pipelines/internal/registry/first-event` (reporting only) — see [DORA metrics → Registration](dora-metrics.md#registration) |
 | `GET` | `/pipelines/:id/security-reports` | The latest scanner report per (tool, stage), their summed counts and `latestAt`; each report carries its own `createdAt`, so a slot the pipeline stopped refreshing is visible |
 | `DELETE` | `/pipelines/:id/security-reports?tool=<tool>[&stage=<stage>]` | Remove ONE report slot — a scanner the pipeline dropped or a stage it renamed, whose last counts would otherwise feed the scorecard forever (`pipelines:write`; audited `pipeline.security_report.delete`; 404 when the slot is empty; an omitted `stage` names the stage-less slot) |
 | `GET` | `/pipelines/scorecard` | Org maturity roll-up over a PAGE of the org's own pipelines (system samples and a parent's shared pipelines are not graded), most recently updated first. `?offset=` (default 0), `?limit=` (1..`ORG_SCORECARD_MAX_PIPELINES`, default that cap), `?project=`, `?pipelineName=`. `rollup.pagination` = `{ offset, limit, total, hasMore, nextOffset }`; the aggregate stats cover the page. A computed page is reused for 5 minutes per viewer (`computedAt` says when) |
@@ -544,7 +545,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 
 ### Pipeline Service — every route
 
-77 routes, from `frontend/src/generated/route-table/pipeline.json`.
+78 routes, from `frontend/src/generated/route-table/pipeline.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
@@ -580,6 +581,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `GET` | `/pipelines/:pipelineId/deploys/latest` | `pipelines:read` | `apiCalls` | — |
 | `POST` | `/pipelines/:pipelineId/executions` | `pipelines:write` | `apiCalls` | `pipeline.execution.start` |
 | `POST` | `/pipelines/:pipelineId/executions/:executionId/stop` | `pipelines:write` | `apiCalls` | `pipeline.execution.cancel` |
+| `GET` | `/pipelines/:pipelineId/register-runners` | `pipelines:read` | `apiCalls` | — |
 | `GET` | `/pipelines/:pipelineId/run-requests/:requestId` | `pipelines:read` | `apiCalls` | — |
 | `GET` | `/pipelines/:pipelineId/runner-link` | `pipelines:read` | `apiCalls` | — |
 | `POST` | `/pipelines/:pipelineId/runner-link/refresh` | `pipelines:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.link.refresh` |
@@ -601,7 +603,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/pipelines/plugin-upgrades/apply` | `pipelines:write` | `apiCalls` | `pipeline.plugin.upgraded` |
 | `GET` | `/pipelines/providers` | `pipelines:read`; feature `ai_generation` | `apiCalls` | — |
 | `GET` | `/pipelines/registry` | `pipelines:read`; decided per request | `apiCalls` | — |
-| `POST` | `/pipelines/registry` | `pipeline_registry:write` | `apiCalls` | `pipeline.registry.register` |
+| `POST` | `/pipelines/registry` | `pipeline_registry:write` | `apiCalls` | `pipeline.registry.register`, `pipeline.runner.link.refresh` |
 | `DELETE` | `/pipelines/registry/:id` | `pipeline_registry:write` | `apiCalls` | `pipeline.registry.deregister` |
 | `GET` | `/pipelines/runner/deploys/:requestId/pipeline` | no bearer token | — | — |
 | `POST` | `/pipelines/runner/deploys/:requestId/plugin-lookup` | no bearer token | — | — |

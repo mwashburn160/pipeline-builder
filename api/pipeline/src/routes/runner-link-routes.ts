@@ -11,6 +11,8 @@
  *        queue a re-probe (202, `checking`). A single match replaces the link;
  *        anything else keeps the old link and records the result.
  * - GET  /pipelines/runners/:id/pipelines            org_settings:write — the pipelines linked to one of the org's runners.
+ * - GET  /pipelines/:pipelineId/register-runners     pipelines:read — the runners the Register deployment dialog
+ *        offers (every eligible runner, with health and regions) and the pipeline's registration state.
  *
  * Nothing here returns an AWS account id or a runner URL: the detail carries
  * runner labels only.
@@ -30,13 +32,14 @@ import {
   sendPaginatedNested,
   sendSuccess,
 } from '@pipeline-builder/api-core';
-import { RUNNER_LINK_REFRESHES_PER_MINUTE, runnerErrorStatus, type RunnerLinkDto } from '@pipeline-builder/api-core/pipeline-runners';
+import { RUNNER_LINK_REFRESHES_PER_MINUTE, runnerErrorStatus, type RegisterRunnersDto, type RunnerLinkDto } from '@pipeline-builder/api-core/pipeline-runners';
 import { createAuthenticatedWithOrgRoute, rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { ownRunner } from '../runners/admin.js';
 import { runnerDeps, type RunnerDeps } from '../runners/deps.js';
-import { asRunnerRouteError, probeRunnerLink, RUNNERS_UNAVAILABLE_MESSAGES } from '../runners/routing.js';
+import { asRunnerRouteError, eligibleRunners, probeRunnerLink, RUNNERS_UNAVAILABLE_MESSAGES } from '../runners/routing.js';
 import type { RegistryLink } from '../runners/store.js';
+import { pipelineRegistryService } from '../services/pipeline-registry-service.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -133,6 +136,45 @@ export function createRunnerLinkRoutes(): Router {
     });
     ctx.log('COMPLETED', 'Queued a runner-link refresh', { pipelineId });
     return sendSuccess(res, 202, dto);
+  }));
+
+  router.get('/:pipelineId/register-runners', ...readGuards, withRoute(async ({ req, res, ctx, orgId }) => {
+    const pipelineId = (getParam(req.params, 'pipelineId') ?? '').toLowerCase();
+    if (!UUID.test(pipelineId) || !(await pipelineService.findById(pipelineId, orgId))) {
+      return sendError(res, 404, 'Pipeline not found.', ErrorCode.NOT_FOUND);
+    }
+    const deps = runnerDeps();
+    const parentOrgId = req.user?.parentOrganizationId;
+    const [availability, registration, link] = await Promise.all([
+      deps.runnersAvailable(),
+      pipelineRegistryService.findRegistrationStatus(pipelineId, orgId),
+      deps.store.getRegistryLink(pipelineId, orgId),
+    ]);
+    let runners: RegisterRunnersDto['runners'] = [];
+    if (availability.available) {
+      const eligible = await eligibleRunners(deps, orgId, parentOrgId);
+      const foreign = [...new Set(eligible.filter((e) => e.depth > 0).map((e) => e.runner.orgId))];
+      const names = foreign.length > 0 ? await deps.hierarchy.names(foreign).catch(() => ({} as Record<string, string>)) : {};
+      runners = eligible.map((e) => ({
+        id: e.runner.id,
+        label: e.runner.label,
+        isOwn: e.depth === 0,
+        ownerOrgName: e.depth === 0 ? null : (names[e.runner.orgId.toLowerCase()] ?? e.runner.orgId),
+        regions: e.runner.regions ?? [],
+        health: e.runner.health,
+      }));
+    }
+    const dto: RegisterRunnersDto = {
+      pipelineId,
+      available: availability.available,
+      unavailableReason: availability.available ? null : (availability.reason ?? 'paused'),
+      runners,
+      registered: registration.registered,
+      hasEvents: registration.hasEvents,
+      linkedRunnerId: link?.runnerId ?? null,
+    };
+    ctx.log('COMPLETED', 'Listed the runners a pipeline can be registered with', { pipelineId, count: runners.length });
+    return sendSuccess(res, 200, dto);
   }));
 
   router.get('/runners/:id/pipelines', ...admin, withRoute(async ({ req, res, ctx, orgId }) => {

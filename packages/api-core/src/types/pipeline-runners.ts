@@ -1238,6 +1238,43 @@ export interface RunnerJwksDto {
   keys: RunnerPublicJwk[];
 }
 
+// ---- Register deployment DTOs ----
+
+/** One runner on `GET /pipelines/:pipelineId/register-runners`. Never an account id or a URL. */
+export interface RegisterRunnerDto {
+  id: string;
+  label: string;
+  /** The caller's org owns it (false for an ancestor's shared runner). */
+  isOwn: boolean;
+  /** Set for every runner that is not the caller's own. */
+  ownerOrgName: string | null;
+  /** Its allowed regions (the dialog fills the Region field from a single one). */
+  regions: string[];
+  /** `unreachable`: a link probe through it fails until it answers again. */
+  health: RunnerHealth;
+}
+
+/**
+ * `GET /pipelines/:pipelineId/register-runners` (`pipelines:read`) — what the
+ * Register deployment dialog needs: every runner the org can register the
+ * pipeline with (deploys enabled or not — registering only links), and the
+ * pipeline's registration state.
+ */
+export interface RegisterRunnersDto {
+  pipelineId: string;
+  /** False when deliveries are paused or runner secrets are not set up: no runner can link it. */
+  available: boolean;
+  unavailableReason: RunnersUnavailableReason | null;
+  /** Empty when not `available`. */
+  runners: RegisterRunnerDto[];
+  /** It has a registry row now. */
+  registered: boolean;
+  /** Any pipeline event was ever ingested for it — false and not registered: never deployed. */
+  hasEvents: boolean;
+  /** The runner it is linked to now (null when none). */
+  linkedRunnerId: string | null;
+}
+
 // ---- Deploy DTOs ----
 
 /** One eligible runner on `GET /pipelines/:pipelineId/deploy-targets`. Never an account id or a URL. */

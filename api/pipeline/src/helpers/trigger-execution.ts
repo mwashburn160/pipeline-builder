@@ -23,6 +23,8 @@ export interface TriggerOptions {
   requestedBy?: string;
   /** The caller's parent org (a team inherits its ancestors' shared runners). */
   parentOrgId?: string;
+  /** Run with this runner when no runner is linked to the pipeline (see RouteInput.runnerId). */
+  runnerId?: string;
 }
 
 /**
@@ -44,7 +46,12 @@ export async function triggerExecutionInWindow(pipelineId: string, orgId: string
   if (!claim) return { status: 'duplicate' };
   try {
     const run = await routeExecution({
-      pipelineId, orgId, action: 'start', requestedBy: opts.requestedBy ?? 'unknown', ...(opts.parentOrgId ? { parentOrgId: opts.parentOrgId } : {}),
+      pipelineId,
+      orgId,
+      action: 'start',
+      requestedBy: opts.requestedBy ?? 'unknown',
+      ...(opts.parentOrgId ? { parentOrgId: opts.parentOrgId } : {}),
+      ...(opts.runnerId ? { runnerId: opts.runnerId } : {}),
     });
     return { status: 'queued', run };
   } catch (err) {

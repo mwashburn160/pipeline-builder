@@ -91,9 +91,17 @@ Event ingest attributes every event to a pipeline through its registry row, so a
 
 - **`pipeline-manager pipeline deploy --id <id>`** deploys the pipeline and registers it (with its step manifest).
 - **First-event self-registration.** When the forwarder posts events for a `pb.pipeline-id`-tagged pipeline that has no row, reporting asks the pipeline service to register it (`POST /pipelines/internal/registry/first-event`) and then records those events. The pipeline service registers it only when the pipeline exists, is not deleted, and belongs to an org the ingest credential was authenticated for (its own org or a descendant team). It records the CodePipeline and stack names a CLI deploy would record, and the event's region. It never overwrites an existing row. The registration is audited `pipeline.registry.register` with actor `system` and `details.source: 'first-event'`. If the call fails, the events are skipped and counted as `reporting_ingest_rejected_total{reason="unregistered_pipeline"}`, as before.
-- **By hand:** Deployments → **Register deployment**.
+- **By hand:** **Register deployment**, on the Deployments page or on the pipeline's own page. The dialog asks which pipeline runner to register it with: with one runner (such as `default`) it asks to register with that one; with several it lists them (an unreachable one can't be picked) and pre-picks the one it is linked to now. With no runner, runners paused, or the list unreadable, it says which and registers without one. A pipeline that was never deployed (no registration, no events) is steered to **Deploy** instead, because once registered the dashboard treats it as deployed; registering it anyway needs "It was deployed another way (CDK, CI)" ticked. After registering, the dialog follows the link probe and says whether the runner found the pipeline in its AWS account. A picked runner that misses never breaks a working link to another runner. The same from the CLI: `pipeline-manager pipeline register --id <id> --runner <id or label>`.
 
 A pipeline created in the dashboard (Generate from Git, manual create, a template) is a config until it is deployed. Its page says **Not deployed yet** with the deploy command. **Run pipeline** does not deploy: it starts an already-deployed CodePipeline through a pipeline runner. A page that says **Deployed but not registered** belongs to a pipeline that has reported before but whose registration was removed. It registers itself again on its next pipeline event.
+
+**Run pipeline** goes by where the pipeline stands:
+
+- **Registered and linked to a runner:** it runs through that runner.
+- **Not registered:** **Register and run**. The dialog registers it with a pipeline runner (asked about, or chosen from the list, as above), and the run starts once that runner finds the pipeline in its AWS account. If the runner doesn't find it, nothing runs and the dialog says why. A never-deployed pipeline is steered to Deploy.
+- **Registered, no runner linked:** choose the runner to run it with (the only one is asked about). The run (`POST /pipelines/:pipelineId/executions` with `{ runnerId }`) probes only that runner, which is linked once it finds the pipeline. A usable linked runner always wins over `runnerId`.
+
+When the registration or the link can't be read, or the person can't register pipelines, Run starts the run and the server finds the runner.
 
 ## How each metric is defined
 

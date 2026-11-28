@@ -7,6 +7,7 @@ import { type Pipeline, type PipelineResponse } from '../types/index.js';
 import { createAuthenticatedClient, printCommandHeader, printSslWarning, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, reportError } from '../utils/error-handler.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { resolveRegisterRunner } from '../utils/register-runner.js';
 import {
   buildRegistryPayload,
   clearPendingIntent,
@@ -14,7 +15,7 @@ import {
   writePendingIntent,
   type RegistryPayload,
 } from '../utils/registry.js';
-import { extractSingleResponse } from '../utils/response-utils.js';
+import { extractSingleResponse, unwrapData } from '../utils/response-utils.js';
 
 /**
  * Registers the `register` command with the CLI program.
@@ -36,6 +37,9 @@ import { extractSingleResponse } from '../utils/response-utils.js';
  * Flags:
  *   - `--id <pipelineId>` — re-register a specific pipeline by ID
  *   - `--region <region>` — AWS region (default: AWS_REGION env / us-east-1)
+ *   - `--runner <id or label>` — the pipeline runner to link it through (with
+ *     `--id`); the platform asks only that runner, which links it once it finds
+ *     the pipeline in its AWS account. Without it, every eligible runner is asked.
  *   - `--no-drain` — skip draining pending intents
  *
  * Exit codes:
@@ -47,6 +51,9 @@ import { extractSingleResponse } from '../utils/response-utils.js';
  * # Retry a registration that failed during deploy
  * pipeline-manager pipeline register --id pipe-123
  *
+ * # Register it with a specific pipeline runner (id or label)
+ * pipeline-manager pipeline register --id pipe-123 --runner default
+ *
  * # Just drain pending intents from disk, no specific registration
  * pipeline-manager pipeline register
  * ```
@@ -55,7 +62,8 @@ export function register(program: Command): void {
   withSslOptions(withRegionOption(program
     .command('register')
     .description('Register a deployed pipeline ARN with the platform (retry path for failed registrations)')
-    .option('-i, --id <id>', 'Pipeline ID to register (re-derives ARN from STS)'))
+    .option('-i, --id <id>', 'Pipeline ID to register (re-derives ARN from STS)')
+    .option('--runner <runner>', 'Pipeline runner (id or label) to link it through; requires --id'))
     .option('--no-drain', 'Skip draining pending intents from prior failed deploys'))
     .action(async (options) => {
       const executionId = printCommandHeader('Register Pipeline');
@@ -65,6 +73,7 @@ export function register(program: Command): void {
       let registeredCount = 0;
 
       try {
+        if (options.runner && !options.id) throw new Error('--runner needs --id: it names the runner for that one pipeline.');
         const client = createAuthenticatedClient(options);
         const pipelineUrl = client.getConfig().api.pipelineUrl;
 
@@ -121,6 +130,12 @@ export function register(program: Command): void {
             options.region,
           );
 
+          if (options.runner) {
+            const runner = await resolveRegisterRunner(client, pipelineUrl, pipeline.id, options.runner);
+            payload.runnerId = runner.id;
+            printInfo('Registering with pipeline runner', { runner: runner.label, runnerId: runner.id });
+          }
+
           // Clear any stale intent for this pipelineId before retrying so we
           // don't leave a duplicate file behind on success.
           await clearPendingIntent(payload.pipelineId);
@@ -168,8 +183,12 @@ async function postRegistration(
   pipelineId: string,
 ): Promise<boolean> {
   try {
-    await client.post(`${pipelineUrl}/registry`, payload);
-    printInfo('Registered', { pipelineId });
+    const res = await client.post(`${pipelineUrl}/registry`, payload);
+    const runnerLink = unwrapData<{ runnerLink?: string | null }>(res)?.runnerLink;
+    printInfo('Registered', { pipelineId, ...(runnerLink ? { runnerLink } : {}) });
+    if (runnerLink === 'checking') {
+      printInfo('A pipeline runner is looking for it in its AWS account; `pipeline get` or the pipeline page shows whether it was linked');
+    }
     return true;
   } catch (err) {
     printWarning('Registration failed', {

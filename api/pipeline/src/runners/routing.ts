@@ -153,6 +153,13 @@ export interface RouteInput {
   requestedBy: string;
   action: 'start' | 'stop';
   executionId?: string;
+  /**
+   * Run with this runner (the dashboard's "Run with" choice for a pipeline no
+   * runner is linked to): when the pipeline has no usable linked runner, only
+   * this one is probed. A usable linked runner always wins (it already found
+   * the pipeline).
+   */
+  runnerId?: string;
 }
 
 /** The queued answer of a runner-routed start/stop (`delivering` when an in-flight start was reused). */
@@ -387,39 +394,86 @@ export async function discoverRunner(
  * throws — every outcome, including a refusal, is the recorded status. A single
  * match replaces the link; anything else keeps the old `runner_id`.
  */
-export async function probeRunnerLink(deps: RunnerDeps, input: Pick<RouteInput, 'pipelineId' | 'orgId' | 'parentOrgId' | 'requestedBy'>): Promise<RunnerLinkStatus> {
+/** The probe's input: `runnerId` limits it to that one eligible runner (the one picked at registration). */
+export type LinkProbeInput = Pick<RouteInput, 'pipelineId' | 'orgId' | 'parentOrgId' | 'requestedBy'> & { runnerId?: string };
+
+/**
+ * Probe and record the link. `before` is the row as it was before the caller
+ * marked it `checking` (registration does, to answer `checking` at once).
+ *
+ * A picked runner that misses never breaks a working link: when the pipeline
+ * was linked to ANOTHER runner, that link (and its detail) is put back and the
+ * miss is only the returned status — Run keeps going to the runner that works.
+ */
+export async function probeRunnerLink(deps: RunnerDeps, input: LinkProbeInput, before?: RegistryLink): Promise<RunnerLinkStatus> {
   let link: RegistryLink | null = null;
   try {
     link = await deps.store.getRegistryLink(input.pipelineId, input.orgId);
     if (!link) return 'unlinked';
-    const eligible = await eligibleRunners(deps, input.orgId, input.parentOrgId);
+    const all = await eligibleRunners(deps, input.orgId, input.parentOrgId);
+    // A picked runner is still only linked when IT finds the pipeline's tag: the
+    // pick narrows the probe, it never links by hand.
+    const eligible = input.runnerId ? all.filter((e) => e.runner.id === input.runnerId) : all;
     await discoverRunner(deps, { ...input, action: 'start' }, eligible, link);
     return 'linked';
   } catch (err) {
-    if (err instanceof RunnerRouteError) return err.code === 'AMBIGUOUS_RUNNER' || err.code === 'AMBIGUOUS_PIPELINE' ? 'ambiguous' : 'not_found';
+    const prior = before ?? link;
+    const keepOther = !!input.runnerId && !!prior?.runnerId && prior.runnerId !== input.runnerId && statusBefore(prior) === 'linked';
+    if (err instanceof RunnerRouteError) {
+      if (keepOther) await writeLink(deps, input, 'linked', prior!.linkDetail ?? null);
+      return err.code === 'AMBIGUOUS_RUNNER' || err.code === 'AMBIGUOUS_PIPELINE' ? 'ambiguous' : 'not_found';
+    }
     logger.warn('Background runner-link probe failed', { pipelineId: input.pipelineId, error: errorMessage(err) });
     // Find runner again marked the row `checking` before this ran: never leave it there.
-    if (link) await writeLink(deps, input, statusBefore(link), link.linkDetail ?? null);
+    if (prior) await writeLink(deps, input, statusBefore(prior), prior.linkDetail ?? null);
     return 'not_found';
+  }
+}
+
+/** {@link startLink}'s answer: the status to report now, and the probe's outcome when it settles. */
+export interface StartedLink {
+  /** `checking` (a probe is running), `linked` (already linked), or null (nothing to probe: runners unavailable, no row). */
+  status: RunnerLinkStatus | null;
+  /** The recorded outcome (never rejects); resolves at once when no probe ran. */
+  done: Promise<RunnerLinkStatus | null>;
+  /** A probe was started (its outcome is worth auditing). */
+  probed: boolean;
+}
+
+/**
+ * Start the registration-time link: decide whether a probe is needed and, when
+ * it is, mark the row `checking` BEFORE answering so a caller that polls
+ * `GET …/runner-link` never reads the stale pre-probe status. Never rejects.
+ */
+export async function startLink(deps: RunnerDeps, input: LinkProbeInput): Promise<StartedLink> {
+  const none = (status: RunnerLinkStatus | null): StartedLink => ({ status, done: Promise.resolve(status), probed: false });
+  try {
+    if (!(await deps.runnersAvailable()).available) return none(null);
+    const link = await deps.store.getRegistryLink(input.pipelineId, input.orgId);
+    if (!link) return none(null);
+    // Already linked — to the picked runner, when one was picked.
+    if (link.runnerId && link.linkStatus === 'linked' && (!input.runnerId || link.runnerId === input.runnerId)) return none('linked');
+    await writeLink(deps, input, 'checking', link.linkDetail ?? null);
+    const done = probeRunnerLink(deps, input, link).catch((err: unknown) => {
+      logger.warn('Background runner linking failed', { pipelineId: input.pipelineId, error: errorMessage(err) });
+      return null;
+    });
+    return { status: 'checking', done, probed: true };
+  } catch (err) {
+    logger.warn('Background runner linking failed', { pipelineId: input.pipelineId, error: errorMessage(err) });
+    return none(null);
   }
 }
 
 /**
  * The background probe at pipeline registration: when runners are available
- * and the pipeline is not already linked, probe and record the link. Resolves
+ * and the pipeline is not already linked, probe and record the link. With
+ * `runnerId` (the runner picked in the Register deployment dialog) only that
+ * runner is probed; a working link to another runner is kept when it misses. Resolves
  * to the recorded status (`linked` when it already was), never rejects.
  */
-export async function linkInBackground(deps: RunnerDeps, input: Pick<RouteInput, 'pipelineId' | 'orgId' | 'parentOrgId' | 'requestedBy'>): Promise<RunnerLinkStatus | null> {
-  try {
-    if (!(await deps.runnersAvailable()).available) return null;
-    const link = await deps.store.getRegistryLink(input.pipelineId, input.orgId);
-    if (!link) return null;
-    if (link.runnerId && link.linkStatus === 'linked') return 'linked';
-    return await probeRunnerLink(deps, input);
-  } catch (err) {
-    logger.warn('Background runner linking failed', { pipelineId: input.pipelineId, error: errorMessage(err) });
-    return null;
-  }
+export async function linkInBackground(deps: RunnerDeps, input: LinkProbeInput): Promise<RunnerLinkStatus | null> {
+  return (await startLink(deps, input)).done;
 }
 
 /**

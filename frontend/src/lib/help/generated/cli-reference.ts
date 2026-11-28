@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 57d49f181b194883b8bb7304380f5054b20f2b57f399793ddd7b33ac81f4c181
+// SOURCE-SHA256: bfffafdc98b816e3c10998ba27db05e809e11f37756ad43f9db16ec6f3311b94
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -533,7 +533,7 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "pipeline register",
-              "Re-register a deployed pipeline and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails)"
+              "Re-register a deployed pipeline and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails). --runner <id or label> (with --id) names the pipeline runner to link it through — one of the runners the dashboard's Register deployment dialog offers; an unknown, ambiguous or unreachable runner is refused"
             ],
             [
               "pipeline deregister",

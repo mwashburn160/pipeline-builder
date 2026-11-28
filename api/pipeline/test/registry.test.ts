@@ -243,7 +243,7 @@ describe('POST /pipelines/registry', () => {
     await getHandler()({ body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline' } }, res);
 
     expect(mockInsert).toHaveBeenCalled();
-    expect(sendSuccess).toHaveBeenCalledWith(res, 200, { registry: expect.objectContaining({ pipelineDeleted: true }) });
+    expect(sendSuccess).toHaveBeenCalledWith(res, 200, { registry: expect.objectContaining({ pipelineDeleted: true }), runnerLink: null });
     expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'pipeline.registry.register',
       details: expect.objectContaining({ pipelineDeleted: true }),
@@ -366,6 +366,75 @@ describe('POST /pipelines/registry', () => {
       expect.arrayContaining([expect.objectContaining({ id: 'reg-1' })]),
       expect.objectContaining({ total: 1 }),
     );
+  });
+
+  // The Register deployment dialog names the runner to link through. It must be
+  // one the org can use; the background probe then asks only that runner.
+  describe('runnerId (the runner picked in the Register deployment dialog)', () => {
+    const waitFor = async (ok: () => boolean) => {
+      for (let i = 0; i < 50 && !ok(); i++) await new Promise((r) => setTimeout(r, 5));
+    };
+    const RUNNER = '55555555-5555-4555-8555-555555555555';
+    const listRunners = jest.fn<AnyFn>();
+    beforeEach(() => {
+      listRunners.mockResolvedValue([{ id: RUNNER, orgId: 'acme', label: 'default', shareWithTeams: false }]);
+      setRunnerDepsForTesting({
+        store: { runnerLinks: async () => new Map(), listRunners, getRegistryLink: async () => null } as never,
+        hierarchy: { ancestors: async () => [], names: async () => ({}) } as never,
+        runnersAvailable: async () => ({ available: true }),
+      });
+    });
+
+    it('registers with an eligible runner and audits its label', async () => {
+      const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+      await getHandler()({ orgId: 'acme', body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline', runnerId: RUNNER } }, res);
+      expect(mockInsert).toHaveBeenCalled();
+      expect(sendSuccess).toHaveBeenCalled();
+      expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'pipeline.registry.register',
+        details: expect.objectContaining({ runnerId: RUNNER, runnerLabel: 'default' }),
+      }));
+    });
+
+    it('answers runnerLink: checking once the row is marked, and audits the probe outcome', async () => {
+      const writes: unknown[] = [];
+      const link = { runnerId: null, linkStatus: 'unlinked', linkDetail: null };
+      setRunnerDepsForTesting({
+        store: {
+          runnerLinks: async () => new Map(),
+          listRunners,
+          getRegistryLink: async () => link,
+          writeRunnerLink: async (_p: string, _o: string, w: unknown) => { writes.push(w); return true; },
+        } as never,
+        hierarchy: { ancestors: async () => [], names: async () => ({}) } as never,
+        runnersAvailable: async () => ({ available: true }),
+      });
+      const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+      await getHandler()({ orgId: 'acme', body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline', runnerId: RUNNER } }, res);
+      expect(sendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ runnerLink: 'checking' }));
+      expect(writes[0]).toMatchObject({ status: 'checking' });
+      await waitFor(() => mockEmitPipelineAudit.mock.calls.some(([e]) => (e as { action: string }).action === 'pipeline.runner.link.refresh'));
+      expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'pipeline.runner.link.refresh',
+        outcome: 'failure',
+        details: expect.objectContaining({ trigger: 'registration', runnerId: RUNNER, runnerLabel: 'default' }),
+      }));
+    });
+
+    it('refuses a runner the org cannot use with a 400, before any DB work', async () => {
+      const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+      await getHandler()({ orgId: 'acme', body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline', runnerId: '66666666-6666-4666-8666-666666666666' } }, res);
+      expect(sendBadRequest).toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    it('refuses a malformed runnerId with a 400', async () => {
+      const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+      await getHandler()({ orgId: 'acme', body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline', runnerId: 'default' } }, res);
+      expect(sendBadRequest).toHaveBeenCalled();
+      expect(listRunners).not.toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
   });
 
   // RBAC gate: POST/DELETE on the pipeline registry sit behind their OWN

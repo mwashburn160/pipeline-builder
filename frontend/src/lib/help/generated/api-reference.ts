@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2df7c973e883fc4bcf51417ce335d3b6e49b81c09fbcacfad56f8f1d159fa2f5
+// SOURCE-SHA256: f7b88072e37c6edb8554390877bd526f3698b1d3131b094c3e1d1a4296a1dd47
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -302,9 +302,14 @@ export const apiReferenceTopic: HelpTopic = {
               "List deployed-stack registrations (pipelineId, stackName, region, lastDeployed) for the caller's org — no ARNs, no account id. ?limit= (default 10, max 1000) + ?offset= page it; the answer is { registry: [...], pagination: { total, limit, offset, hasMore } }, ordered lastDeployed desc then id, so page until hasMore is false. ?orgId= names the org: your own always works, another org only for a system admin (403 INSUFFICIENT_PERMISSIONS otherwise). This is what pipeline-manager audit stacks reads"
             ],
             [
+              "GET",
+              "/pipelines/:pipelineId/register-runners",
+              "pipelines:read: what the Register deployment dialog offers — { pipelineId, available, unavailableReason, runners: [{ id, label, isOwn, ownerOrgName, regions, health }], registered, hasEvents, linkedRunnerId }. Every runner the org can use, deploys enabled or not (registering only links); runners is empty when not available. Labels only — no account id or runner URL"
+            ],
+            [
               "POST",
               "/pipelines/registry",
-              "Upsert registry entry (deploy hook; tenant-guarded). A deployed pipeline with no entry also registers itself on its first pipeline event, through the internal POST /pipelines/internal/registry/first-event (reporting only) — see DORA metrics → Registration"
+              "Upsert registry entry (deploy hook; tenant-guarded). Optional runnerId (the dashboard's Register deployment dialog) names the pipeline runner to link it through: the link probe asks only that runner, which still links only when it finds the pipeline's tag, and a miss never replaces a working link to another runner; a runner the org can't use is a 400. The answer is { registry, runnerLink }: runnerLink is checking while the probe runs (poll GET /pipelines/:pipelineId/runner-link), linked when it already was, null when no probe ran; the outcome is audited pipeline.runner.link.refresh with details.trigger: 'registration'. A deployed pipeline with no entry also registers itself on its first pipeline event, through the internal POST /pipelines/internal/registry/first-event (reporting only) — see DORA metrics → Registration"
             ],
             [
               "GET",
@@ -2087,7 +2092,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "77 routes, from frontend/src/generated/route-table/pipeline.json."
+          "content": "78 routes, from frontend/src/generated/route-table/pipeline.json."
         },
         {
           "type": "table",
@@ -2325,6 +2330,13 @@ export const apiReferenceTopic: HelpTopic = {
             ],
             [
               "GET",
+              "/pipelines/:pipelineId/register-runners",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
               "/pipelines/:pipelineId/run-requests/:requestId",
               "pipelines:read",
               "apiCalls",
@@ -2475,7 +2487,7 @@ export const apiReferenceTopic: HelpTopic = {
               "/pipelines/registry",
               "pipeline_registry:write",
               "apiCalls",
-              "pipeline.registry.register"
+              "pipeline.registry.register, pipeline.runner.link.refresh"
             ],
             [
               "DELETE",
