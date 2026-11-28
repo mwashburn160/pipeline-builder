@@ -66,6 +66,13 @@ export interface DataTableProps<T> {
   loadFailed?: boolean;
   /** Retry handler for the {@link loadFailed} state (typically the list's `refresh`). */
   onRetry?: () => void;
+  /**
+   * Names the table's horizontal scroller and makes it a focusable region, so
+   * the keyboard can scroll a table wider than its container (axe
+   * scrollable-region-focusable, WCAG 2.1.1). Set it where the table is
+   * expected to overflow (e.g. help content tables).
+   */
+  scrollRegionLabel?: string;
 }
 
 interface SortState {
@@ -120,6 +127,7 @@ export function DataTable<T>({
   onSortChange,
   loadFailed = false,
   onRetry,
+  scrollRegionLabel,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState<SortState>({
     columnId: defaultSortColumn ?? null,
@@ -272,7 +280,10 @@ export function DataTable<T>({
         </div>
       )}
 
-      <div className="data-table">
+      <div
+        className={`data-table${scrollRegionLabel ? ' focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)]' : ''}`}
+        {...(scrollRegionLabel ? { role: 'region', tabIndex: 0, 'aria-label': scrollRegionLabel } : {})}
+      >
         <table className="min-w-full">
           <thead>
             <tr>

@@ -42,8 +42,11 @@ export const TOTP_INVALID_CHALLENGE = 'TOTP_INVALID_CHALLENGE';
 export const TOTP_ERROR_MAP: ErrorMap = {
   [TOTP_NOT_ENROLLED]: { status: 409, message: 'This account has no authenticator app set up' },
   [TOTP_ALREADY_ENROLLED]: { status: 409, message: 'An authenticator app is already set up. Remove it first to enrol a new one.' },
-  [TOTP_INVALID_CODE]: { status: 401, message: 'That code isn\'t right. Check your authenticator app and try the current code.' },
-  [TOTP_LOCKED_OUT]: { status: 429, message: 'Too many incorrect codes. Try again in a few minutes, or use a recovery code.' },
+  // The code rides the 401 so no client reads a wrong code as an expired
+  // access token (and re-sends it after a refresh — a second strike toward the
+  // lockout for one attempt).
+  [TOTP_INVALID_CODE]: { status: 401, message: 'That code isn\'t right. Check your authenticator app and try the current code.', code: TOTP_INVALID_CODE },
+  [TOTP_LOCKED_OUT]: { status: 429, message: 'Too many incorrect codes. Try again in a few minutes, or use a recovery code.', code: TOTP_LOCKED_OUT },
   [TOTP_LAST_SIGN_IN_METHOD]: {
     status: 409,
     message: 'This is the only way you can sign in. Set a password or add a passkey first.',
@@ -52,7 +55,7 @@ export const TOTP_ERROR_MAP: ErrorMap = {
     status: 403,
     message: 'Your organization signs you in through its identity provider — set up two-factor authentication there.',
   },
-  [TOTP_INVALID_CHALLENGE]: { status: 401, message: 'This sign-in expired. Please enter your password again.' },
+  [TOTP_INVALID_CHALLENGE]: { status: 401, message: 'This sign-in expired. Please enter your password again.', code: TOTP_INVALID_CHALLENGE },
 };
 
 /** `POST /auth/recovery-codes` on an account that has no second factor. */

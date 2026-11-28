@@ -37,6 +37,7 @@
 import { useCallback, useEffect } from 'react';
 import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { useRouter } from 'next/router';
+import { pendingSignOut } from '@/lib/pending-sign-out';
 import { rememberReturnPath } from '@/lib/return-to';
 import { useAuth } from './useAuth';
 import { isSystemAdmin, isOrgAdmin, hasPermission, isMutationPermission } from '@/lib/auth-helpers';
@@ -127,7 +128,10 @@ export function useAuthGuard(options?: AuthGuardOptions) {
       // page, which immediately re-redirects (a "stuck" Back button).
       // Remember the guarded page so signing in lands back on it.
       rememberReturnPath(router.asPath);
-      void router.replace('/');
+      // A sign-out under way (idle, expired) recorded where it is taking the
+      // tab: go there too, or this later navigation would win over its push and
+      // drop the reason. The sign-in page spends the record on arrival.
+      void router.replace(pendingSignOut() ?? '/');
       return;
     }
     // Force first-run social-signup users through onboarding before any other

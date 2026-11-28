@@ -213,115 +213,122 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
         const isTicked = selectedIds?.has(msg.id) ?? false;
 
         return (
+          // The row is a plain container, not a control: the OPEN action is a
+          // real button (stretched over the row by its ::after, so a click
+          // anywhere on the row still opens it), and the checkbox and delete
+          // are its siblings, raised above that overlay. A role="button" row
+          // wrapping its own buttons was nested-interactive (WCAG 4.1.2).
           <div
             key={msg.id}
-            data-message-id={msg.id}
-            role="button"
-            tabIndex={0}
-            aria-current={isSelected ? 'true' : undefined}
-            className={`group relative w-full text-left px-3 py-3 flex items-center gap-3 ${onDelete && (!canDelete || canDelete(msg)) ? 'pr-14 sm:pr-10' : ''} transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)] focus-visible:ring-inset ${
+            className={`group relative w-full px-3 py-3 flex items-center gap-3 ${onDelete && (!canDelete || canDelete(msg)) ? 'pr-14 sm:pr-10' : ''} transition-colors ${
               isSelected || isTicked
                 ? 'bg-info-bg'
                 : 'hover:bg-surface-muted'
             }`}
-            onClick={() => onSelect(msg)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(msg); }
-            }}
           >
-            {/* Bulk-selection checkbox. Its clicks and keys stop here so ticking
-                a row never opens it (the row itself is a button). */}
+            {/* Bulk-selection checkbox. Above the open button's overlay, so
+                ticking a row never opens it. */}
             {onToggleSelect && (
               // Toggled from CLICK, not change: only the mouse event carries
               // `shiftKey` (a range), and Space on a focused checkbox fires a
               // click too, so the keyboard path is the same. `onChange` is the
               // controlled-input no-op React requires.
               <Checkbox
-                className="flex-shrink-0 max-sm:w-5 max-sm:h-5"
+                className="relative z-10 flex-shrink-0 max-sm:w-5 max-sm:h-5"
                 checked={isTicked}
                 onChange={() => {}}
-                onClick={(e) => { e.stopPropagation(); onToggleSelect(msg.id, e.shiftKey); }}
-                onKeyDown={(e) => e.stopPropagation()}
+                onClick={(e) => { onToggleSelect(msg.id, e.shiftKey); }}
                 aria-label={`Select message: ${msg.subject || displayName}`}
               />
             )}
 
-            {/* Avatar */}
-            <div
-              className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-semibold relative ${
-                isAnnouncement
-                  ? 'bg-warning-bg text-warning'
-                  : 'bg-info-bg text-info-strong'
-              }`}
+            {/* Open the conversation. `data-message-id` marks the row's focus
+                target (Back on a phone returns focus here). */}
+            <button
+              type="button"
+              data-message-id={msg.id}
+              aria-current={isSelected ? 'true' : undefined}
+              onClick={() => onSelect(msg)}
+              className="flex-1 min-w-0 flex items-center gap-3 text-left cursor-pointer focus:outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-[color:var(--pb-ring)]"
             >
-              {isAnnouncement ? (
-                <Megaphone className="w-5 h-5" />
-              ) : (
-                getAvatarLetters(displayName)
-              )}
-            </div>
+              {/* Avatar */}
+              <span
+                aria-hidden="true"
+                className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-semibold relative ${
+                  isAnnouncement
+                    ? 'bg-warning-bg text-warning'
+                    : 'bg-info-bg text-info-strong'
+                }`}
+              >
+                {isAnnouncement ? (
+                  <Megaphone className="w-5 h-5" />
+                ) : (
+                  getAvatarLetters(displayName)
+                )}
+              </span>
 
-            {/* Content */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <span
-                  className={`text-sm truncate ${
-                    isUnreadFor(msg, currentOrgId)
-                      ? 'font-semibold text-fg'
-                      : 'font-medium text-fg-muted'
-                  }`}
-                >
-                  {displayName}
+              {/* Content */}
+              <span className="block flex-1 min-w-0">
+                <span className="flex items-center justify-between">
+                  <span
+                    className={`text-sm truncate ${
+                      isUnreadFor(msg, currentOrgId)
+                        ? 'font-semibold text-fg'
+                        : 'font-medium text-fg-muted'
+                    }`}
+                  >
+                    {displayName}
+                  </span>
+                  <span className="text-xs text-fg-subtle flex-shrink-0 ml-2">
+                    {formatRelativeTime(msg.createdAt)}
+                  </span>
                 </span>
-                <span className="text-xs text-fg-subtle flex-shrink-0 ml-2">
-                  {formatRelativeTime(msg.createdAt)}
+                <span className="flex items-center justify-between mt-0.5">
+                  <span className="block text-xs text-fg-muted truncate">
+                    {msg.content.slice(0, 60)}
+                  </span>
+                  <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                    {msg.recipientUserId && (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-info-bg text-info-strong"
+                        title="Direct message — targeted at a specific user"
+                      >
+                        <User className="w-2.5 h-2.5" />
+                        Direct
+                      </span>
+                    )}
+                    {msg.channel && (
+                      <span
+                        className="text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-success-bg text-success"
+                        title={`Channel: ${msg.channel}`}
+                      >
+                        {msg.channel}
+                      </span>
+                    )}
+                    {/* The case number and status, for a support thread that has a
+                        case. This is the identifier a customer quotes back, so it
+                        belongs on the row rather than only inside the thread.
+                        Status is shown as text, not colour alone. */}
+                    {casesByThread?.[msg.id] && (
+                      <span
+                        className="text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-surface-muted text-fg-muted"
+                        title={caseTitle(casesByThread[msg.id]!)}
+                      >
+                        {`#${casesByThread[msg.id]!.displayNumber} ${caseStatusLabel(casesByThread[msg.id]!.status)}`}
+                      </span>
+                    )}
+                    {/* The dot is the visual cue; the sr-only text carries it for
+                        screen readers, which can't perceive a colour. */}
+                    {isUnreadFor(msg, currentOrgId) && (
+                      <span className="inline-flex items-center">
+                        <span className="w-2 h-2 rounded-full bg-blue-500" aria-hidden="true" />
+                        <span className="sr-only">Unread</span>
+                      </span>
+                    )}
+                  </span>
                 </span>
-              </div>
-              <div className="flex items-center justify-between mt-0.5">
-                <p className="text-xs text-fg-muted truncate">
-                  {msg.content.slice(0, 60)}
-                </p>
-                <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                  {msg.recipientUserId && (
-                    <span
-                      className="inline-flex items-center gap-0.5 text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-info-bg text-info-strong"
-                      title="Direct message — targeted at a specific user"
-                    >
-                      <User className="w-2.5 h-2.5" />
-                      Direct
-                    </span>
-                  )}
-                  {msg.channel && (
-                    <span
-                      className="text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-success-bg text-success"
-                      title={`Channel: ${msg.channel}`}
-                    >
-                      {msg.channel}
-                    </span>
-                  )}
-                  {/* The case number and status, for a support thread that has a
-                      case. This is the identifier a customer quotes back, so it
-                      belongs on the row rather than only inside the thread.
-                      Status is shown as text, not colour alone. */}
-                  {casesByThread?.[msg.id] && (
-                    <span
-                      className="text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-surface-muted text-fg-muted"
-                      title={caseTitle(casesByThread[msg.id]!)}
-                    >
-                      {`#${casesByThread[msg.id]!.displayNumber} ${caseStatusLabel(casesByThread[msg.id]!.status)}`}
-                    </span>
-                  )}
-                  {/* The dot is the visual cue; the sr-only text carries it for
-                      screen readers, which can't perceive a colour. */}
-                  {isUnreadFor(msg, currentOrgId) && (
-                    <span className="inline-flex items-center">
-                      <span className="w-2 h-2 rounded-full bg-blue-500" aria-hidden="true" />
-                      <span className="sr-only">Unread</span>
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
+              </span>
+            </button>
 
             {/* Delete button — DIMMED, never hidden, and only where the server
                 would allow it.
@@ -333,8 +340,9 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
                 from a whole class of input. */}
             {onDelete && (!canDelete || canDelete(msg)) && (
               <button
-                onClick={(e) => { e.stopPropagation(); onDelete(msg.id); }}
-                className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg ${TAP_TARGET} text-fg-subtle hover:text-danger hover:bg-danger-bg opacity-60 group-hover:opacity-100 focus:opacity-100 transition-all`}
+                type="button"
+                onClick={() => onDelete(msg.id)}
+                className={`absolute z-10 right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg ${TAP_TARGET} text-fg-subtle hover:text-danger hover:bg-danger-bg opacity-60 group-hover:opacity-100 focus:opacity-100 transition-all`}
                 title="Delete message"
                 aria-label="Delete message"
               >

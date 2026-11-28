@@ -7,7 +7,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { RetryError } from '@/components/ui/RetryError';
-import { TabBar } from '@/components/ui/TabBar';
+import { TabBar, tabPanelProps } from '@/components/ui/TabBar';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
@@ -74,7 +74,8 @@ export function JoinRequestsPanel({ orgId, readOnly = false }: { orgId: string; 
     <div className="mt-5" data-testid="join-requests">
       <h4 className="text-sm font-semibold mb-2">Join requests</h4>
       <TabBar items={[...TABS]} activeId={status} onSelect={selectTab} idPrefix="join-requests" ariaLabel="Join request status" />
-      <div className="mt-3 space-y-2">
+      {/* The tabpanel the selected status tab's aria-controls names. */}
+      <div {...tabPanelProps('join-requests', status)} className="mt-3 space-y-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)] rounded-md">
         {form.error && <ErrorAlert message={form.error} />}
         {read.error ? (
           <RetryError message={formatError(read.error, 'Could not load join requests')} onRetry={read.refetch} />

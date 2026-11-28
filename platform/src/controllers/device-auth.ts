@@ -21,7 +21,7 @@
  * gates handing a shell a session, and none of it ever reaches the CLI.
  */
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
@@ -264,7 +264,7 @@ export const approveDeviceRequest = withController('Device authorization approve
   // approver's sessions in between voids the approval.
   const approver = await authService.findForTokenIssue(req.user.sub);
   if (!approver) {
-    sendError(res, 401, 'Session invalid');
+    sendError(res, 401, 'Session invalid', ErrorCode.TOKEN_REVOKED);
     return;
   }
   const approverSid = (req.user as AccessTokenPayload).sid;

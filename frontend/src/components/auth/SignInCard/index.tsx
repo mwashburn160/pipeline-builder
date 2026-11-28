@@ -126,7 +126,7 @@ export function SignInCard() {
       {!mfaChallengeId && !pwChange && (
         <p className="text-xs text-fg-muted mt-4 text-center">
           New here?{' '}
-          <Link href="/auth/register" className="text-brand hover:underline">
+          <Link href="/auth/register" className="text-link">
             Create account
           </Link>
         </p>

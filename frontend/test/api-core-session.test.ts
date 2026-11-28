@@ -261,7 +261,7 @@ describe('ApiCore token refresh', () => {
     const expired = jest.fn<AnyFn>();
     core.onSessionExpired(expired);
     fetchMock.mockImplementation((url: string) =>
-      Promise.resolve(url.endsWith('/api/auth/refresh') ? res(503) : res(401, { message: 'jwt expired' })));
+      Promise.resolve(url.endsWith('/api/auth/refresh') ? res(503) : res(401, { code: 'TOKEN_EXPIRED', message: 'Token has expired' })));
 
     const outcome = settle(core.request('/api/user/profile').catch((e) => e));
     const err = await outcome;
@@ -278,7 +278,7 @@ describe('ApiCore token refresh', () => {
     const expired = jest.fn<AnyFn>();
     core.onSessionExpired(expired);
     fetchMock.mockImplementation((url: string) =>
-      Promise.resolve(url.endsWith('/api/auth/refresh') ? res(401) : res(401, { message: 'jwt expired' })));
+      Promise.resolve(url.endsWith('/api/auth/refresh') ? res(401) : res(401, { code: 'TOKEN_EXPIRED', message: 'Token has expired' })));
 
     const err = await settle(core.request('/api/user/profile').catch((e) => e));
 
@@ -331,7 +331,7 @@ describe('ApiCore request(): a 401 that lands across an identity change', () => 
       if (url.endsWith('/api/auth/refresh')) {
         return new Promise<Response>((r) => { landRefresh = (x) => { change(); r(x); }; });
       }
-      if (first) { first = false; return Promise.resolve(res(401, { message: 'jwt expired' })); }
+      if (first) { first = false; return Promise.resolve(res(401, { code: 'TOKEN_EXPIRED', message: 'Token has expired' })); }
       return Promise.resolve(after);
     });
     return () => landRefresh(res(200, { data: ROTATED }));
@@ -370,7 +370,7 @@ describe('ApiCore request(): a 401 that lands across an identity change', () => 
 
   it('retries only once: a second 401 under the current token surfaces as itself', async () => {
     const core = signedInCore();
-    const land = scenario(core, () => core.setTokens(NEW_SESSION), res(401, { message: 'nope' }));
+    const land = scenario(core, () => core.setTokens(NEW_SESSION), res(401, { code: 'TOKEN_EXPIRED', message: 'nope' }));
 
     const err = await run(core.request('/api/pipelines').catch((e) => e), land);
 

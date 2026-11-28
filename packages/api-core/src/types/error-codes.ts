@@ -12,10 +12,19 @@
 export enum ErrorCode {
   // Authentication errors (401)
   UNAUTHORIZED = 'UNAUTHORIZED',
+  // The four TOKEN_* codes say the ACCESS TOKEN is no good — and they are the
+  // only 401s a client answers with a token refresh and a retry. Every 401
+  // about the session's access token must carry one of them.
   TOKEN_EXPIRED = 'TOKEN_EXPIRED',
   TOKEN_INVALID = 'TOKEN_INVALID',
   TOKEN_MISSING = 'TOKEN_MISSING',
   TOKEN_REVOKED = 'TOKEN_REVOKED',
+  /** A credential the request PRESENTED was refused — a wrong password, or a
+   *  passkey or second-factor sign-in that did not verify. Deliberately opaque
+   *  (it never says which part was wrong), and never an access-token problem:
+   *  the client shows the refusal and must not refresh and re-send it, which
+   *  would count the same wrong credential twice toward the lockout. */
+  INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
   /** The session is not MFA-grade (`aal` below the route's `minAssurance`).
    *  The client sends the person to enrol / sign in again with a second
    *  factor — it must NOT sign them out or retry a token refresh, since a
@@ -291,6 +300,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.TOKEN_INVALID]: 401,
   [ErrorCode.TOKEN_MISSING]: 401,
   [ErrorCode.TOKEN_REVOKED]: 401,
+  [ErrorCode.INVALID_CREDENTIALS]: 401,
   [ErrorCode.MFA_REQUIRED]: 401,
   [ErrorCode.REAUTH_REQUIRED]: 401,
   [ErrorCode.STEP_UP_REQUIRED]: 401,

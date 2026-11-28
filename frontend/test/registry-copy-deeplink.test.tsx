@@ -74,3 +74,15 @@ describe('registry copy deep link', () => {
     expect(screen.queryByTestId('copy-modal')).not.toBeInTheDocument();
   });
 });
+
+describe('registry columns (axe color-contrast)', () => {
+  it('never dims a column with opacity — the empty state\'s copy keeps its full text colour', async () => {
+    mockAuthGuard({ can: () => true });
+    mockRouter.query = {};
+    render(<RegistryPage />);
+    const hint = await screen.findByText(/Select a repository to view its tags/);
+    for (let el: HTMLElement | null = hint; el; el = el.parentElement) {
+      expect(el.className).not.toMatch(/(^|\s)opacity-\d/);
+    }
+  });
+});

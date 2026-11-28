@@ -52,6 +52,11 @@ describe('ErrorCodeStatus', () => {
     expect(ErrorCodeStatus[ErrorCode.TOKEN_MISSING]).toBe(401);
   });
 
+  it('maps a refused credential to 401 under its own code, apart from the token codes', () => {
+    expect(ErrorCode.INVALID_CREDENTIALS).toBe('INVALID_CREDENTIALS');
+    expect(ErrorCodeStatus[ErrorCode.INVALID_CREDENTIALS]).toBe(401);
+  });
+
   it('should map authorization codes to 403', () => {
     expect(ErrorCodeStatus[ErrorCode.INSUFFICIENT_PERMISSIONS]).toBe(403);
     expect(ErrorCodeStatus[ErrorCode.ORG_MISMATCH]).toBe(403);

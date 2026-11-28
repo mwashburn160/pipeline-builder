@@ -207,7 +207,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
         <div className="page-reveal max-w-4xl mx-auto">
           <h1 className="text-xl font-bold text-center mb-1">Create account</h1>
           <p className="text-sm text-fg-muted text-center mb-6">
-            Have an account? <Link href="/" className="text-brand hover:underline">Sign in</Link>
+            Have an account? <Link href="/" className="text-link">Sign in</Link>
           </p>
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">

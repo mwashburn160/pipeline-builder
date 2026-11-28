@@ -20,6 +20,7 @@ import { RowActionsMenu } from '../src/components/organizations/RowActionsMenu';
 const open = (canManage: boolean, canNamespace = true) => {
   render(
     <RowActionsMenu
+      orgName="Acme"
       canKms={false}
       canIdp={false}
       canManage={canManage}
@@ -31,8 +32,16 @@ const open = (canManage: boolean, canNamespace = true) => {
       onDelete={jest.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+  fireEvent.click(screen.getByRole('button', { name: 'More actions for Acme' }));
 };
+
+describe('org row actions — the trigger names its row', () => {
+  it('says WHICH organization\'s actions it opens, so a list of them is not a column of identical buttons', () => {
+    open(true);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More actions for Acme' })).toHaveAttribute('aria-expanded', 'true');
+  });
+});
 
 describe('org row actions — the lifecycle half needs orgs:manage', () => {
   it('offers delete and tier to a holder', () => {
@@ -63,7 +72,7 @@ describe('org row actions — the namespace YAML needs platform:read', () => {
   it('renders no trigger at all when no item is available', () => {
     render(
       <RowActionsMenu
-        canKms={false} canIdp={false} canManage={false} canNamespace={false}
+        orgName="Acme" canKms={false} canIdp={false} canManage={false} canNamespace={false}
         onKms={jest.fn()} onIdp={jest.fn()} onTier={jest.fn()} onNamespace={jest.fn()} onDelete={jest.fn()}
       />,
     );

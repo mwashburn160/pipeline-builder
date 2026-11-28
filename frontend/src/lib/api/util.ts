@@ -34,6 +34,23 @@ export function base64UrlDecode(str: string): string {
   return atob(base64);
 }
 
+/**
+ * True iff a 401 says the ACCESS TOKEN itself is no good — expired, invalid,
+ * missing or revoked (api-core `requireAuth` and platform's auth middleware
+ * answer with exactly these codes). Only such a 401 is worth a token refresh
+ * and a retry. Every other 401 is a verdict on what the request carried — a
+ * wrong authenticator code, password or passkey (`TOTP_INVALID_CODE`,
+ * `INVALID_CREDENTIALS`), a step-up or MFA refusal — and re-sending it after a
+ * refresh would only submit the same refused credential a second time (and
+ * count it twice toward the lockout).
+ */
+export function isAccessTokenRefusal(code?: string): boolean {
+  return code === 'TOKEN_EXPIRED'
+    || code === 'TOKEN_INVALID'
+    || code === 'TOKEN_MISSING'
+    || code === 'TOKEN_REVOKED';
+}
+
 /** True iff the backend error code indicates the request needs a fresh step-up. */
 export function isStepUpErrorCode(code?: string): boolean {
   return code === 'STEP_UP_REQUIRED'

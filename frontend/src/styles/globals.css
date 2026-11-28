@@ -699,6 +699,16 @@
     @apply text-sm font-medium hover:text-brand-strong transition-colors;
   }
 
+  /* A link inside running text (a sentence, an intro paragraph). Underlined
+     AT REST, not only on hover: colour alone does not set it apart from the
+     words around it (WCAG 1.4.1, axe link-in-text-block). */
+  .text-link {
+    color: var(--pb-brand);
+    text-decoration-line: underline;
+    text-underline-offset: 2px;
+    @apply hover:text-brand-strong transition-colors;
+  }
+
   .action-link-muted {
     @apply text-sm text-fg-muted hover:text-fg transition-colors;
   }

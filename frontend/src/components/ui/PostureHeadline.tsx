@@ -35,13 +35,13 @@ export function PostureHeadline({ tone, Icon, title, detail, rate, rateLabel = '
         <Icon className="h-6 w-6 shrink-0" />
         <div className="min-w-0">
           <div className="text-base font-semibold">{title}</div>
-          <div className="text-xs opacity-80">{detail}</div>
+          <div className="text-xs">{detail}</div>
         </div>
       </div>
       {rate !== undefined && (
         <div className="text-right shrink-0">
           <div className="text-2xl font-bold tabular-nums leading-none">{rate}%</div>
-          <div className="text-2xs uppercase tracking-wide opacity-70 mt-1">{rateLabel}</div>
+          <div className="text-2xs uppercase tracking-wide mt-1">{rateLabel}</div>
         </div>
       )}
     </div>

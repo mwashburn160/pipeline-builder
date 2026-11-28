@@ -193,7 +193,7 @@ describe('requireAuth — impersonation session', () => {
     await (requireAuth as any)(req(), res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'Impersonation session ended' }));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'Impersonation session ended', code: 'TOKEN_REVOKED' }));
     expect(next).not.toHaveBeenCalled();
     // The operator is read by the id the RECORD names.
     expect(mockUserFindById).toHaveBeenCalledWith('sysadmin-1');
@@ -240,7 +240,7 @@ describe('requireAuth — impersonation session', () => {
     const res = makeRes(); const next = jest.fn();
     await (requireAuth as any)(req(), res, next);
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'Impersonation session ended' }));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'Impersonation session ended', code: 'TOKEN_REVOKED' }));
     expect(next).not.toHaveBeenCalled();
   });
 

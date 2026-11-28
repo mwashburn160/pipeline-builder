@@ -74,11 +74,9 @@ test('an unanswered idle warning signs the session out and the sign-in page says
   // Nobody clicked: no refresh ever reported a person.
   expect(idle.activity().every((a) => a === 'passive')).toBe(true);
 
-  // What the sign-out's destination says. Loaded directly: the dashboard's auth
-  // guards race the sign-out's own `push('/?reason=idle&minutes=N')` with a bare
-  // `replace('/')` that can win and drop the reason — a product bug in
-  // src/hooks/useAuthGuard.ts (it must not replace a sign-out already under way).
-  await page.goto(`/?reason=idle&minutes=${IDLE_TIMEOUT_MINUTES}`);
+  // Landed by the sign-out itself — the guarded page's own bounce goes to the
+  // same destination, so the reason survives the race.
+  await expect(page).toHaveURL(new RegExp(`/\\?reason=idle&minutes=${IDLE_TIMEOUT_MINUTES}$`));
   await expect(page.getByRole('status').filter({ hasText: `Signed out after ${IDLE_TIMEOUT_MINUTES} minutes of inactivity.` })).toBeVisible();
   expect(api.pageErrors).toEqual([]);
 });

@@ -27,7 +27,7 @@
  * — public by construction, exactly like `/auth/login` itself.
  */
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { closeBootstrapExceptionOnEnrolment } from '../helpers/bootstrap-admin.js';
 import { withController } from '../helpers/controller-helper.js';
@@ -218,7 +218,7 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
     });
     incCounter('platform_logins_failed_total');
     meter('login', reason === TOTP_LOCKED_OUT ? 'locked' : 'failure');
-    sendError(res, 401, 'Invalid credentials');
+    sendError(res, 401, 'Invalid credentials', ErrorCode.INVALID_CREDENTIALS);
   };
 
   // Claimed atomically: a concurrent attempt on the same handle finds nothing.

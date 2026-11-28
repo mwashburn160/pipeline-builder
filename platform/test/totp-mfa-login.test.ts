@@ -193,6 +193,8 @@ describe('POST /auth/mfa/verify', () => {
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json.mock.calls[0][0].message).toBe('Invalid credentials');
+    // Opaque, but marked as a credential refusal — never a token problem.
+    expect(res.json.mock.calls[0][0].code).toBe('INVALID_CREDENTIALS');
     expect(await peekMfaChallenge(challengeId)).not.toBeNull();
     expect(mockIssueTokens).not.toHaveBeenCalled();
     // The reason lives only in the audit trail.
@@ -209,7 +211,7 @@ describe('POST /auth/mfa/verify', () => {
     await verifyMfaLogin(body({ challengeId, code: '000000' }), res);
 
     // Telling the caller "you are locked out" would confirm the password was right.
-    expect(res.json.mock.calls[0][0].message).toBe('Invalid credentials');
+    expect(res.json.mock.calls[0][0]).toMatchObject({ message: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
     expect(mockIncCounter).toHaveBeenCalledWith('platform_totp_verifications_total', { stage: 'login', outcome: 'locked' });
   });
 

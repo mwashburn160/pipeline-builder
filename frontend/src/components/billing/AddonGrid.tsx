@@ -408,7 +408,7 @@ export function AddonGrid({
                         href={AWS_MARKETPLACE_LIBRARY_URL}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-brand hover:underline"
+                        className="text-link"
                       >
                         Manage in AWS Marketplace →
                       </a>

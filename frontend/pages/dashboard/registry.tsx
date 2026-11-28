@@ -331,11 +331,13 @@ export default function RegistryPage() {
   if (!isReady) return <LoadingPage />;
 
   // Focus model: the "active" column is the right-most one with data —
-  // manifest detail > tag table > repo list. Inactive columns dim so the
-  // operator's eye lands on what they just drilled into.
+  // manifest detail > tag table > repo list. It carries a brand accent along
+  // its top edge so the operator's eye lands on what they just drilled into.
+  // The other columns are NOT dimmed: opacity on text fails contrast
+  // (WCAG 1.4.3) — a dimmed hint read at 3.45:1, its subtle line at 2.81:1.
   const activeColumn: 'repo' | 'tag' | 'manifest' = tag ? 'manifest' : repo ? 'tag' : 'repo';
-  const dim = (col: 'repo' | 'tag' | 'manifest') =>
-    col === activeColumn ? '' : 'opacity-70 hover:opacity-100 focus-within:opacity-100 transition-opacity';
+  const columnAccent = (col: 'repo' | 'tag' | 'manifest') =>
+    `border-t-2 ${col === activeColumn ? 'border-brand' : 'border-transparent'}`;
 
   return (
     <DashboardLayout
@@ -389,7 +391,7 @@ export default function RegistryPage() {
           </div>
         )}
         <div className="flex flex-1 min-h-0">
-          <div className={`${narrowViewport ? (mobilePane === 'repo' ? 'w-full' : 'hidden') : 'w-72'} flex-shrink-0 ${dim('repo')}`}>
+          <div className={`${narrowViewport ? (mobilePane === 'repo' ? 'w-full' : 'hidden') : 'w-72'} flex-shrink-0 ${columnAccent('repo')}`}>
             <RepositoryList
               ref={repoListRef}
               groups={groups}
@@ -406,7 +408,7 @@ export default function RegistryPage() {
               canPurge={canPurge}
             />
           </div>
-          <div className={`flex-shrink-0 ${narrowViewport ? (mobilePane === 'tag' ? 'w-full' : 'hidden') : tag ? 'w-[28rem]' : 'flex-1'} ${dim('tag')}`}>
+          <div className={`flex-shrink-0 ${narrowViewport ? (mobilePane === 'tag' ? 'w-full' : 'hidden') : tag ? 'w-[28rem]' : 'flex-1'} ${columnAccent('tag')}`}>
             {repo ? (
               <TagTable
                 repo={repo}
@@ -431,7 +433,7 @@ export default function RegistryPage() {
             )}
           </div>
           {tag && (
-            <div className={`flex-1 ${narrowViewport && mobilePane !== 'manifest' ? 'hidden' : ''} ${dim('manifest')}`}>
+            <div className={`flex-1 ${narrowViewport && mobilePane !== 'manifest' ? 'hidden' : ''} ${columnAccent('manifest')}`}>
               <ManifestDetail
                 kind={kind}
                 loading={manifestLoading}

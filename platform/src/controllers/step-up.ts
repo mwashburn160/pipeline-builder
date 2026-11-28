@@ -103,7 +103,7 @@ export const stepUpVerify = withController('Step-up password verify', async (req
     });
     incCounter('platform_step_up_total', { method: 'password', outcome: 'failure' });
     logger.warn('Step-up password verify failed', { userId });
-    return sendError(res, 401, 'Invalid password');
+    return sendError(res, 401, 'Invalid password', ErrorCode.INVALID_CREDENTIALS);
   }
 
   const { token, expiresAt } = await issueStepUpToken(userId, 'password');

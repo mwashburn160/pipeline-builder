@@ -97,7 +97,7 @@ describe('message deep link', () => {
 
     render(<MessagesPage />);
     // The row previews the content; its unread dot carries an sr-only label.
-    const row = (await screen.findByText('body')).closest('[role="button"]') as HTMLElement;
+    const row = (await screen.findByText('body')).closest('button[data-message-id]') as HTMLElement;
     expect(row).toHaveTextContent('Unread');
     fireEvent.click(row);
 
@@ -132,10 +132,10 @@ describe('switching threads', () => {
     getMessages.mockResolvedValue({ data: { messages: [linked, other], pagination: { total: 2, limit: 25, offset: 0, hasMore: false } } });
 
     render(<MessagesPage />);
-    fireEvent.click((await screen.findByText('body')).closest('[role="button"]') as HTMLElement);
+    fireEvent.click((await screen.findByText('body')).closest('button[data-message-id]') as HTMLElement);
     expect(await screen.findByTestId('thread')).toHaveAttribute('data-mounted-for', 'm-old');
 
-    fireEvent.click(screen.getByText('other body').closest('[role="button"]') as HTMLElement);
+    fireEvent.click(screen.getByText('other body').closest('button[data-message-id]') as HTMLElement);
     await waitFor(() => expect(screen.getByTestId('thread')).toHaveTextContent('Second thread'));
     expect(screen.getByTestId('thread')).toHaveAttribute('data-mounted-for', 'm-two');
     expect(threadMounts).toEqual(['m-old', 'm-two']);

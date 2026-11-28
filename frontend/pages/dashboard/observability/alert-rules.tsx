@@ -129,9 +129,9 @@ export default function AlertRulesPage() {
     >
       <div className="text-xs text-fg-muted mb-3">
         Configure where these alerts get delivered on the{' '}
-        <Link href="/dashboard/observability/alert-destinations" className="text-brand hover:underline">Alert destinations page</Link>,
+        <Link href="/dashboard/observability/alert-destinations" className="text-link">Alert destinations page</Link>,
         or see what&apos;s currently firing on the{' '}
-        <Link href="/dashboard/observability/alerts" className="text-brand hover:underline">Alerts page</Link>.
+        <Link href="/dashboard/observability/alerts" className="text-link">Alerts page</Link>.
       </div>
 
       {error && <RetryError message={formatError(error, 'Failed to load alert rules')} onRetry={refetch} className="mb-4" />}

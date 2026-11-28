@@ -27,7 +27,14 @@ export function CodeBlock({ code, language, copyable = true, className = '' }: C
           {copyable && <CopyButton text={code} />}
         </div>
       )}
-      <pre className="overflow-x-auto px-3 py-2.5 text-xs leading-relaxed text-fg">
+      {/* A long line scrolls sideways; the region takes focus so the keyboard
+          can scroll it too (axe scrollable-region-focusable, WCAG 2.1.1). */}
+      <pre
+        role="region"
+        tabIndex={0}
+        aria-label={language ? `${language} code` : 'Code'}
+        className="overflow-x-auto px-3 py-2.5 text-xs leading-relaxed text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--pb-ring)] rounded-b-xl"
+      >
         <code className="font-mono">{code}</code>
       </pre>
     </div>

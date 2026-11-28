@@ -108,12 +108,12 @@ export const TOTP_REFUSAL = 'That code isn\'t right. Check your authenticator ap
 
 /**
  * `POST /api/auth/step-up/totp`: `123456` passes; anything else gets the
- * platform's own refusal — a 401 with the message and no `code`.
+ * platform's own refusal — a 401 `TOTP_INVALID_CODE` with its message.
  */
 export function stubTotpStepUp(api: Backend): void {
   api.on('POST /api/auth/step-up/totp', (call) => ((call.json as { code?: string })?.code === '123456'
     ? ok({ ok: true, stepUpToken: STEP_UP_TOKEN, expiresAt: Date.now() + 60_000, method: 'totp', via: 'totp', recoveryCodesRemaining: 10 })
-    : { status: 401, json: { success: false, message: TOTP_REFUSAL } }));
+    : { status: 401, json: { success: false, statusCode: 401, code: 'TOTP_INVALID_CODE', message: TOTP_REFUSAL } }));
 }
 
 /**

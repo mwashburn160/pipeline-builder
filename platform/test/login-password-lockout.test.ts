@@ -162,6 +162,7 @@ describe('POST /auth/login — durable password lockout', () => {
     const res = makeRes();
     await login(req({ identifier: 'p@example.com', password: 'wrong' }), res);
     expect(res.status).toHaveBeenCalledWith(401);
+    expect(body(res)).toMatchObject({ code: 'INVALID_CREDENTIALS' });
     expect(mockReserve).toHaveBeenCalledWith('u1');
     expect(mockReserve.mock.invocationCallOrder[0]).toBeLessThan(mockFindByCredentials.mock.invocationCallOrder[0]);
     expect(mockRecordFailure).toHaveBeenCalledWith('u1', 'r1');

@@ -313,6 +313,7 @@ describe('switchOrg — session slot', () => {
     const res = makeRes();
     await (switchOrg as any)({ user: { sub: 'u1', sid: 's1' }, headers: {}, body: { organizationId: 'org-to' } }, res);
     expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'TOKEN_REVOKED' });
     expect(mockSetLastActiveOrg).not.toHaveBeenCalled();
     expect(mockAudit).not.toHaveBeenCalled();
   });

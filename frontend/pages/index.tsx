@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/hooks/useAuth';
+import { clearPendingSignOut } from '@/lib/pending-sign-out';
 import { takeReturnPath } from '@/lib/return-to';
 import { LoadingPage } from '@/components/ui/Loading';
 import LandingPage from '@/components/landing/LandingPage';
@@ -21,6 +22,10 @@ export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl
   const router = useRouter();
   const { isAuthenticated, isLoading, isSubmitting, isInitialized } = useAuth();
   const ogImage = `${siteUrl}/og-image.png`;
+
+  // A sign-out on its way here recorded this page as its destination (so the
+  // guarded page it left could not bounce elsewhere); it has arrived.
+  useEffect(() => { clearPendingSignOut(); }, []);
 
   // A sign-in submitted from this page navigates by itself (to the return path,
   // or to passkey enrolment for a bootstrap administrator) — so while one is in

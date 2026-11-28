@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f1d402c88a4a044e5c866bc7260811b37783c726a0bfc006a543552c86eafb16
+// SOURCE-SHA256: 27568a5e3da5368aa6ce539163dfe2919a5fac80c2f6a5117bbdb9baa9872d2e
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2265,7 +2265,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Passkey sign-in obeys the same rules as password sign-in: refused for SSO-enforced domains (those users must go through their IdP), the same rate-limit posture, and one opaque 401 for every failure. Passkey step-up is still allowed for an SSO-enforced account — that person is already inside a session their IdP admitted."
+          "content": "Passkey sign-in obeys the same rules as password sign-in: refused for SSO-enforced domains (those users must go through their IdP), the same rate-limit posture, and one opaque 401 INVALID_CREDENTIALS for every failure. Passkey step-up is still allowed for an SSO-enforced account — that person is already inside a session their IdP admitted."
         },
         {
           "type": "text",
@@ -2471,7 +2471,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every refusal is the same opaque 401 the password path gives, with the reason only in the audit trail — with two exceptions. SSO enforcement, re-checked on the second leg (an org can turn it on between the two), answers the same 403 SSO_REQUIRED naming the org. And an unknown or already-spent challenge answers 401 TOTP_INVALID_CHALLENGE: the handle is 256 unguessable bits, so saying it is gone is no oracle, and retrying a code against a dead challenge can only fail forever — the sign-in page sends the person back to the password field instead of asking for more codes."
+          "content": "Every refusal is the same opaque 401 INVALID_CREDENTIALS the password path gives, with the reason only in the audit trail — with two exceptions. SSO enforcement, re-checked on the second leg (an org can turn it on between the two), answers the same 403 SSO_REQUIRED naming the org. And an unknown or already-spent challenge answers 401 TOTP_INVALID_CHALLENGE: the handle is 256 unguessable bits, so saying it is gone is no oracle, and retrying a code against a dead challenge can only fail forever — the sign-in page sends the person back to the password field instead of asking for more codes."
         },
         {
           "type": "text",
@@ -2499,7 +2499,17 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "consecutive wrong codes, then TOTP_LOCKOUT_MS). It applies to sign-in and step-up alike, and recovery codes share the counter — guessing one does not earn a fresh budget. On the sign-in path a lockout answers the same opaque 401 as a wrong code (saying otherwise would confirm the password was right); on the step-up path, where the caller is already authenticated, it is a 429 with actionable wording."
+          "content": "consecutive wrong codes, then TOTP_LOCKOUT_MS). It applies to sign-in and step-up alike, and recovery codes share the counter — guessing one does not earn a fresh budget. On the sign-in path a lockout answers the same opaque 401 as a wrong code (saying otherwise would confirm the password was right); on the step-up path, where the caller is already authenticated, a wrong code is 401 TOTP_INVALID_CODE and a lockout is a 429 TOTP_LOCKED_OUT with actionable wording."
+        },
+        {
+          "type": "list",
+          "items": [
+            "One request is one attempt. Only a 401 whose code says the access token"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "is no good (TOKEN_EXPIRED, TOKEN_INVALID, TOKEN_MISSING, TOKEN_REVOKED) is answered by the web client with a token refresh and a retry. A refused credential (TOTP_INVALID_CODE, INVALID_CREDENTIALS) is shown as itself and never re-sent, so a wrong code counts once toward the lockout. Every 401 about the session's access token carries one of the TOKEN_* codes — a revoked or ended session is TOKEN_REVOKED."
         },
         {
           "type": "text",

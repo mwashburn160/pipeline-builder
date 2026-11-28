@@ -75,7 +75,7 @@ const MSG = {
   messageType: 'conversation', createdAt: '2026-01-01T00:00:00Z', readBy: { 'org-1': '2026-01-01T00:00:00Z' },
 };
 
-const row = () => (screen.queryByText('prod deploy is red')?.closest<HTMLElement>('[role="button"]') ?? null);
+const row = () => (screen.queryByText('prod deploy is red')?.closest<HTMLElement>('button[data-message-id]') ?? null);
 
 beforeEach(() => {
   mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
@@ -110,6 +110,23 @@ describe('inbox on a phone (390px)', () => {
     await waitFor(() => expect(row()).not.toBeNull());
     expect(screen.queryByTestId('thread')).not.toBeInTheDocument();
     await waitFor(() => expect(row()).toHaveFocus());
+  });
+});
+
+describe('a conversation row (axe nested-interactive)', () => {
+  it('opens through a real button that holds no other control; select and delete sit beside it', async () => {
+    render(<MessagesPage />);
+    await screen.findByText('prod deploy is red');
+
+    const open = row()!;
+    expect(open.tagName).toBe('BUTTON');
+    expect(open).toHaveAccessibleName(expect.stringContaining('prod deploy is red'));
+    expect(open.querySelector('button, input, a, [role="button"], [tabindex]')).toBeNull();
+    // The row container is no control of its own.
+    const container = open.parentElement!;
+    expect(container).not.toHaveAttribute('role');
+    expect(container).not.toHaveAttribute('tabindex');
+    expect(container.querySelector('[role="button"]')).toBeNull();
   });
 });
 

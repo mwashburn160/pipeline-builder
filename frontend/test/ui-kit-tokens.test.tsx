@@ -81,6 +81,12 @@ describe('PostureHeadline', () => {
     );
     expect(container.innerHTML).toContain(token);
   });
+
+  it('keeps its detail and rate label at the tone\'s full text colour — no opacity dimming (axe color-contrast)', () => {
+    const { getByText } = render(<PostureHeadline tone="green" Icon={Shield} title="t" detail="detail copy" rate={90} />);
+    expect(getByText('detail copy').className).not.toMatch(/opacity-/);
+    expect(getByText('passing').className).not.toMatch(/opacity-/);
+  });
 });
 
 describe('FilterBar', () => {

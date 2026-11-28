@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ApiError, StepUpRequiredError } from '../errors';
-import { API_URL, isMfaErrorCode, isStepUpErrorCode, parseRetryAfterSeconds } from '../util';
+import { API_URL, isAccessTokenRefusal, isMfaErrorCode, isStepUpErrorCode, parseRetryAfterSeconds } from '../util';
 import { RequestClient, stripTags } from './request';
 import { CLIENT_TYPE, CLIENT_TYPE_HEADER } from './shared';
 
@@ -71,8 +71,10 @@ export class StreamingClient extends RequestClient {
       if (response.status === 401 && isMfaErrorCode(data.code)) {
         throw this.mfaRequired(data, endpoint);
       }
-      // 401: refresh the access token once and retry the stream (mirrors request()).
-      if (response.status === 401 && this.canRefresh() && !endpoint.includes('/auth/refresh') && !_refreshed) {
+      // A 401 about the access token: refresh once and retry the stream
+      // (mirrors request()). Any other 401 surfaces as itself.
+      const tokenRefused = response.status === 401 && isAccessTokenRefusal(data.code);
+      if (tokenRefused && this.canRefresh() && !endpoint.includes('/auth/refresh') && !_refreshed) {
         const refreshed = await this.refreshAccessToken();
         if (refreshed) {
           yield* this.streamRequest(endpoint, body, true);
@@ -82,7 +84,7 @@ export class StreamingClient extends RequestClient {
       }
       // An expired impersonation token cannot be refreshed: end the session so
       // the app routes back to the operator's own (mirrors send()).
-      if (response.status === 401 && this.isImpersonating()) {
+      if (tokenRefused && this.isImpersonating()) {
         this.notifySessionExpired();
       }
       // Every service checks apiCalls now, the streaming generators included, so a

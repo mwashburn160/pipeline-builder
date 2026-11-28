@@ -20,10 +20,6 @@ import { ACME_ID, openKmsConfig, stubCascade, stubKmsConfig } from './support/fi
 const REWRAP = `POST /api/admin/orgs/${ACME_ID}/kms-config/runner-keys/reencrypt`;
 
 test.describe('KMS runner-key re-wrap', () => {
-  // The KMS dialog is taller than a 720px viewport, and a non-`tall` Modal can
-  // neither scroll nor cap its height, so its footer would be out of reach.
-  test.use({ viewport: { width: 1280, height: 1100 } });
-
   test('a failed re-wrap is retried behind a second factor until it succeeds', async ({ page }) => {
     const { api, dialog } = await openKmsConfig(page, { rewrapPending: true });
     const kms = stubKmsConfig(api, { rewrapPending: true });

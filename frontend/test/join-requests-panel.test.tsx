@@ -45,6 +45,16 @@ beforeEach(() => {
 });
 
 describe('JoinRequestsPanel', () => {
+  it('the selected status tab controls a panel that exists (axe aria-valid-attr-value)', async () => {
+    render(<JoinRequestsPanel orgId="org-1" />);
+    const tab = await screen.findByRole('tab', { selected: true });
+    const panelId = tab.getAttribute('aria-controls');
+    expect(panelId).toBe('join-requests-panel-pending');
+    const panel = document.getElementById(panelId!);
+    expect(panel).toHaveAttribute('role', 'tabpanel');
+    expect(panel).toHaveAttribute('aria-labelledby', tab.id);
+  });
+
   it('reads the pending page first and decides a request', async () => {
     render(<JoinRequestsPanel orgId="org-1" />);
     expect(await screen.findByText('p1@acme.com')).toBeInTheDocument();

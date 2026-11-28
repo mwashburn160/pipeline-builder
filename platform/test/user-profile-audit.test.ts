@@ -225,6 +225,9 @@ describe('changePassword audit', () => {
     await (changePassword as unknown as (req: any, res: any) => Promise<void>)(req, res);
 
     expect(res.status).toHaveBeenCalledWith(401);
+    // A wrong current password is a refused credential, said so — the client
+    // must not refresh and re-send the password change.
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'INVALID_CREDENTIALS' });
     expect(mockAudit).not.toHaveBeenCalled();
   });
 

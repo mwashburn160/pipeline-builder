@@ -277,6 +277,7 @@ export default function OrganizationsPage() {
               <ExternalLink className="w-3.5 h-3.5" /> Details
             </Link>
             <RowActionsMenu
+              orgName={org.name}
               canKms={can('org_kms:write')}
               canIdp={can('org_idp:write')}
               canManage={can('orgs:manage')}

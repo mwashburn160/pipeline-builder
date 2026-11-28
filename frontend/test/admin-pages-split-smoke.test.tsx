@@ -212,7 +212,7 @@ describe('OrganizationsPage — extracted components', () => {
   it('never offers a team a tier change — its tier is inherited from its root', () => {
     listPage.data = [{ ...org, id: 'team-b', parentOrgId: 'org-a', parentOrgName: 'Acme' }];
     render(<OrganizationsPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByRole('button', { name: /^More actions for / }));
     expect(screen.queryByRole('menuitem', { name: /Change tier/ })).not.toBeInTheDocument();
   });
 
@@ -221,7 +221,7 @@ describe('OrganizationsPage — extracted components', () => {
     apiMock.updateOrganizationTier.mockResolvedValue({ success: true });
     render(<OrganizationsPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByRole('button', { name: /^More actions for / }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Change tier/ }));
     const continueBtn = screen.getByRole('button', { name: 'Continue' });
     expect(continueBtn).toBeDisabled();

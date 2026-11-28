@@ -45,8 +45,15 @@ test('an authenticator code confirms the step-up; a wrong one is refused in plac
   await expect(verify).toBeDisabled();
 
   await code.fill('000000');
+  const refreshesBefore = api.calls('POST /api/auth/refresh').length;
   await verify.click();
   await expect(dialog.getByText(TOTP_REFUSAL)).toBeVisible();
+  // The wrong code went out exactly ONCE: a credential refusal is not an
+  // expired token, so no refresh and no re-POST (each POST is a strike
+  // toward the lockout).
+  await page.waitForLoadState('networkidle');
+  expect(api.calls('POST /api/auth/step-up/totp').map((c) => c.json)).toEqual([{ code: '000000' }]);
+  expect(api.calls('POST /api/auth/refresh')).toHaveLength(refreshesBefore);
   // A refused code mints nothing, so nothing is replayed.
   expect(api.calls('POST /api/pipelines')).toHaveLength(1);
   await expect(dialog).toBeVisible();
@@ -54,9 +61,7 @@ test('an authenticator code confirms the step-up; a wrong one is refused in plac
   await code.fill('123456');
   await verify.click();
   await expect(dialog).toBeHidden();
-  const totpCalls = api.calls('POST /api/auth/step-up/totp').map((c) => c.json);
-  expect(totpCalls.at(-1)).toEqual({ code: '123456' });
-  expect(totpCalls.slice(0, -1).every((b) => (b as { code: string }).code === '000000')).toBe(true);
+  expect(api.calls('POST /api/auth/step-up/totp').map((c) => c.json)).toEqual([{ code: '000000' }, { code: '123456' }]);
   await expect.poll(() => api.calls('POST /api/pipelines').length).toBe(2);
   expect(api.calls('POST /api/pipelines')[1].headers['x-step-up-token']).toBe(STEP_UP_TOKEN);
   await expect(page.getByText('Pipeline created successfully!')).toBeVisible();

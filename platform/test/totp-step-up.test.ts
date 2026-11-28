@@ -30,7 +30,7 @@ const mockIssueStepUpToken = jest.fn<(...a: unknown[]) => Promise<unknown>>(
 );
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
+  sendError: (res: any, status: number, msg: string, code?: string) => res.status(status).json({ success: false, message: msg, code }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, data }),
 }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
@@ -75,6 +75,7 @@ beforeEach(() => {
   mockAudit.mockClear();
   mockIncCounter.mockClear();
   mockIssueStepUpToken.mockClear();
+  mockVerifyCode.mockReset();
 });
 
 describe('POST /auth/step-up/totp', () => {
@@ -116,6 +117,11 @@ describe('POST /auth/step-up/totp', () => {
 
     expect(mockIssueStepUpToken).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
+    // An explicit credential-refusal code: the client must read this 401 as
+    // "wrong code", never as an expired access token to refresh and re-POST.
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: TOTP_INVALID_CODE });
+    // One request, one verification — one step toward the lockout.
+    expect(mockVerifyCode).toHaveBeenCalledTimes(1);
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.login.failed', expect.objectContaining({
       targetType: 'step-up', outcome: 'failure',
     }));

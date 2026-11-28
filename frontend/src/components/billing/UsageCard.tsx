@@ -136,7 +136,7 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
               variant="ghost"
               size="sm"
               onClick={() => onPeriodChange?.(undefined, undefined)}
-              className="text-brand hover:underline"
+              className="text-link"
             >
               Reset
             </Button>

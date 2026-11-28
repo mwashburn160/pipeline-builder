@@ -162,6 +162,17 @@
       {
         "ignoreNonDOM": true
       }
+    ],
+    "jsx-a11y/no-noninteractive-tabindex": [
+      "error",
+      {
+        "tags": [],
+        "roles": [
+          "tabpanel",
+          "region"
+        ],
+        "allowExpressionValues": true
+      }
     ]
   },
   "overrides": [

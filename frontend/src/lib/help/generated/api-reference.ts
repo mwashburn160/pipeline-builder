@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f7b88072e37c6edb8554390877bd526f3698b1d3131b094c3e1d1a4296a1dd47
+// SOURCE-SHA256: 5707adeec48bdf0608ce924e121c465af0ceb90c53e23796624c8d1c24dd57e5
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -140,7 +140,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/auth/step-up",
-              "Re-verify the account password → { stepUpToken, expiresAt }"
+              "Re-verify the account password → { stepUpToken, expiresAt }. A wrong password is 401 INVALID_CREDENTIALS"
             ],
             [
               "POST",
@@ -150,7 +150,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/auth/step-up/totp",
-              "Re-verify with an authenticator-app code, { code } → { stepUpToken, expiresAt, method: 'totp', via }. A recovery code works here too (via: 'recovery'); 409 when the account has no authenticator, 429 when it is locked out after repeated wrong codes"
+              "Re-verify with an authenticator-app code, { code } → { stepUpToken, expiresAt, method: 'totp', via }. A recovery code works here too (via: 'recovery'); 401 TOTP_INVALID_CODE for a wrong code, 409 when the account has no authenticator, 429 TOTP_LOCKED_OUT when it is locked out after repeated wrong codes"
             ],
             [
               "POST",
@@ -2006,7 +2006,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/auth/mfa/verify",
-              "Second leg of a password sign-in, { challengeId, code } → the same { accessToken } + refresh cookie password login returns, with mfa added to amr. A recovery code works here too. A WRONG code does not burn the challenge (a typo must not cost a password entry); a correct one spends it, so one handle yields at most one session. Every failure answers one opaque 401, except an unknown or spent challenge (401 TOTP_INVALID_CHALLENGE, so the sign-in page can send the person back to the password field)",
+              "Second leg of a password sign-in, { challengeId, code } → the same { accessToken } + refresh cookie password login returns, with mfa added to amr. A recovery code works here too. A WRONG code does not burn the challenge (a typo must not cost a password entry); a correct one spends it, so one handle yields at most one session. Every failure answers one opaque 401 INVALID_CREDENTIALS, except an unknown or spent challenge (401 TOTP_INVALID_CHALLENGE, so the sign-in page can send the person back to the password field)",
               "the challenge + the code"
             ]
           ]

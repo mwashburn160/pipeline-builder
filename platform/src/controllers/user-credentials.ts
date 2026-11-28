@@ -12,7 +12,7 @@
  * (`routes/user.ts` imports through the `controllers/index.ts` barrel).
  */
 
-import { refuseForOrgAdminAssurance, sendError, sendSuccess, TOKEN_SCOPES } from '@pipeline-builder/api-core';
+import { ErrorCode, refuseForOrgAdminAssurance, sendError, sendSuccess, TOKEN_SCOPES } from '@pipeline-builder/api-core';
 import type { TokenScope } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
@@ -154,7 +154,7 @@ export const generateToken = withController('Generate token', async (req, res) =
   // A slot named by the token must still exist — a revoked or evicted session
   // must not be able to mint a long-lived credential.
   const callerSlot = sessionId ? await findRefreshSession(userId, sessionId) : undefined;
-  if (sessionId && !callerSlot) return sendError(res, 401, 'Session invalid');
+  if (sessionId && !callerSlot) return sendError(res, 401, 'Session invalid', ErrorCode.TOKEN_REVOKED);
   // The org the caller's OWN session is in (each slot keeps its own — another
   // device's switch moves only `lastActiveOrgId`); a slot opened outside any
   // org falls back to it. A machine slot's renewal prefers its own org anyway.
@@ -195,7 +195,7 @@ export const generateToken = withController('Generate token', async (req, res) =
       scope,
       ...(permissions ? { permissions } : {}),
     });
-  if (!issued) return sendError(res, 401, 'Session invalid');
+  if (!issued) return sendError(res, 401, 'Session invalid', ErrorCode.TOKEN_REVOKED);
   const { accessToken, refreshToken, expiresIn: actual } = issued;
   // Bearer-token issuance is sensitive: long-lived tokens (up to 365 days)
   // become a credential. Recording the requested lifetime + whether a machine
@@ -331,7 +331,7 @@ export const createAccessKey = withController('Create access key', async (req, r
   // and never raises — it, and the org's authenticator allowlist can be
   // re-applied at every exchange. The slot must still exist.
   const creatingSlot = await findRefreshSession(userId, (req.user as AccessTokenPayload).sid!);
-  if (!creatingSlot) return sendError(res, 401, 'Session invalid');
+  if (!creatingSlot) return sendError(res, 401, 'Session invalid', ErrorCode.TOKEN_REVOKED);
   const { key, view } = await apiKeyService.create(
     userId,
     // Bound to the org the creating session is IN (as generate-token is), not

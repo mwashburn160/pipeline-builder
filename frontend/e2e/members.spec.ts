@@ -58,12 +58,6 @@ test('the four Members tabs render their data and keep ?tab= in step', async ({ 
 });
 
 test.describe('invitations', () => {
-  // The send dialog is taller than a 720px viewport and a non-`tall` Modal
-  // neither caps its height nor lets the backdrop scroll, so its footer is out
-  // of reach there (reported to the product owner); a laptop-height viewport
-  // is what this journey needs.
-  test.use({ viewport: { width: 1280, height: 1000 } });
-
   test('send invitations, then revoke a pending one', async ({ page }) => {
     const api = await signedInPage(page, OWNER_WITH_TEAM);
     stubMembers(api);

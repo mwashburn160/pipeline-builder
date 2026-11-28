@@ -28,7 +28,7 @@
  * opaque 401.
  */
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { closeBootstrapExceptionOnEnrolment } from '../helpers/bootstrap-admin.js';
 import { withController } from '../helpers/controller-helper.js';
@@ -281,7 +281,7 @@ export const loginVerify = withController('Passkey login verify', async (req, re
     });
     incCounter('platform_logins_failed_total');
     meter('login', 'failure');
-    sendError(res, 401, 'Invalid credentials');
+    sendError(res, 401, 'Invalid credentials', ErrorCode.INVALID_CREDENTIALS);
   };
 
   let assertion;
@@ -295,7 +295,7 @@ export const loginVerify = withController('Passkey login verify', async (req, re
       auditAssertionFailure(req, err, { targetType: 'user', credentialId: body.response.id });
       incCounter('platform_logins_failed_total');
       meter('login', 'failure');
-      return sendError(res, 401, 'Invalid credentials');
+      return sendError(res, 401, 'Invalid credentials', ErrorCode.INVALID_CREDENTIALS);
     }
     return deny(err instanceof Error ? err.message : 'unknown');
   }

@@ -37,7 +37,7 @@ test('sign in with a password reaches the dashboard', async ({ page }) => {
 
 test('a refused sign-in shows the server message and stays put', async ({ page }) => {
   const api = await stubBackend(page);
-  api.on('POST /api/auth/login', { status: 401, json: { success: false, message: 'Invalid credentials' } });
+  api.on('POST /api/auth/login', { status: 401, json: { success: false, code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' } });
   await page.goto('/');
   await page.getByLabel('Email or username').fill('dana');
   await page.getByLabel('Password', { exact: true }).fill('nope');

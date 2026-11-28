@@ -25,12 +25,15 @@ export function AvatarMenu({ user, isDark, onToggleDark, onLogout }: AvatarMenuP
   return (
     <TopBarMenu
       label="Account menu"
+      // The initials are what the button SHOWS, so its name contains them as a
+      // word of their own (WCAG 2.5.3) — axe does not find them inside "(…)".
+      triggerLabel={`Account menu for ${user.username || user.email || 'this account'}, ${initials}`}
       widthClassName="w-60"
       // The button is the 44px hit area on a phone; the 32px circle inside it
       // stays the same size, so the top bar's look does not change.
       triggerClassName="group grid h-8 w-8 max-sm:h-11 max-sm:w-11 place-items-center rounded-full"
       trigger={(
-        <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full bg-surface-muted text-2xs font-semibold uppercase text-fg-muted group-hover:text-fg group-hover:ring-2 group-hover:ring-brand/30 transition-colors">
+        <span className="grid h-8 w-8 place-items-center rounded-full bg-surface-muted text-2xs font-semibold uppercase text-fg-muted group-hover:text-fg group-hover:ring-2 group-hover:ring-brand/30 transition-colors">
           {initials}
         </span>
       )}

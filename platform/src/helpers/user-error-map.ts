@@ -12,6 +12,7 @@
  * the responses clients already handle.
  */
 
+import { ErrorCode } from '@pipeline-builder/api-core';
 import { MFA_POLICY_ERROR_MAP } from './mfa-policy.js';
 import { SESSION_AUTH_MISSING, SESSION_EXPIRED, SESSION_EXPIRED_ERROR, TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
 import { ORG_SNAPSHOT_FAILED } from '../services/org-errors.js';
@@ -36,7 +37,7 @@ export const userErrorMap = {
   [PROFILE_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
   [PROFILE_EMAIL_TAKEN]: { status: 409, message: 'Email already in use' },
   [PROFILE_EMAIL_SSO_MANAGED]: { status: 403, message: 'Your organization requires single sign-on (SSO) for this email address, so it cannot be changed here. Ask your organization\'s administrator.' },
-  [PROFILE_INVALID_CREDENTIALS]: { status: 401, message: 'Current password incorrect' },
+  [PROFILE_INVALID_CREDENTIALS]: { status: 401, message: 'Current password incorrect', code: ErrorCode.INVALID_CREDENTIALS },
   [USER_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete account while you own an organization that has other members or teams. Transfer ownership (or remove its teams) first — GET /user/account/deletion lists which.' },
   // Sole-owner self-delete: an owned org's recovery snapshot failed, so nothing was deleted.
   [ORG_SNAPSHOT_FAILED]: { status: 502, message: 'Could not capture your organization\'s recovery snapshot — nothing was deleted. Please retry shortly.' },

@@ -54,9 +54,12 @@ test('Messages opens the unread conversation, marks it read and sends a reply', 
   await page.goto('/dashboard/inbox?tab=messages');
 
   const panel = page.getByRole('tabpanel', { name: 'Messages' });
-  const conversation = panel.getByRole('button', { name: new RegExp(`^Select message: ${CONVERSATION.subject}`) });
+  // Each row opens through its own button, named by what the row shows; its
+  // select checkbox sits beside it, not inside it.
+  const conversation = panel.getByRole('button', { name: new RegExp(CONVERSATION.content.slice(0, 40)) });
   await expect(conversation).toContainText('Unread');
-  await expect(panel.getByRole('button', { name: /^Select message: Scheduled maintenance on Sunday/ })).toContainText('Announcement');
+  await expect(panel.getByRole('checkbox', { name: `Select message: ${CONVERSATION.subject}` })).toBeVisible();
+  await expect(panel.getByRole('button', { name: /The build queue pauses for 30 minutes/ })).toContainText('Announcement');
 
   await conversation.click();
   await expect(page).toHaveURL(new RegExp(`[?&]message=${CONVERSATION.id}`));

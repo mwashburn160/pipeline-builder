@@ -14,8 +14,11 @@ import Link from 'next/link';
 import type { LucideIcon } from 'lucide-react';
 
 interface TopBarMenuProps {
-  /** The trigger's accessible name. */
+  /** The menu's accessible name (and the trigger's, unless `triggerLabel` says otherwise). */
   label: string;
+  /** The trigger's own name, when it shows text the name must contain
+   *  (WCAG 2.5.3 Label in Name) — the avatar's initials. */
+  triggerLabel?: string;
   /** What the trigger shows (an icon or the avatar). */
   trigger: ReactNode;
   triggerClassName?: string;
@@ -25,7 +28,7 @@ interface TopBarMenuProps {
   widthClassName?: string;
 }
 
-export function TopBarMenu({ label, trigger, triggerClassName = '', children, widthClassName = 'w-56' }: TopBarMenuProps) {
+export function TopBarMenu({ label, triggerLabel = label, trigger, triggerClassName = '', children, widthClassName = 'w-56' }: TopBarMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -80,8 +83,8 @@ export function TopBarMenu({ label, trigger, triggerClassName = '', children, wi
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label={label}
-        title={label}
+        aria-label={triggerLabel}
+        title={triggerLabel}
         aria-haspopup="menu"
         aria-expanded={open}
         className={triggerClassName}

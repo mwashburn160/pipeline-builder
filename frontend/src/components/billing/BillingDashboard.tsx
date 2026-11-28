@@ -123,7 +123,7 @@ export function BillingDashboard() {
             variant="ghost"
             size="sm"
             onClick={() => { setFrom(''); setTo(''); }}
-            className="text-brand hover:underline"
+            className="text-link"
           >
             Clear
           </Button>

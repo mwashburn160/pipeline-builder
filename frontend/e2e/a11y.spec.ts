@@ -32,42 +32,13 @@ test.use({ reducedMotion: 'reduce' });
 
 /**
  * Rule ids with serious/critical findings in the product today, per scan name
- * (the test title after "axe: ", without the href). Each is a product fix
- * reported with its selector; remove the entry with the fix.
+ * (the test title after "axe: ", without the href); SHELL applies to every
+ * signed-in page. Each entry is a product fix reported with its selector;
+ * remove the entry with the fix. Both are empty: every finding recorded here
+ * has been fixed, and a new one fails its scan.
  */
-//  - label-content-name-mismatch (WCAG 2.5.3 Label in Name), on EVERY signed-in
-//    page: the header search button (`button[aria-label="Search and commands"]`)
-//    shows "Search… ⌘K", and the avatar button (`button[aria-label="Account
-//    menu"]`) shows the user's initials — neither visible text is in the name.
-const SHELL: string[] = ['label-content-name-mismatch'];
-const KNOWN_FINDINGS: Record<string, string[]> = {
-  //  link-in-text-block (WCAG 1.4.1): "Have an account? Sign in" is set apart
-  //  from the sentence by colour alone.
-  register: ['link-in-text-block'],
-  //  nested-interactive (WCAG 4.1.2): each conversation row
-  //  (`div[data-message-id][role="button"]`) contains its own buttons.
-  'Home › Messages': ['nested-interactive'],
-  //  link-in-text-block: the "Alert destinations page" / "Alerts page" links
-  //  (`a.text-brand.hover:underline`) in the intro copy — colour only, 1.34:1.
-  'Run › Alert rules': ['link-in-text-block'],
-  'Run › Alert destinations': ['link-in-text-block'],
-  //  color-contrast (WCAG 1.4.3): `.opacity-80` caption text, 4.2:1.
-  'Insights › Compliance': ['color-contrast'],
-  //  aria-valid-attr-value (WCAG 4.1.2): the join-requests tab
-  //  `#join-requests-tab-pending` has aria-controls="join-requests-panel-pending"
-  //  but no element carries that id.
-  'Organization › Org settings': ['aria-valid-attr-value'],
-  //  color-contrast: the empty state's `.p-6` copy (3.45:1) and its
-  //  `.text-fg-subtle` line (2.81:1).
-  'Platform / Catalog › Registry': ['color-contrast'],
-  //  color-contrast: the `.btn-outline` copy button on the dark code block
-  //  (#475569 on #101828, 2.34:1); scrollable-region-focusable (WCAG 2.1.1):
-  //  the help article's `.overflow-x-auto` data tables and `pre` blocks
-  //  scroll but cannot take focus.
-  'Help › Help': ['color-contrast', 'scrollable-region-focusable'],
-  //  color-contrast: the same `.btn-outline` on the install command block.
-  'Help › Downloads': ['color-contrast'],
-};
+const SHELL: string[] = [];
+const KNOWN_FINDINGS: Record<string, string[]> = {};
 
 function known(name: string, signedIn: boolean): Set<string> {
   return new Set([...(signedIn ? SHELL : []), ...(KNOWN_FINDINGS[name] ?? [])]);

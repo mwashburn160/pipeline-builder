@@ -12,8 +12,11 @@ import { IconButton } from '@/components/ui/IconButton';
  * the table's `overflow-x-auto` scroll container.
  */
 export function RowActionsMenu({
-  canKms, canIdp, canManage, canNamespace, onKms, onIdp, onTier, onNamespace, onDelete,
+  orgName, canKms, canIdp, canManage, canNamespace, onKms, onIdp, onTier, onNamespace, onDelete,
 }: {
+  /** The row's organization — names the trigger, so a column of these
+   *  buttons is not a list of identical "More actions". */
+  orgName: string;
   canKms: boolean;
   canIdp: boolean;
   /**
@@ -101,7 +104,7 @@ export function RowActionsMenu({
         onClick={toggle}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="More actions"
+        aria-label={`More actions for ${orgName}`}
       >
         <MoreHorizontal className="w-4 h-4" />
       </IconButton>

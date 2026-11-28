@@ -90,6 +90,21 @@ describe('MfaEnrolmentNudge — when it speaks', () => {
       .toHaveAttribute('href', '/dashboard/security?tab=factors#passkeys');
   });
 
+  it('stacks its message above its actions on a phone, side by side from sm up', async () => {
+    await renderNudge(PASSWORD_ONLY);
+    const message = screen.getByText(/protected by a password alone/i).closest('[data-nudge-part="message"]') as HTMLElement;
+    const actions = screen.getByRole('link', { name: /protect my account/i }).closest('[data-nudge-part="actions"]') as HTMLElement;
+    expect(message).not.toBeNull();
+    expect(actions).not.toBeNull();
+    // Siblings, not one wrapping row: the text gets the full width at 390px
+    // instead of being squeezed into a column beside three actions.
+    expect(message.parentElement).toBe(actions.parentElement);
+    expect(message.parentElement!.className).toMatch(/(^|\s)flex-col(\s|$)/);
+    expect(message.parentElement!.className).toMatch(/(^|\s)sm:flex-row(\s|$)/);
+    expect(actions).toContainElement(screen.getByRole('button', { name: /not now for a week/i }));
+    expect(actions).toContainElement(screen.getByRole('button', { name: /don.t ask again/i }));
+  });
+
   it('announces politely, not assertively — this is an opportunity, not a deadline', async () => {
     await renderNudge(PASSWORD_ONLY);
     expect(screen.queryByRole('alert')).toBeNull();

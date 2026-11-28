@@ -114,40 +114,47 @@ export function MfaEnrolmentNudge() {
       aria-label="Protect your account"
       className="border-b border-info-border bg-info-bg px-4 py-2.5 text-info-strong sm:px-6 lg:px-8"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        <ShieldPlus className="h-4 w-4 shrink-0" aria-hidden />
-        <span className="min-w-0 flex-1">
-          <strong>Your account is protected by a password alone.</strong>{' '}
-          {enrolmentOnly
-            ? 'Until you add a passkey or an authenticator app, this session can only finish setting one up — every sign-in like it is recorded.'
-            : 'Add a passkey — or an authenticator app — so a stolen password is not enough to sign in as you. It takes about a minute.'}
-        </span>
-        <Link href={PASSKEY_ENROLMENT_HREF} className="whitespace-nowrap font-medium underline underline-offset-2">
-          Protect my account
-        </Link>
-        {!enrolmentOnly && (
-          <>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void answer(() => api.snoozeMfaPrompt())}
-              className="whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium underline underline-offset-2 hover:bg-black/5 disabled:opacity-60 dark:hover:bg-white/10"
-            >
-              Not now for a week
-            </button>
-            {/* Spelled out rather than an X. A close icon reads as "hide this
-                once", and this choice lasts until the person reverses it on the
-                Security page — the label has to say so. */}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void answer(() => api.declineMfaPrompt())}
-              className="whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium underline underline-offset-2 hover:bg-black/5 disabled:opacity-60 dark:hover:bg-white/10"
-            >
-              Don&apos;t ask again
-            </button>
-          </>
-        )}
+      {/* Message above actions on a phone, side by side from `sm` up: one
+          wrapping row squeezed the sentence into a narrow column beside three
+          actions at 390px. */}
+      <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:gap-3">
+        <div data-nudge-part="message" className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
+          <ShieldPlus className="mt-0.5 h-4 w-4 shrink-0 sm:mt-0" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <strong>Your account is protected by a password alone.</strong>{' '}
+            {enrolmentOnly
+              ? 'Until you add a passkey or an authenticator app, this session can only finish setting one up — every sign-in like it is recorded.'
+              : 'Add a passkey — or an authenticator app — so a stolen password is not enough to sign in as you. It takes about a minute.'}
+          </span>
+        </div>
+        <div data-nudge-part="actions" className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-7 sm:shrink-0 sm:pl-0">
+          <Link href={PASSKEY_ENROLMENT_HREF} className="whitespace-nowrap font-medium underline underline-offset-2">
+            Protect my account
+          </Link>
+          {!enrolmentOnly && (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void answer(() => api.snoozeMfaPrompt())}
+                className="whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium underline underline-offset-2 hover:bg-black/5 disabled:opacity-60 dark:hover:bg-white/10"
+              >
+                Not now for a week
+              </button>
+              {/* Spelled out rather than an X. A close icon reads as "hide this
+                  once", and this choice lasts until the person reverses it on the
+                  Security page — the label has to say so. */}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void answer(() => api.declineMfaPrompt())}
+                className="whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium underline underline-offset-2 hover:bg-black/5 disabled:opacity-60 dark:hover:bg-white/10"
+              >
+                Don&apos;t ask again
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

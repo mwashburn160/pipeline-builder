@@ -20,8 +20,8 @@ const mockIssueStepUpToken = jest.fn<AnyFn>();
 const mockIncCounter = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendError: (res: any, status: number, msg: string) => {
-    res.status(status).json({ success: false, message: msg });
+  sendError: (res: any, status: number, msg: string, code?: string) => {
+    res.status(status).json({ success: false, message: msg, code });
   },
   sendSuccess: (res: any, status: number, data: unknown) => {
     res.status(status).json({ success: true, statusCode: status, data });
@@ -192,6 +192,8 @@ describe('stepUpVerify', () => {
     );
     expect(mockIncCounter).toHaveBeenCalledWith('platform_step_up_total', { method: 'password', outcome: 'failure' });
     expect(res.status).toHaveBeenCalledWith(401);
+    // A credential refusal, said so: the client must not refresh and re-POST it.
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'INVALID_CREDENTIALS' });
   });
 
   it('issues a token and returns it on good password', async () => {

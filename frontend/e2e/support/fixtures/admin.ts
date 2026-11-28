@@ -42,7 +42,7 @@ export async function openKmsConfig(page: Page, opts: { rewrapPending?: boolean 
   stubKmsConfig(api, opts);
   await page.goto('/dashboard/organizations');
   const row = page.getByRole('row', { name: /Acme/ });
-  await row.getByRole('button', { name: 'More actions' }).click();
+  await row.getByRole('button', { name: 'More actions for Acme' }).click();
   await page.getByRole('menuitem', { name: 'KMS config' }).click();
   const dialog = page.getByRole('dialog', { name: 'KMS Config — Acme' });
   await expect(dialog.getByText('alias/pb-org-acme')).toBeVisible();

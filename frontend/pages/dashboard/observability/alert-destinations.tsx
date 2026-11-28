@@ -208,7 +208,7 @@ export default function AlertDestinationsPage() {
       }
     >
       <div className="text-xs text-fg-muted mb-3">
-        See current firing alerts on the <Link href="/dashboard/observability/alerts" className="text-brand hover:underline">Alerts page</Link>.
+        See current firing alerts on the <Link href="/dashboard/observability/alerts" className="text-link">Alerts page</Link>.
       </div>
 
       {error && <RetryError message={formatError(error, 'Failed to load alert destinations')} onRetry={refetch} className="mb-4" />}

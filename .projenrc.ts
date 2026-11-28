@@ -1254,6 +1254,10 @@ frontendEslint.addRules({
   // `role` is also an ordinary PROP on our components (<InviteFollowUpNotice
   // role="member">); only a DOM element's role must be a valid ARIA role.
   'jsx-a11y/aria-role': ['error', { ignoreNonDOM: true }],
+  // A scrollable `role="region"` (a wide table, a code block) MUST take focus
+  // so the keyboard can scroll it (WCAG 2.1.1, axe scrollable-region-focusable);
+  // `tabpanel` is the rule's own default.
+  'jsx-a11y/no-noninteractive-tabindex': ['error', { tags: [], roles: ['tabpanel', 'region'], allowExpressionValues: true }],
 });
 // Test files mock with jest.requireActual / require() inside factories, and
 // mount anonymous component factories.

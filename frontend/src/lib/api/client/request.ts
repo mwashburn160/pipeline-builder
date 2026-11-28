@@ -4,7 +4,7 @@
 import { ASK_AGENT_PROPOSER } from '@pipeline-builder/api-core/ask-proposals';
 import { API_REQUEST_TIMEOUT_MS } from '../../constants';
 import { ApiError, MfaRequiredError, QuotaExceededError, StepUpRequiredError } from '../errors';
-import { API_URL, isMfaErrorCode, isStepUpErrorCode, parseRetryAfterSeconds, type ProposedByOptions } from '../util';
+import { API_URL, isAccessTokenRefusal, isMfaErrorCode, isStepUpErrorCode, parseRetryAfterSeconds, type ProposedByOptions } from '../util';
 import { ImpersonatingClient } from './impersonation';
 import { CLIENT_TYPE, CLIENT_TYPE_HEADER, type ApiRequestOptions } from './shared';
 
@@ -55,7 +55,10 @@ export class RequestClient extends ImpersonatingClient {
    *    `QuotaExceededError` (the registry domain further narrows its 409s to
    *    `ConflictError`). The thrown error carries `statusCode`, `code`,
    *    `details`, and `retryAfter` (seconds) on a 429/503 that sent one.
-   *  - On 401: transparently refreshes the access token once and retries.
+   *  - On a 401 that says the access token is no good (`TOKEN_EXPIRED`,
+   *    `TOKEN_INVALID`, `TOKEN_MISSING`, `TOKEN_REVOKED`): transparently
+   *    refreshes the access token once and retries. Any other 401 — a refused
+   *    credential above all — is thrown as itself, never re-sent.
    *  - On 503: retries up to 2 times with backoff (read-only requests only).
    *  - On success (2xx): returns the parsed JSON envelope — typically
    *    `ApiResponse<X>` with `success: true` and `data: X`.
@@ -202,10 +205,15 @@ export class RequestClient extends ImpersonatingClient {
       throw this.mfaRequired(data, endpoint);
     }
 
+    // Only a 401 about the ACCESS TOKEN is the session's problem. Any other 401
+    // (a wrong code, password or passkey) is the answer to what the request
+    // carried: refreshing would re-POST the same refused credential.
+    const tokenRefused = statusCode === 401 && isAccessTokenRefusal(data.code);
+
     // Handle 401 - try to refresh token. Recurse so the retry inherits the full
     // contract (step-up handling, 503-loop guard, Retry-After, _retryCount cap)
     // instead of duplicating a one-shot fetch here.
-    if (statusCode === 401 && this.canRefresh() && !endpoint.includes('/auth/refresh') && !_refreshed) {
+    if (tokenRefused && this.canRefresh() && !endpoint.includes('/auth/refresh') && !_refreshed) {
       const refreshed = await this.refreshAccessToken();
       if (refreshed) {
         // Reuse `_retryCount`: this is a re-auth, not an overload retry, so it
@@ -231,7 +239,7 @@ export class RequestClient extends ImpersonatingClient {
     // `notifySessionExpired` never fires, and the dashboard dead-ends with
     // generic auth errors on every panel. Treat it as what it is — an expired
     // session — so the app routes back to the operator's own session.
-    if (statusCode === 401 && this.isImpersonating()) {
+    if (tokenRefused && this.isImpersonating()) {
       this.notifySessionExpired();
     }
 

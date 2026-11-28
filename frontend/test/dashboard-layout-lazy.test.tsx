@@ -50,7 +50,7 @@ jest.mock('@/lib/api', () => ({
 const mockRouter = { pathname: '/dashboard', asPath: '/dashboard', push: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } };
 jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 jest.mock('next/head', () => require('./helpers/pageMocks').headModule());
-jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule(() => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn<AnyFn>() })));
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule(() => ({ user: { id: 'u1', organizationId: 'org-1', username: 'ada' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn<AnyFn>() })));
 jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn<AnyFn>() }) }));
 let aiEntitled = false;
 jest.mock('@/hooks/useFeatures', () => ({
@@ -136,9 +136,22 @@ describe('top bar', () => {
     expect(screen.getByRole('link', { name: 'Messages' })).toHaveAttribute('href', '/dashboard/inbox?tab=messages');
     fireEvent.click(screen.getByRole('button', { name: 'Help and resources' }));
     expect(screen.getByRole('menuitem', { name: 'API catalog' })).toHaveAttribute('href', '/dashboard/api-catalog');
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Account menu for ada, ad' }));
+    expect(screen.getByRole('menu', { name: 'Account menu' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Profile' })).toHaveAttribute('href', '/dashboard/settings?tab=profile');
     expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
+  });
+});
+
+describe('top bar labels contain their visible text (WCAG 2.5.3 Label in Name)', () => {
+  it('the search pill is named by what it shows, and the avatar by the initials it shows', () => {
+    render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
+    const search = screen.getByRole('button', { name: 'Search… ⌘K' });
+    expect(search).toHaveTextContent('Search…⌘K');
+    expect(search).toHaveAttribute('aria-keyshortcuts', 'Meta+K');
+    const avatar = screen.getByRole('button', { name: /^Account menu for ada/ });
+    expect(avatar.textContent).toBe('ad');
+    expect(avatar).toHaveAccessibleName(expect.stringContaining(avatar.textContent!));
   });
 });
 

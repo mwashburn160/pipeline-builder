@@ -331,7 +331,7 @@ export async function requireAuth(
       return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
     }
     if (!(await isAccessKeyLive(decoded.jti)) || !(await isServiceAccountEnabled(decoded.sub))) {
-      return sendError(res, 401, 'Session invalid');
+      return sendError(res, 401, SESSION_INVALID.message, SESSION_INVALID.code);
     }
     req.user = decoded;
     return runDeferredQuotaCheck(req, res, next);
@@ -378,8 +378,12 @@ export async function requireAuth(
   runDeferredQuotaCheck(req, res, next);
 }
 
-interface SessionRejection { message: string; code?: ErrorCode }
-const SESSION_INVALID: SessionRejection = { message: 'Session invalid' };
+/** Every rejection names a code: an access token whose session was revoked or
+ *  ended is `TOKEN_REVOKED`, the client's cue to refresh (and, if the refresh is
+ *  refused too, to sign out). A 401 without a TOKEN_* code is never refreshed. */
+interface SessionRejection { message: string; code: ErrorCode }
+const SESSION_INVALID: SessionRejection = { message: 'Session invalid', code: ErrorCode.TOKEN_REVOKED };
+const IMPERSONATION_ENDED: SessionRejection = { message: 'Impersonation session ended', code: ErrorCode.TOKEN_REVOKED };
 
 /**
  * The DB-backed half of user-token validation: returns the 401 to send when
@@ -422,13 +426,13 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
       return SESSION_INVALID;
     }
     // `revoked` lands here too: the session was ended early.
-    if (!session || session.status !== 'consumed') return { message: 'Impersonation session ended' };
+    if (!session || session.status !== 'consumed') return IMPERSONATION_ENDED;
     // The record's window bounds the session too: the token's own `exp` is
     // capped at it on issue, and this refuses one that outlives it anyway
     // (clock skew between signer and verifier). A record with no window is
     // malformed — fail closed.
     const sessionEnds = session.expiresAt ? new Date(session.expiresAt).getTime() : Number.NaN;
-    if (!Number.isFinite(sessionEnds) || sessionEnds <= Date.now()) return { message: 'Impersonation session ended' };
+    if (!Number.isFinite(sessionEnds) || sessionEnds <= Date.now()) return IMPERSONATION_ENDED;
     // Defense in depth against a jti/sub mismatch — the token must name the
     // user the request was opened against.
     if (String(session.targetUserId) !== String(decoded.sub)) return SESSION_INVALID;
@@ -482,7 +486,7 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
  * Fail closed on a lookup error, like the record read above.
  */
 async function operatorRejection(session: ImpersonationOperatorStamp & { requesterId?: unknown }): Promise<SessionRejection | undefined> {
-  const ended: SessionRejection = { message: 'Impersonation session ended' };
+  const ended = IMPERSONATION_ENDED;
   if (typeof session.requesterTokenVersion !== 'number') return ended;
   let operator;
   try {

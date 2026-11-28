@@ -1445,7 +1445,7 @@ paths end at the same endpoint and open the same session as a password sign-in
 
 Passkey sign-in obeys the same rules as password sign-in: **refused for
 SSO-enforced domains** (those users must go through their IdP), the same
-rate-limit posture, and one opaque `401` for every failure. Passkey *step-up* is
+rate-limit posture, and one opaque `401 INVALID_CREDENTIALS` for every failure. Passkey *step-up* is
 still allowed for an SSO-enforced account — that person is already inside a
 session their IdP admitted.
 
@@ -1606,8 +1606,8 @@ push people towards weaker factors — but a correct one does, so one handle can
 never yield two sessions. Guessing is bounded twice: a per-challenge rate limit
 and the per-account lockout. The challenge expires after 5 minutes regardless.
 
-Every refusal is the same opaque `401` the password path gives, with the reason
-only in the audit trail — with two exceptions. SSO enforcement, re-checked on the
+Every refusal is the same opaque `401 INVALID_CREDENTIALS` the password path
+gives, with the reason only in the audit trail — with two exceptions. SSO enforcement, re-checked on the
 second leg (an org can turn it on between the two), answers the same
 `403 SSO_REQUIRED` naming the org. And an unknown or already-spent challenge
 answers `401 TOTP_INVALID_CHALLENGE`: the handle is 256 unguessable bits, so
@@ -1634,8 +1634,16 @@ instead (`docker login -u <anything> -p pb_pat_…`).
   step-up alike, and recovery codes share the counter — guessing one does not
   earn a fresh budget. On the sign-in path a lockout answers the same opaque
   `401` as a wrong code (saying otherwise would confirm the password was right);
-  on the step-up path, where the caller is already authenticated, it is a `429`
-  with actionable wording.
+  on the step-up path, where the caller is already authenticated, a wrong code
+  is `401 TOTP_INVALID_CODE` and a lockout is a `429 TOTP_LOCKED_OUT` with
+  actionable wording.
+- **One request is one attempt.** Only a `401` whose code says the access token
+  is no good (`TOKEN_EXPIRED`, `TOKEN_INVALID`, `TOKEN_MISSING`,
+  `TOKEN_REVOKED`) is answered by the web client with a token refresh and a
+  retry. A refused credential (`TOTP_INVALID_CODE`, `INVALID_CREDENTIALS`) is
+  shown as itself and never re-sent, so a wrong code counts once toward the
+  lockout. Every `401` about the session's access token carries one of the
+  `TOKEN_*` codes — a revoked or ended session is `TOKEN_REVOKED`.
 
 ### Recovery codes
 

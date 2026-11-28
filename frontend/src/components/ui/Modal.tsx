@@ -17,7 +17,11 @@ interface ModalProps {
   initialFocusRef?: RefObject<HTMLElement | null>;
   /** Tailwind max-width class for the modal panel */
   maxWidth?: string;
-  /** When true, the modal expands to 90vh with a scrollable content area */
+  /**
+   * A long-form dialog (an editor): capped at 90vh rather than the full
+   * viewport, so the page stays visible around it. Every dialog already caps
+   * its height and scrolls its body; this only tightens the cap.
+   */
   tall?: boolean;
   children: ReactNode;
   /** Content rendered in a sticky footer area below the main content */
@@ -75,16 +79,18 @@ export function Modal({
   // at the top, footer at the bottom, and only the body scrolls. A centred box
   // taller than the screen otherwise loses its header off the top, out of
   // reach, with the backdrop's flex centring.
+  // From `sm` up EVERY dialog is capped to the viewport (less the backdrop's
+  // padding) and scrolls its body between a pinned header and footer: a long
+  // form's Send/Save stays on screen at any window height. `tall` caps it
+  // tighter, at 90vh.
   const panelClasses = [
     'modal-panel', maxWidth,
     'max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:p-0 max-sm:flex max-sm:flex-col',
-    tall && 'sm:max-h-[90vh] flex flex-col',
-  ].filter(Boolean).join(' ');
+    'sm:flex sm:flex-col',
+    tall ? 'sm:max-h-[90vh]' : 'sm:max-h-[calc(100dvh-2rem)]',
+  ].join(' ');
 
-  const contentClasses = [
-    'px-4 sm:px-6 py-4 max-sm:flex-1 max-sm:overflow-y-auto max-sm:min-h-0',
-    tall && 'flex-1 overflow-y-auto',
-  ].filter(Boolean).join(' ');
+  const contentClasses = 'px-4 sm:px-6 py-4 max-sm:flex-1 max-sm:overflow-y-auto max-sm:min-h-0 sm:flex-1 sm:min-h-0 sm:overflow-y-auto';
 
   // Escape, the Tab trap, focus-in (including the late correction for a body
   // that is still loading), scroll lock and focus-restore all come from the

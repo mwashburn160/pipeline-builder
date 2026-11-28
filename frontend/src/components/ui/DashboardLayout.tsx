@@ -339,7 +339,12 @@ function DashboardShell({
                     the icon, where a 256px pill would not fit. */}
                 <button
                   onClick={() => cmdkRef.current?.()}
-                  aria-label="Search and commands"
+                  // Named by exactly what it shows (WCAG 2.5.3 Label in Name),
+                  // so "click Search" in voice control finds it; what it opens
+                  // is the description.
+                  aria-label="Search… ⌘K"
+                  aria-keyshortcuts="Meta+K"
+                  title="Search pages and commands (⌘K)"
                   className="hidden sm:flex items-center gap-2 w-56 lg:w-64 px-2.5 py-1.5 rounded-lg border border-default bg-surface-muted text-fg-subtle hover:text-fg-muted hover:border-brand/40 transition-colors"
                 >
                   <Search className="w-4 h-4 shrink-0" aria-hidden="true" />

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { useRouter } from 'next/router';
+import { setPendingSignOut } from '@/lib/pending-sign-out';
 import { forgetReturnPath, rememberReturnPath } from '@/lib/return-to';
 import { AuthFactors, MfaNudgeState, SessionMfaPolicy, User, UserOrgMembership } from '@/types';
 import api, { ApiError } from '@/lib/api';
@@ -409,19 +410,21 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
    */
   useEffect(() => {
     return api.onSessionExpired((reason, detail) => {
+      // A session that ran its course (maximum age / idle timeout) says so in
+      // plain words; any other rejection keeps the generic notice.
+      // An inactivity sign-out (here or in another tab) says how long it was.
+      const target = reason === 'idle' ? signInHref('idle', { minutes: detail?.idleTimeoutMinutes })
+        : reason === 'session-expired' ? signInHref('session-expired') : '/?expired=1';
+      // Recorded BEFORE `user` clears: the guarded page's bounce reads it and
+      // goes here too, instead of racing this push to a bare '/'.
+      setPendingSignOut(target);
       abandonInFlightRefresh();
       clearSessionCaches();
       setUser(null);
       setOrganizations([]);
       // Remember where they were so signing back in returns them there.
       rememberReturnPath(router.asPath);
-      // A session that ran its course (maximum age / idle timeout) says so in
-      // plain words; any other rejection keeps the generic notice.
-      // An inactivity sign-out (here or in another tab) says how long it was.
-      void router.push(
-        reason === 'idle' ? signInHref('idle', { minutes: detail?.idleTimeoutMinutes })
-          : reason === 'session-expired' ? signInHref('session-expired') : '/?expired=1',
-      );
+      void router.push(target);
     });
   }, [router, abandonInFlightRefresh]);
 
@@ -468,15 +471,19 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
       // The idle reason travels to every other tab with the sign-out broadcast.
       await (reason === 'idle' ? api.logout({ reason: 'idle', ...(idleTimeoutMinutes !== undefined ? { idleTimeoutMinutes } : {}) }) : api.logout());
     } finally {
+      // Navigate to landing page. A deliberate sign-out returns nowhere: the
+      // auth guard remembers the page it bounces from as `user` clears, so the
+      // remembered path is dropped once the navigation has happened.
+      const target = reason ? signInHref(reason, { minutes: idleTimeoutMinutes }) : '/';
+      // Recorded BEFORE `user` clears: the guarded page's own bounce reads it
+      // and goes here too — otherwise its later `replace('/')` wins the race
+      // and the reason (`?reason=idle&minutes=N`) is lost.
+      setPendingSignOut(target);
       abandonInFlightRefresh();
       clearSessionCaches();
       setUser(null);
       setOrganizations([]);
       setIsLoading(false);
-      // Navigate to landing page. A deliberate sign-out returns nowhere: the
-      // auth guard remembers the page it bounces from as `user` clears, so the
-      // remembered path is dropped once the navigation has happened.
-      const target = reason ? signInHref(reason, { minutes: idleTimeoutMinutes }) : '/';
       const pushed = Promise.resolve(router.push(target));
       if (reason !== 'idle') void pushed.finally(forgetReturnPath);
     }

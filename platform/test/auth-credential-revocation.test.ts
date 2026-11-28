@@ -97,6 +97,9 @@ describe('requireAuth — a session token dies with its slot', () => {
     mockUserFindById.mockReturnValue(selectLean({ _id: 'u1', tokenVersion: 1 }));
     const { res, next } = await run();
     expect(res.status).toHaveBeenCalledWith(401);
+    // A revoked SESSION, said so: the client's cue to refresh (and, when the
+    // refresh is refused too, to sign out) — never an unexplained 401.
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'TOKEN_REVOKED' });
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -137,6 +140,9 @@ describe('requireAuth — a disabled service account', () => {
     mockServiceAccountExists.mockResolvedValue(null); // { _id: 'sa-1', disabled: false } no longer matches
     const { res, next } = await run();
     expect(res.status).toHaveBeenCalledWith(401);
+    // A revoked SESSION, said so: the client's cue to refresh (and, when the
+    // refresh is refused too, to sign out) — never an unexplained 401.
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'TOKEN_REVOKED' });
     expect(next).not.toHaveBeenCalled();
     expect(mockServiceAccountExists).toHaveBeenCalledWith({ _id: 'sa-1', disabled: false });
   });
@@ -159,6 +165,9 @@ describe('requireAuth — an exchanged key token dies with its key', () => {
     mockKeyExists.mockResolvedValue(null);
     const { res, next } = await run();
     expect(res.status).toHaveBeenCalledWith(401);
+    // A revoked SESSION, said so: the client's cue to refresh (and, when the
+    // refresh is refused too, to sign out) — never an unexplained 401.
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'TOKEN_REVOKED' });
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -186,6 +195,9 @@ describe('requireAuth — claims version vs hard revocation', () => {
     mockUserFindById.mockReturnValue(selectLean({ _id: 'u1', tokenVersion: 2, claimsVersion: 4 }));
     const { res, next } = await run();
     expect(res.status).toHaveBeenCalledWith(401);
+    // A revoked SESSION, said so: the client's cue to refresh (and, when the
+    // refresh is refused too, to sign out) — never an unexplained 401.
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'TOKEN_REVOKED' });
     expect(next).not.toHaveBeenCalled();
   });
 });

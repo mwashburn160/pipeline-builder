@@ -284,7 +284,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                       Create your account to accept. Already have one?{' '}
                       {/* Remember THIS page, so signing in brings the invitee back
                           here to accept instead of to the dashboard. */}
-                      <Link href="/" onClick={rememberInvite} className="text-brand hover:underline">Sign in</Link> and you&apos;ll come back here.
+                      <Link href="/" onClick={rememberInvite} className="text-link">Sign in</Link> and you&apos;ll come back here.
                     </p>
                     <Input
                       type="email"

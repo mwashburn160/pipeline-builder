@@ -326,7 +326,7 @@ export const login = withController('Login', async (req, res) => {
         details: { identifier: body.identifier, method: 'password', reason: named ? 'bad-password' : 'unknown-identifier' },
       });
       incCounter('platform_logins_failed_total');
-      return sendError(res, 401, 'Invalid credentials');
+      return sendError(res, 401, 'Invalid credentials', ErrorCode.INVALID_CREDENTIALS);
     }
 
     // The password was right: drop the reservation and end the failure run —
@@ -621,7 +621,7 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   // The slot keeps its scope / permission restriction across the switch (never
   // widened) — `switchSessionOrg` reads them from the slot.
   const switchedTo = await switchSessionOrg(user, organizationId, sessionId, { client: clientInfoOf(req) });
-  if (switchedTo === 'session-invalid') return sendError(res, 401, 'Session invalid');
+  if (switchedTo === 'session-invalid') return sendError(res, 401, 'Session invalid', ErrorCode.TOKEN_REVOKED);
   // The session is valid where it is, but older (or idler) than the
   // destination's session policy allows: entering it needs a fresh sign-in.
   // 403, not 401 — refreshing cannot cure it, so the client must not try.
