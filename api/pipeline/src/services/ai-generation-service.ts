@@ -50,6 +50,12 @@ export interface GenerationRequest {
   prompt: string;
   plugins: PluginSummary[];
   orgId: string;
+  /**
+   * The caller's organization NAME (the JWT's `organizationName`). When set, it
+   * replaces whatever organization the model inferred — see
+   * {@link applyCallerOrganization}.
+   */
+  organization?: string;
   /** Previous config for iterative refinement (conversation memory). */
   previousConfig?: Record<string, unknown>;
 }
@@ -277,6 +283,37 @@ function validateGeneratedPlugins(
   return warnings;
 }
 
+/** The pipeline-name segment an organization becomes (defaultPipelineName's sanitizing). */
+const orgNameSegment = (organization: string) => organization.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+
+/**
+ * A generated pipeline belongs to the CALLER's organization, never to one the
+ * model inferred. From a Git URL the model picks the repository owner
+ * (`neubig/starter-repo` → organization "neubig"), so the derived pipeline name
+ * (`<organization>-<project>-pipeline`) fell outside the org's runner allowlist
+ * (`system-`), and the runner refused to deploy it (prefix_mismatch).
+ *
+ * Mutates `props`: sets `organization`, and drops a model-chosen `pipelineName`
+ * that does not start with the org's name segment, so the platform derives the
+ * default name. Returns the warnings to show.
+ */
+export function applyCallerOrganization(props: Record<string, unknown>, organization: string | undefined): string[] {
+  const org = organization?.trim();
+  if (!org) return [];
+  const warnings: string[] = [];
+  const given = typeof props.organization === 'string' ? props.organization.trim() : '';
+  if (given !== org) {
+    props.organization = org;
+    if (given) warnings.push(`Organization changed from "${given}" to "${org}" (a generated pipeline belongs to your organization)`);
+  }
+  const name = props.pipelineName;
+  if (typeof name === 'string' && !name.toLowerCase().startsWith(`${orgNameSegment(org)}-`)) {
+    delete props.pipelineName;
+    warnings.push(`Pipeline name "${name}" removed (it must start with "${orgNameSegment(org)}-"); the default name is used`);
+  }
+  return warnings;
+}
+
 // -- Streaming generation -----------------------------------------------------
 
 export interface StreamingGenerationResult {
@@ -357,7 +394,10 @@ export function streamPipelineConfig(request: GenerationRequest, call: Generatio
       if (!resolved) return undefined;
       const { description, keywords, ...props } = resolved;
       // Mutates `props` in place (cdk-synth, filter.isDefault) and lists unknown plugins.
-      const validationWarnings = validateGeneratedPlugins(props, request.plugins);
+      const validationWarnings = [
+        ...validateGeneratedPlugins(props, request.plugins),
+        ...applyCallerOrganization(props, request.organization),
+      ];
       return {
         props,
         description: description ?? undefined,

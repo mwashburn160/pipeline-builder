@@ -538,6 +538,35 @@ describe('ai-generation-service', () => {
     // APP's build plugin there (seen live: "python" with filter.version) got it
     // renamed to cdk-synth with the version kept — saving then refused the draft
     // (TOOLCHAIN_PIN_VIA_RELEASE) — and lost the build step.
+    describe('caller organization', () => {
+      it('replaces the organization the model inferred (the repo owner) with the caller\'s', async () => {
+        streamReturning(mockAIOutput);
+        const result = await generatePipelineConfig({ ...baseRequest, organization: 'system' }, CALL);
+        expect(result.props).toHaveProperty('organization', 'system');
+        expect(result.validationWarnings).toContain('Organization changed from "acme" to "system" (a generated pipeline belongs to your organization)');
+      });
+
+      it('drops a model-chosen pipelineName outside the org\'s prefix, so the default name is derived', async () => {
+        streamReturning({ ...mockAIOutput, pipelineName: 'acme-my-app-pipeline' });
+        const result = await generatePipelineConfig({ ...baseRequest, organization: 'system' }, CALL);
+        expect(result.props).not.toHaveProperty('pipelineName');
+        expect(result.validationWarnings).toContain('Pipeline name "acme-my-app-pipeline" removed (it must start with "system-"); the default name is used');
+      });
+
+      it('keeps a pipelineName already under the org\'s prefix, and adds no warning when nothing changes', async () => {
+        streamReturning({ ...mockAIOutput, organization: 'system', pipelineName: 'system-my-app-pipeline' });
+        const result = await generatePipelineConfig({ ...baseRequest, organization: 'system' }, CALL);
+        expect(result.props).toHaveProperty('pipelineName', 'system-my-app-pipeline');
+        expect(result.validationWarnings ?? []).not.toEqual(expect.arrayContaining([expect.stringMatching(/Organization|Pipeline name/)]));
+      });
+
+      it('leaves the model\'s organization when the caller\'s is unknown', async () => {
+        streamReturning(mockAIOutput);
+        const result = await generatePipelineConfig(baseRequest, CALL);
+        expect(result.props).toHaveProperty('organization', 'acme');
+      });
+    });
+
     describe('synth plugin normalization', () => {
       const MANAGED = { name: 'cdk-synth', filter: { isDefault: true } };
       const synthWith = (plugin: unknown, stages?: unknown[]) => ({

@@ -99,6 +99,19 @@ describe('no deployable runner', () => {
     expect(why).toHaveTextContent(/deploys are not enabled/i);
     expect(why).toHaveTextContent(/staging/);
     expect(why).toHaveTextContent(/prefix/i);
+    // One runner has deploys off, so the setup command still helps.
+    expect(screen.getByText(/Turn deploys on for a runner/)).toBeInTheDocument();
+  });
+
+  it('only a prefix mismatch: no "turn deploys on" command (deploys are already on); the reason says how to fix it', async () => {
+    api.getDeployTargets.mockResolvedValue(targets([
+      runner({ deployable: false, reason: 'prefix_mismatch' }),
+    ]));
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    const why = await screen.findByTestId('deploy-no-runner-reasons');
+    expect(why).toHaveTextContent(/set the pipeline's organization/i);
+    expect(why).toHaveTextContent(/--pipeline-prefix/);
+    expect(screen.queryByText(/Turn deploys on for a runner/)).not.toBeInTheDocument();
   });
 
   it('runners unavailable on the platform: says so', async () => {
