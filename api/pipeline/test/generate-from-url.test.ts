@@ -769,6 +769,20 @@ describe('POST /generate/from-url/stream', () => {
 
   // No stages or no step-plugin references  auto-plugin skipped
 
+  it('generates for the CALLER\'s organization name — not the repo owner, and never an org ID', async () => {
+    const final = {
+      project: 'app', organization: 'test', synth: { source: { type: 'github', options: { repo: 'test/app' } }, plugin: { name: 'cdk-synth' } },
+    };
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], final));
+    await handler(mockReq({ user: { organizationId: 'test-org', organizationName: 'system' } }), mockSseRes());
+    expect(mockStreamPipelineConfig).toHaveBeenLastCalledWith(expect.objectContaining({ organization: 'system' }), expect.anything());
+
+    // A service principal's organizationName falls back to its org ID: not a name.
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], final));
+    await handler(mockReq({ user: { organizationId: 'test-org', organizationName: 'test-org' } }), mockSseRes());
+    expect(mockStreamPipelineConfig).toHaveBeenLastCalledWith(expect.objectContaining({ organization: undefined }), expect.anything());
+  });
+
   it('skips auto-plugin creation when output has no stages with steps', async () => {
     const finalOutputNoStages = {
       project: 'app',

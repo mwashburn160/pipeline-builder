@@ -163,6 +163,16 @@ function onGenerationError(run: GenerationRun, requestId: string, logMessage: st
   };
 }
 
+/**
+ * The caller's organization NAME for a generated pipeline (applyCallerOrganization),
+ * or undefined when the token carries none — a service principal's name falls
+ * back to its org ID, which is not a name to put in a pipeline.
+ */
+function callerOrganization(req: Request, orgId: string): string | undefined {
+  const name = req.user?.organizationName?.trim();
+  return name && name !== orgId ? name : undefined;
+}
+
 /** Plugin selection for a repo-analysis prompt. */
 function pluginsForAnalysis(orgId: string, analysis: Awaited<ReturnType<typeof analyzeRepository>>) {
   return getFilteredPlugins(orgId, {
@@ -263,7 +273,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         ctx.log('INFO', 'AI pipeline generation requested', { promptLength: prompt.length, provider: modelRequest.provider, model: modelRequest.model });
 
         const plugins = await getFilteredPlugins(orgId, { prompt });
-        const request: GenerationRequest = { prompt: prompt.trim(), plugins, orgId, ...(previousConfig ? { previousConfig } : {}) };
+        const request: GenerationRequest = { prompt: prompt.trim(), plugins, orgId, organization: callerOrganization(req, orgId), ...(previousConfig ? { previousConfig } : {}) };
         const result = await run.run(modelRequest, (selection) =>
           generatePipelineConfig(request, { selection, signal, onProviderResponse: run.markResponded }));
 
@@ -298,7 +308,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         ctx.log('INFO', 'AI pipeline streaming generation requested', { promptLength: prompt.length, provider: modelRequest.provider, model: modelRequest.model });
 
         const plugins = await getFilteredPlugins(orgId, { prompt });
-        const request: GenerationRequest = { prompt: prompt.trim(), plugins, orgId, ...(previousConfig ? { previousConfig } : {}) };
+        const request: GenerationRequest = { prompt: prompt.trim(), plugins, orgId, organization: callerOrganization(req, orgId), ...(previousConfig ? { previousConfig } : {}) };
 
         const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
         // The whole stream runs inside the failover: a platform provider that
@@ -379,7 +389,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         const plugins = await pluginsForAnalysis(orgId, analysis);
         const prompt = buildEnhancedPrompt(analysis);
         const result = await run.run(modelRequest, (selection) =>
-          generatePipelineConfig({ prompt, plugins, orgId }, { selection, signal, onProviderResponse: run.markResponded }));
+          generatePipelineConfig({ prompt, plugins, orgId, organization: callerOrganization(req, orgId) }, { selection, signal, onProviderResponse: run.markResponded }));
 
         run.succeed(result.usage, { gitProvider: parsed.provider, stageCount: stageCount(result.props) });
         ctx.log('COMPLETED', 'AI pipeline generation from URL completed (JSON)', { pluginCount: plugins.length, servedBy: result.servedBy, tokens: result.usage.totalTokens });
@@ -515,7 +525,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         const plugins = await pluginsForAnalysis(orgId, analysis);
         const prompt = buildEnhancedPrompt(analysis);
         const outcome = await run.run(modelRequest, (selection) =>
-          streamGeneration(streamPipelineConfig({ prompt, plugins, orgId }, { selection, signal: sse.signal, onProviderResponse: run.markResponded }), sse, ctx.requestId, { orgId, userId }));
+          streamGeneration(streamPipelineConfig({ prompt, plugins, orgId, organization: callerOrganization(req, orgId) }, { selection, signal: sse.signal, onProviderResponse: run.markResponded }), sse, ctx.requestId, { orgId, userId }));
 
         if (outcome.completed) {
           // Step 3: report the plugins the config references but the org lacks.

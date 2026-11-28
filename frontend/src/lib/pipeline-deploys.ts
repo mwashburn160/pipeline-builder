@@ -194,7 +194,7 @@ export const DEPLOY_TARGET_REASON_COPY: Readonly<Record<DeployTargetReason, stri
   deploy_not_enabled: `Deploys are not enabled on it — update it with ${DEPLOY_SETUP_COMMAND}`,
   update_required: 'It needs an update — re-run pipeline-manager infra setup-runner',
   unhealthy: 'It is not answering the platform',
-  prefix_mismatch: 'Its pipeline prefix allowlist does not cover this pipeline\'s name',
+  prefix_mismatch: `Its pipeline prefix allowlist does not cover this pipeline's name (the name starts with its organization) — set the pipeline's organization to one the allowlist covers, or widen the allowlist: ${DEPLOY_SETUP_COMMAND} --pipeline-prefix <current prefixes>,<this pipeline's prefix>`,
   team_deploys_not_shared: 'Its owner has not let teams deploy through it',
   region: 'None of its allowed regions can be used for this pipeline',
 };

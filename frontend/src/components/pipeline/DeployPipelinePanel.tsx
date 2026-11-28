@@ -72,6 +72,12 @@ function StageSteps({ deploy }: { deploy: DeployRequestDto }) {
 
 /** Why no eligible runner can deploy, the setup command, and where runners are managed. */
 function NoDeployableRunner({ targets }: { targets: DeployTargetsDto }) {
+  // The setup command only helps a runner that has deploys off or is outdated
+  // (or when there is none). For e.g. a prefix mismatch, deploys are already on:
+  // offering `--enable-deploy` again sent operators to re-run a setup that
+  // changes nothing — each runner's reason line says what to do instead.
+  const setupHelps = targets.runners.length === 0
+    || targets.runners.some((r) => !r.reason || r.reason === 'deploy_not_enabled' || r.reason === 'update_required');
   return (
     <Callout variant="warning" title="No pipeline runner can deploy this pipeline.">
       {targets.runners.length === 0 ? (
@@ -85,8 +91,12 @@ function NoDeployableRunner({ targets }: { targets: DeployTargetsDto }) {
           ))}
         </ul>
       )}
-      <p className="mt-2">Turn deploys on for a runner by re-running its setup in the runner&apos;s AWS account:</p>
-      <CodeBlock code={targets.setupCommand || DEPLOY_SETUP_COMMAND} language="bash" />
+      {setupHelps && (
+        <>
+          <p className="mt-2">Turn deploys on for a runner by re-running its setup in the runner&apos;s AWS account:</p>
+          <CodeBlock code={targets.setupCommand || DEPLOY_SETUP_COMMAND} language="bash" />
+        </>
+      )}
       <p className="mt-1"><Link href={PIPELINE_RUNNERS_HREF} className="action-link">Manage pipeline runners</Link></p>
     </Callout>
   );
